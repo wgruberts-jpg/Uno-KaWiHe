@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { RoomSettings, Player } from '../types/uno.js';
+import React, { useState, useEffect } from 'react';
+import { RoomSettings, Player, UserProfile } from '../types/uno.js';
 import { AVATARS_CATALOG, AVATAR_CATEGORIES } from '../utils/avatars.js';
 import {
   Users,
@@ -16,7 +16,10 @@ import {
   ArrowLeft,
   Settings,
   Shield,
-  RotateCcw
+  RotateCcw,
+  LogOut,
+  User,
+  KeyRound
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -31,6 +34,9 @@ interface LobbyProps {
   onOpenVmGuide: () => void;
   onOpenSettings: () => void;
   onLeaveRoom: () => void;
+  onOpenAuth: () => void;
+  currentUser: UserProfile | null;
+  onLogout: () => void;
   roomId: string | null;
   players: Player[];
   myPlayerId: string;
@@ -50,14 +56,24 @@ export const Lobby: React.FC<LobbyProps> = ({
   onOpenVmGuide,
   onOpenSettings,
   onLeaveRoom,
+  onOpenAuth,
+  currentUser,
+  onLogout,
   roomId,
   players,
   myPlayerId,
   isHost,
   errorMessage,
 }) => {
-  const [playerName, setPlayerName] = useState(() => localStorage.getItem('uno_nickname') || 'Jogador 1');
-  const [selectedAvatar, setSelectedAvatar] = useState(() => localStorage.getItem('uno_avatar') || '🦸‍♂️');
+  const [playerName, setPlayerName] = useState(() => currentUser?.displayName || localStorage.getItem('uno_nickname') || 'Jogador 1');
+  const [selectedAvatar, setSelectedAvatar] = useState(() => currentUser?.avatar || localStorage.getItem('uno_avatar') || '🦸‍♂️');
+
+  useEffect(() => {
+    if (currentUser) {
+      setPlayerName(currentUser.displayName);
+      setSelectedAvatar(currentUser.avatar);
+    }
+  }, [currentUser]);
   const [avatarCategory, setAvatarCategory] = useState<'heroes' | 'animals' | 'classics'>('heroes');
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [turnDuration, setTurnDuration] = useState<number>(() => {
@@ -118,7 +134,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   const filteredAvatars = AVATARS_CATALOG.filter((a) => a.category === avatarCategory);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 text-slate-800 flex flex-col items-center justify-center p-4 select-none relative overflow-hidden">
+    <div className="w-full h-full min-h-full bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 text-slate-800 flex flex-col items-center justify-start sm:justify-center p-3 sm:p-6 select-none relative overflow-y-auto overflow-x-hidden pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
       {/* Decorative Cartoon Elements */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
         <div className="absolute top-10 left-10 w-36 h-20 bg-white rounded-full blur-[1px]" />
@@ -145,12 +161,45 @@ export const Lobby: React.FC<LobbyProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* User Account / Login Button */}
+          {currentUser ? (
+            <div className="flex items-center gap-1.5 bg-white/95 px-2.5 py-1 rounded-2xl border-2 border-amber-300 shadow-sm">
+              <span className="text-base">{currentUser.avatar}</span>
+              <div className="hidden xs:flex flex-col text-left leading-none">
+                <span className="font-black text-xs text-slate-900 max-w-[80px] sm:max-w-[110px] truncate">
+                  {currentUser.displayName}
+                </span>
+                <span className="text-[9px] font-bold text-amber-700">
+                  {currentUser.role === 'admin' ? '👑 Administrador' : '🎮 Jogador'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors ml-0.5"
+                title="Sair da Conta"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenAuth}
+              className="px-3 py-1.5 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 border-2 border-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95"
+              title="Entrar ou Criar Conta Central"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-slate-900" />
+              <span>Entrar</span>
+            </button>
+          )}
+
           {/* Settings Gear Button */}
           <button
             type="button"
             onClick={onOpenSettings}
-            className="px-3.5 py-1.5 rounded-2xl bg-white hover:bg-yellow-100 text-amber-900 border-2 border-amber-300 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
+            className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl bg-white hover:bg-yellow-100 text-amber-900 border-2 border-amber-300 text-xs font-black flex items-center gap-1 cursor-pointer transition-colors shadow-sm"
             title="Configurações & Modo Criança"
           >
             <Settings className="w-4 h-4 text-amber-500" />
@@ -160,7 +209,7 @@ export const Lobby: React.FC<LobbyProps> = ({
           <button
             type="button"
             onClick={() => setShowRules(!showRules)}
-            className="px-3.5 py-1.5 rounded-2xl bg-white hover:bg-yellow-100 text-amber-900 text-xs font-black flex items-center gap-1.5 cursor-pointer border-2 border-amber-300 shadow-sm transition-all"
+            className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl bg-white hover:bg-yellow-100 text-amber-900 text-xs font-black flex items-center gap-1 cursor-pointer border-2 border-amber-300 shadow-sm transition-all"
           >
             <HelpCircle className="w-4 h-4 text-amber-500" />
             <span className="hidden sm:inline">Regras</span>
@@ -169,7 +218,7 @@ export const Lobby: React.FC<LobbyProps> = ({
           <button
             type="button"
             onClick={onOpenVmGuide}
-            className="px-3.5 py-1.5 rounded-2xl bg-white hover:bg-sky-50 text-sky-900 border-2 border-sky-300 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
+            className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl bg-white hover:bg-sky-50 text-sky-900 border-2 border-sky-300 text-xs font-black flex items-center gap-1 cursor-pointer transition-colors shadow-sm"
           >
             <Server className="w-4 h-4 text-sky-600" />
             <span className="hidden sm:inline">Deploy VM</span>

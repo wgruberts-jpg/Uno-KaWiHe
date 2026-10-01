@@ -17,8 +17,8 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({ isOpen, onSe
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white border-4 border-yellow-400 p-6 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+      <div className="bg-white border-4 border-yellow-400 p-4 sm:p-6 rounded-3xl max-w-sm w-full text-center shadow-2xl my-auto max-h-[92dvh] overflow-y-auto">
         <h3 className="text-2xl font-black text-amber-900 uppercase tracking-wider mb-1 flex items-center justify-center gap-2">
           <span>🎨</span> Escolha a Cor!
         </h3>

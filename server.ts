@@ -21,12 +21,104 @@ import {
   RoomData
 } from './server/unoEngine.js';
 import { EMOTES_MAP } from './src/utils/emotes.js';
+import {
+  registerUser,
+  loginUser,
+  getUserFromToken,
+  verifyAdminPin
+} from './server/authService.js';
 
 const app = express();
 const server = http.createServer(app);
 const PORT = 3000;
 
 app.use(express.json());
+
+// Auth Microservice Proxy or Fallback Local Handler
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL;
+
+app.post('/api/auth/register', async (req, res) => {
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (err) {
+      console.error('Failed to proxy register to auth service, falling back to local:', err);
+    }
+  }
+  const result = await registerUser(req.body);
+  return res.status(result.success ? 200 : 400).json(result);
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (err) {
+      console.error('Failed to proxy login to auth service, falling back to local:', err);
+    }
+  }
+  const result = await loginUser(req.body);
+  return res.status(result.success ? 200 : 401).json(result);
+});
+
+app.get('/api/auth/me', async (req, res) => {
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/auth/me`, {
+        headers: { Authorization: req.headers.authorization || '' },
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (err) {
+      console.error('Failed to proxy /me to auth service, falling back to local:', err);
+    }
+  }
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Não autorizado.' });
+  }
+  const token = authHeader.split(' ')[1];
+  const user = getUserFromToken(token);
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Sessão expirada.' });
+  }
+  return res.json({ success: true, user });
+});
+
+app.post('/api/auth/verify-admin-pin', async (req, res) => {
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/auth/verify-admin-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (err) {
+      console.error('Failed to proxy verify-admin-pin to auth service, falling back to local:', err);
+    }
+  }
+  const { pin } = req.body;
+  const isValid = verifyAdminPin(pin);
+  if (isValid) {
+    return res.json({ success: true, message: 'PIN correto!' });
+  } else {
+    return res.status(403).json({ success: false, error: 'PIN de Administrador incorreto!' });
+  }
+});
 
 // In-memory rooms repository
 const rooms = new Map<string, RoomData>();

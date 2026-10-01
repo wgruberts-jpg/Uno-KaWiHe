@@ -82,6 +82,24 @@ export interface EmoteItem {
   soundType?: string;
 }
 
+export type UserRole = 'admin' | 'player';
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  displayName: string;
+  avatar: string;
+  role: UserRole;
+  createdAt: string;
+}
+
+export interface AuthResponse {
+  success: boolean;
+  token?: string;
+  user?: UserProfile;
+  error?: string;
+}
+
 export interface ActiveEmote {
   id: string;
   playerId: string;

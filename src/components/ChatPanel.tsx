@@ -57,15 +57,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   return (
     <>
-      {/* Floating Toggle Button when closed */}
+      {/* Floating Toggle Button when closed (desktop/tablet only to avoid covering cards on phones) */}
       {!isOpen && (
         <button
           type="button"
           onClick={onToggle}
-          className="fixed bottom-4 right-4 z-40 bg-white hover:bg-yellow-50 text-slate-900 p-3 rounded-2xl shadow-xl border-3 border-amber-400 flex items-center gap-2 cursor-pointer transition-transform hover:scale-105"
+          className="hidden md:flex fixed bottom-4 right-4 z-40 bg-white hover:bg-yellow-50 text-slate-900 p-3 rounded-2xl shadow-xl border-3 border-amber-400 items-center gap-2 cursor-pointer transition-transform hover:scale-105 active:scale-95"
         >
           <MessageSquare className="w-5 h-5 text-amber-500" />
-          <span className="text-xs font-black hidden sm:inline">Chat & Jogadas</span>
+          <span className="text-xs font-black">Chat & Jogadas</span>
           {unreadCount > 0 && (
             <span className="bg-rose-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center animate-bounce border border-white">
               {unreadCount}
@@ -76,7 +76,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
       {/* Slide-in or Docked Panel */}
       <div
-        className={`fixed sm:static bottom-0 right-0 z-40 w-full sm:w-80 h-[480px] sm:h-full bg-white/95 sm:bg-white border-t-4 sm:border-t-0 sm:border-l-4 border-sky-200 flex flex-col shadow-2xl backdrop-blur-md transition-all duration-300 ${
+        className={`fixed sm:static bottom-0 right-0 z-40 w-full sm:w-80 h-[70dvh] sm:h-full bg-white/95 sm:bg-white border-t-4 sm:border-t-0 sm:border-l-4 border-sky-200 flex flex-col shadow-2xl backdrop-blur-md rounded-t-3xl sm:rounded-none transition-all duration-300 pb-[env(safe-area-inset-bottom)] ${
           isOpen ? 'translate-y-0 opacity-100' : 'translate-y-full sm:translate-y-0 sm:hidden pointer-events-none'
         }`}
       >
