@@ -19,7 +19,8 @@ import {
   RotateCcw,
   LogOut,
   User,
-  KeyRound
+  KeyRound,
+  Trophy
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -33,6 +34,8 @@ interface LobbyProps {
   onResetRoom?: () => void;
   onOpenVmGuide: () => void;
   onOpenSettings: () => void;
+  onOpenStats?: () => void;
+  onOpenInvites?: () => void;
   onLeaveRoom: () => void;
   onOpenAuth: () => void;
   currentUser: UserProfile | null;
@@ -55,6 +58,8 @@ export const Lobby: React.FC<LobbyProps> = ({
   onResetRoom,
   onOpenVmGuide,
   onOpenSettings,
+  onOpenStats,
+  onOpenInvites,
   onLeaveRoom,
   onOpenAuth,
   currentUser,
@@ -167,9 +172,16 @@ export const Lobby: React.FC<LobbyProps> = ({
             <div className="flex items-center gap-1.5 bg-white/95 px-2.5 py-1 rounded-2xl border-2 border-amber-300 shadow-sm">
               <span className="text-base">{currentUser.avatar}</span>
               <div className="hidden xs:flex flex-col text-left leading-none">
-                <span className="font-black text-xs text-slate-900 max-w-[80px] sm:max-w-[110px] truncate">
-                  {currentUser.displayName}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className="font-black text-xs text-slate-900 max-w-[80px] sm:max-w-[110px] truncate">
+                    {currentUser.displayName}
+                  </span>
+                  {currentUser.tag && (
+                    <span className="font-mono text-[9px] font-black text-amber-700 bg-amber-100 px-1 rounded border border-amber-200">
+                      {currentUser.tag}
+                    </span>
+                  )}
+                </div>
                 <span className="text-[9px] font-bold text-amber-700">
                   {currentUser.role === 'admin' ? '👑 Administrador' : '🎮 Jogador'}
                 </span>
@@ -192,6 +204,32 @@ export const Lobby: React.FC<LobbyProps> = ({
             >
               <KeyRound className="w-3.5 h-3.5 text-slate-900" />
               <span>Entrar</span>
+            </button>
+          )}
+
+          {/* Admin Invites Management Button (Visible to Edinho and Admins) */}
+          {currentUser?.role === 'admin' && onOpenInvites && (
+            <button
+              type="button"
+              onClick={onOpenInvites}
+              className="px-2.5 sm:px-3 py-1.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border-2 border-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95"
+              title="Gerenciador de Convites (@XXXX)"
+            >
+              <span>🎟️</span>
+              <span className="hidden sm:inline">Convites</span>
+            </button>
+          )}
+
+          {/* Player Career Stats & Trophies Button */}
+          {onOpenStats && (
+            <button
+              type="button"
+              onClick={onOpenStats}
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 border-2 border-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95"
+              title="Ver Estatísticas, Recordes e Troféus"
+            >
+              <Trophy className="w-4 h-4 text-amber-900 fill-amber-700" />
+              <span className="hidden sm:inline">Estatísticas</span>
             </button>
           )}
 

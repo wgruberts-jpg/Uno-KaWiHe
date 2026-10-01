@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { auth } from '../services/auth.js';
 import { AVATARS_CATALOG } from '../utils/avatars.js';
-import { X, Lock, User, KeyRound, Sparkles, Shield, AlertCircle, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { X, Lock, User, KeyRound, Sparkles, Shield, AlertCircle, CheckCircle2, Ticket } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -14,12 +14,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('🦸‍♂️');
   const [isAdminRegister, setIsAdminRegister] = useState(false);
   const [adminSecret, setAdminSecret] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    // Check if invite code was passed in URL query param: ?invite=@XXXX
+    const urlParam = new URLSearchParams(window.location.search).get('invite');
+    if (urlParam) {
+      let code = urlParam.trim().toUpperCase();
+      if (!code.startsWith('@')) code = '@' + code;
+      setInviteCode(code);
+      setTab('register');
+    }
+  }, []);
 
   if (!isOpen) return null;
 
@@ -33,7 +45,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
       if (tab === 'login') {
         const res = await auth.login(username, password);
         if (res.success && res.user) {
-          setSuccessMsg(`Bem-vindo de volta, ${res.user.displayName}!`);
+          setSuccessMsg(`Bem-vindo de volta, ${res.user.displayName}! (${res.user.tag || ''})`);
           setTimeout(() => {
             onSuccess?.();
             onClose();
@@ -42,6 +54,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           setErrorMsg(res.error || 'Credenciais inválidas.');
         }
       } else {
+        if (!inviteCode || inviteCode.trim().length < 2) {
+          setErrorMsg('O código de convite (@XXXX) é obrigatório!');
+          setIsLoading(false);
+          return;
+        }
+
         const res = await auth.register({
           username,
           password,
@@ -49,10 +67,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           avatar: selectedAvatar,
           role: isAdminRegister ? 'admin' : 'player',
           adminSecret: isAdminRegister ? adminSecret : undefined,
+          inviteCode: inviteCode.trim(),
         });
 
         if (res.success && res.user) {
-          setSuccessMsg(`Conta criada com sucesso! Olá, ${res.user.displayName}!`);
+          setSuccessMsg(`Conta criada com sucesso! Sua Tag é ${res.user.tag}!`);
           setTimeout(() => {
             onSuccess?.();
             onClose();
@@ -82,7 +101,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                 Conta Central KaWiHe
               </h3>
               <p className="text-[11px] text-slate-500 font-bold">
-                Um único login para o Uno e novos jogos na VM
+                Acesso aos jogos e painéis
               </p>
             </div>
           </div>
@@ -125,27 +144,58 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Criar Nova Conta
+            Criar Conta (Convite)
           </button>
         </div>
 
-        {/* Alerts */}
+        {/* Status Messages */}
         {errorMsg && (
-          <div className="mt-3 p-2.5 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-800 text-xs font-bold flex items-center gap-2 animate-bounce">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <div className="mt-3 p-3 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-700 text-xs font-bold flex items-start gap-2 animate-in shake duration-200">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {successMsg && (
-          <div className="mt-3 p-2.5 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div className="mt-3 p-3 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
             <span>{successMsg}</span>
           </div>
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3.5 text-xs">
+        <form onSubmit={handleSubmit} className="mt-4 space-y-3 flex-1 text-xs">
+          {/* Invite Code Field (MANDATORY on Register) */}
+          {tab === 'register' && (
+            <div className="p-3 bg-amber-50/80 rounded-2xl border-2 border-amber-300 space-y-1">
+              <label className="block text-slate-800 font-black flex items-center justify-between">
+                <span className="flex items-center gap-1 text-amber-900">
+                  <Ticket className="w-3.5 h-3.5 text-amber-600" />
+                  Código de Convite (@XXXX):
+                </span>
+                <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded font-black">
+                  OBRIGATÓRIO
+                </span>
+              </label>
+              <input
+                type="text"
+                required
+                value={inviteCode}
+                onChange={(e) => {
+                  let val = e.target.value.toUpperCase();
+                  if (val.length > 0 && !val.startsWith('@')) val = '@' + val;
+                  setInviteCode(val.slice(0, 5));
+                }}
+                placeholder="@XXXX (ex: @KWH1)"
+                maxLength={5}
+                className="w-full px-3 py-2 rounded-xl border-2 border-amber-400 focus:border-amber-600 focus:outline-none font-mono font-black text-sm bg-white uppercase tracking-widest text-slate-950"
+              />
+              <p className="text-[10px] text-slate-500 font-medium">
+                🔒 O Uno KaWiHe é privado. Peça seu código ao Administrador <strong>Edinho</strong>.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="block text-slate-700 font-bold mb-1 flex items-center gap-1">
               <User className="w-3.5 h-3.5 text-amber-500" />
@@ -156,7 +206,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
               required
               value={username}
               onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-              placeholder="ex: edinho, joao, bia"
+              placeholder="ex: edinho, will, henry, grazy..."
               className="w-full px-3.5 py-2.5 rounded-2xl border-2 border-slate-300 focus:border-amber-400 focus:outline-none font-bold text-sm bg-slate-50"
             />
           </div>
@@ -171,7 +221,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="ex: Edinho Campeão 🏆"
+                placeholder="ex: Edinho 👑, Will, Henry..."
                 className="w-full px-3.5 py-2.5 rounded-2xl border-2 border-slate-300 focus:border-amber-400 focus:outline-none font-bold text-sm bg-slate-50"
               />
             </div>
@@ -242,7 +292,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                     type="password"
                     value={adminSecret}
                     onChange={(e) => setAdminSecret(e.target.value)}
-                    placeholder="Digite o PIN de admin (padrão: 1234)"
+                    placeholder="Digite o PIN de admin (774007)"
                     className="w-full px-3 py-1.5 rounded-xl border border-amber-300 bg-white font-mono text-xs focus:outline-none"
                   />
                 </div>
@@ -266,7 +316,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>Criar Minha Conta</span>
+                <span>Criar Minha Conta com Convite</span>
               </>
             )}
           </button>

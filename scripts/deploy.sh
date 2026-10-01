@@ -17,12 +17,13 @@ echo "================================================================="
 
 # Passo 1: Backup de Segurança antes de alterar qualquer coisa
 echo "🛡️  Passo 1/3: Criando ponto de restauração de segurança..."
-chmod +x "${PROJECT_DIR}/scripts/backup.sh" "${PROJECT_DIR}/scripts/restore.sh" 2>/dev/null || true
+chmod +x "${PROJECT_DIR}/scripts/"*.sh 2>/dev/null || true
 "${PROJECT_DIR}/scripts/backup.sh"
 
 # Passo 2: Baixar a versão mais recente
 echo ""
 echo "📥 Passo 2/3: Baixando as atualizações mais recentes (git pull)..."
+git checkout Dockerfile 2>/dev/null || true
 git pull
 
 # Passo 3: Reconstruir e subir os containers

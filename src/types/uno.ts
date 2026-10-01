@@ -62,6 +62,60 @@ export interface GameState {
   unoVulnerablePlayerId: string | null; // player with 1 card who forgot to call UNO
   deckCardsCount: number;
   settings?: RoomSettings;
+  // Estatísticas da rodada e placar da mesa
+  roundDurationSeconds?: number;
+  roundTurnCount?: number;
+  roundPointsWon?: number;
+  isFastestWin?: boolean;
+  tableScores?: Record<string, TablePlayerScore>;
+  tableFastestSeconds?: number | null;
+}
+
+export interface TablePlayerScore {
+  playerId: string;
+  name: string;
+  avatar: string;
+  wins: number;
+  points: number;
+  roundsPlayed: number;
+}
+
+export interface PlayerCareerStats {
+  gamesPlayed: number;
+  gamesWon: number;
+  gamesLost: number;
+  currentStreak: number;
+  bestStreak: number;
+  totalPoints: number;
+  fastestWinSeconds: number | null; // ex: 68 segundos
+  fewestTurnsWin: number | null;     // ex: 7 turnos
+  highestRoundPoints: number;       // maior pontuação em uma única rodada
+  cardsPlayed: number;
+  plusFoursPlayed: number;
+  plusTwosPlayed: number;
+  skipsPlayed: number;
+  reversesPlayed: number;
+  colorChangesPlayed: number;
+  unoCallsSuccess: number;
+  caughtOpponentsUno: number;
+  cardsDrawnTotal: number;
+  colorDistribution: {
+    red: number;
+    blue: number;
+    green: number;
+    yellow: number;
+  };
+  achievements: string[]; // IDs das conquistas desbloqueadas
+}
+
+export interface TrophyDefinition {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  category: 'victory' | 'skill' | 'fun' | 'speed';
+  maxProgress: number;
+  getProgress: (stats: PlayerCareerStats) => number;
 }
 
 export interface RoomSettings {
@@ -90,7 +144,19 @@ export interface UserProfile {
   displayName: string;
   avatar: string;
   role: UserRole;
+  tag?: string; // Tag definitiva com # (ex: #0001, #1042)
   createdAt: string;
+}
+
+export interface InviteCode {
+  code: string; // Começa com @ + 4 caracteres (ex: @K9W2)
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string; // Data ISO ou "never"
+  maxUses: number;
+  usedCount: number;
+  usedBy: Array<{ username: string; usedAt: string }>;
+  status: 'active' | 'expired' | 'revoked' | 'used';
 }
 
 export interface AuthResponse {

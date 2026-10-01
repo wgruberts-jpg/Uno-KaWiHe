@@ -1,4 +1,4 @@
-import { AuthResponse, UserProfile, UserRole } from '../types/uno.js';
+import { AuthResponse, UserProfile, UserRole, InviteCode } from '../types/uno.js';
 
 const TOKEN_KEY = 'kawihe_auth_token';
 
@@ -111,6 +111,7 @@ class AuthService {
     avatar: string;
     role?: UserRole;
     adminSecret?: string;
+    inviteCode?: string;
   }): Promise<AuthResponse> {
     try {
       const res = await fetch('/api/auth/register', {
@@ -152,6 +153,72 @@ class AuthService {
         return true;
       }
       return false;
+    } catch {
+      return false;
+    }
+  }
+
+  public async validateInvite(code: string): Promise<{ valid: boolean; code?: string; expiresAt?: string; remainingUses?: number; error?: string }> {
+    try {
+      let clean = code.trim().toUpperCase();
+      if (!clean.startsWith('@')) clean = '@' + clean;
+      const res = await fetch(`/api/invites/validate/${encodeURIComponent(clean)}`);
+      return await res.json();
+    } catch {
+      return { valid: false, error: 'Erro de conexão ao validar convite.' };
+    }
+  }
+
+  public async getInvites(): Promise<InviteCode[]> {
+    if (!this.token) return [];
+    try {
+      const res = await fetch('/api/invites', {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.invites || [];
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async createInvite(params: {
+    durationHours: number;
+    maxUses: number;
+    customCode?: string;
+  }): Promise<{ success: boolean; invite?: InviteCode; error?: string }> {
+    if (!this.token) return { success: false, error: 'Não autenticado como administrador.' };
+    try {
+      const res = await fetch('/api/invites', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({
+          ...params,
+          createdBy: this.user?.displayName || 'Edinho',
+        }),
+      });
+      return await res.json();
+    } catch {
+      return { success: false, error: 'Erro ao gerar convite no servidor.' };
+    }
+  }
+
+  public async revokeInvite(code: string): Promise<boolean> {
+    if (!this.token) return false;
+    try {
+      let clean = code.trim().toUpperCase();
+      if (!clean.startsWith('@')) clean = '@' + clean;
+      const res = await fetch(`/api/invites/${encodeURIComponent(clean)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      return res.ok;
     } catch {
       return false;
     }
