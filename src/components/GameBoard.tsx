@@ -5,6 +5,8 @@ import { ColorPickerModal } from './ColorPickerModal.js';
 import { TableDirectionArrows } from './TableDirectionArrows.js';
 import { EmoteBubble } from './EmoteBubble.js';
 import { EmotePicker } from './EmotePicker.js';
+import { TableScoreboardModal } from './TableScoreboardModal.js';
+import { statsManager } from '../services/statsManager.js';
 import {
   Volume2,
   VolumeX,
@@ -20,7 +22,9 @@ import {
   Settings,
   MessageCircle,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Trophy,
+  BarChart2
 } from 'lucide-react';
 import { sound } from '../services/sound.js';
 
@@ -38,6 +42,7 @@ interface GameBoardProps {
   activeEmotes?: Record<string, ActiveEmote>;
   onSendEmote?: (emoteId: string) => void;
   onOpenSettings?: () => void;
+  onOpenStats?: () => void;
 }
 
 export const GameBoard: React.FC<GameBoardProps> = ({
@@ -54,12 +59,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   activeEmotes = {},
   onSendEmote,
   onOpenSettings,
+  onOpenStats,
 }) => {
   const [isMuted, setIsMuted] = useState(() => sound.getIsMuted());
   const [selectedWildCard, setSelectedWildCard] = useState<Card | null>(null);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
   const [flyingCardId, setFlyingCardId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isTableScoreboardOpen, setIsTableScoreboardOpen] = useState(false);
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -121,6 +128,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     setFeedbackToast(null);
     setFlyingCardId(card.id);
+    statsManager.recordCardPlayed(card);
     onPlayCard(card.id);
     setTimeout(() => setFlyingCardId(null), 400);
   };
@@ -128,6 +136,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handleColorPicked = (color: CardColor) => {
     if (!selectedWildCard) return;
     setFlyingCardId(selectedWildCard.id);
+    statsManager.recordCardPlayed(selectedWildCard, color);
     onPlayCard(selectedWildCard.id, color);
     setSelectedWildCard(null);
     setTimeout(() => setFlyingCardId(null), 400);
@@ -141,6 +150,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     if (card) {
       handleCardClick(card);
     }
+  };
+
+  const handleDrawCard = () => {
+    statsManager.recordCardDrawn(1);
+    onDrawCard();
+  };
+
+  const handleCallUno = () => {
+    statsManager.recordUnoCalled();
+    onCallUno();
+  };
+
+  const handleCatchUno = (targetPlayerId: string) => {
+    statsManager.recordCaughtUno();
+    onCatchUno(targetPlayerId);
   };
 
   // Turn time percentage
@@ -232,6 +256,30 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             )}
           </button>
 
+          {/* Table Leaderboard Button */}
+          <button
+            type="button"
+            onClick={() => setIsTableScoreboardOpen(true)}
+            className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-yellow-400 text-amber-900 hover:bg-yellow-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-bold text-xs"
+            title="Ver Placar da Mesa (Sessão)"
+          >
+            <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500 fill-amber-400" />
+            <span className="hidden lg:inline">Placar</span>
+          </button>
+
+          {/* Player Career Stats & Trophies */}
+          {onOpenStats && (
+            <button
+              type="button"
+              onClick={onOpenStats}
+              className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-indigo-300 text-indigo-900 hover:bg-indigo-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-bold text-xs"
+              title="Ver Minhas Estatísticas & Troféus"
+            >
+              <BarChart2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500" />
+              <span className="hidden lg:inline">Stats</span>
+            </button>
+          )}
+
           {/* Settings Gear Button */}
           {onOpenSettings && (
             <button
@@ -293,7 +341,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 {isCatchable && (
                   <button
                     type="button"
-                    onClick={() => onCatchUno(opp.id)}
+                    onClick={() => handleCatchUno(opp.id)}
                     className="absolute -top-3.5 animate-bounce z-30 bg-rose-600 hover:bg-rose-500 text-white font-black text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-full shadow-xl border-2 border-white flex items-center gap-1 cursor-pointer"
                   >
                     <AlertTriangle className="w-3 h-3 text-yellow-300" />
@@ -431,7 +479,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               <div className="flex flex-col items-center">
                 <button
                   type="button"
-                  onClick={isMyTurn ? onDrawCard : undefined}
+                  onClick={isMyTurn ? handleDrawCard : undefined}
                   disabled={!isMyTurn}
                   className={`group relative cursor-pointer transition-transform ${
                     isMyTurn ? 'hover:scale-105 active:scale-95' : 'opacity-85'
@@ -515,7 +563,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <div className="relative flex items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
-                onClick={onCallUno}
+                onClick={handleCallUno}
                 className={`py-1.5 sm:py-2 md:py-2.5 px-3 sm:px-5 md:px-6 rounded-xl sm:rounded-2xl font-black text-[11px] sm:text-xs md:text-sm uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center gap-1.5 border-2 sm:border-4 border-white ${
                   state.myHand.length <= 2
                     ? 'bg-gradient-to-b from-yellow-300 via-orange-500 to-red-500 text-white animate-bounce shadow-[0_4px_0_#991b1b] active:shadow-[0_1px_0_#991b1b] active:translate-y-0.5'
@@ -594,6 +642,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       <ColorPickerModal
         isOpen={!!selectedWildCard}
         onSelectColor={handleColorPicked}
+      />
+
+      {/* Table Scoreboard Session Modal */}
+      <TableScoreboardModal
+        isOpen={isTableScoreboardOpen}
+        onClose={() => setIsTableScoreboardOpen(false)}
+        tableScores={state.tableScores}
+        fastestSeconds={state.tableFastestSeconds}
+        myPlayerId={myPlayerId}
+        roomId={state.roomId}
       />
     </div>
   );

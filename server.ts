@@ -25,7 +25,9 @@ import {
   registerUser,
   loginUser,
   getUserFromToken,
-  verifyAdminPin
+  verifyAdminPin,
+  getAllInvites,
+  saveInvites
 } from './server/authService.js';
 
 const app = express();
@@ -120,6 +122,236 @@ app.post('/api/auth/verify-admin-pin', async (req, res) => {
   }
 });
 
+// Invites API Routes
+app.get('/api/invites/validate/:code', async (req, res) => {
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/invites/validate/${encodeURIComponent(req.params.code)}`);
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch {
+      // fallback
+    }
+  }
+
+  let code = req.params.code?.trim().toUpperCase();
+  if (!code.startsWith('@')) code = '@' + code;
+  const invites = getAllInvites();
+  const invite = invites.find((i) => i.code.toUpperCase() === code);
+
+  if (!invite) return res.json({ valid: false, error: 'Código de convite não encontrado.' });
+  if (invite.status === 'revoked') return res.json({ valid: false, error: 'Este convite foi cancelado pelo Administrador.' });
+  if (invite.status === 'expired' || (invite.expiresAt !== 'never' && new Date(invite.expiresAt) < new Date())) {
+    return res.json({ valid: false, error: 'Este convite já expirou! Peça um novo convite ao Edinho.' });
+  }
+  if (invite.usedCount >= invite.maxUses || invite.status === 'used') {
+    return res.json({ valid: false, error: 'Este convite já foi utilizado o número máximo de vezes.' });
+  }
+
+  return res.json({ valid: true, code: invite.code, expiresAt: invite.expiresAt, remainingUses: invite.maxUses - invite.usedCount });
+});
+
+app.get('/api/invites', async (req, res) => {
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/invites`, {
+        headers: { Authorization: req.headers.authorization || '' },
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch {
+      // fallback
+    }
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Não autorizado.' });
+  }
+  const token = authHeader.split(' ')[1];
+  const user = getUserFromToken(token);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const invites = getAllInvites();
+  return res.json({ success: true, invites });
+});
+
+app.post('/api/invites', async (req, res) => {
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/invites`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: req.headers.authorization || '',
+        },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch {
+      // fallback
+    }
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Não autorizado.' });
+  }
+  const token = authHeader.split(' ')[1];
+  const user = getUserFromToken(token);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const { durationHours = 24, maxUses = 1, customCode, createdBy = 'Edinho' } = req.body;
+  let code = '';
+  if (customCode && typeof customCode === 'string') {
+    let clean = customCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (clean.startsWith('@')) clean = clean.substring(1);
+    clean = clean.substring(0, 4);
+    if (clean.length < 2) {
+      return res.status(400).json({ success: false, error: 'O código personalizado deve ter entre 2 e 4 caracteres.' });
+    }
+    code = `@${clean}`;
+  } else {
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let rand = '';
+    for (let i = 0; i < 4; i++) {
+      rand += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    code = `@${rand}`;
+  }
+
+  const invites = getAllInvites();
+  if (invites.some((i) => i.code === code && i.status === 'active')) {
+    return res.status(400).json({ success: false, error: 'Este código de convite já existe e está ativo.' });
+  }
+
+  let expiresAt = 'never';
+  if (durationHours > 0) {
+    expiresAt = new Date(Date.now() + durationHours * 3600 * 1000).toISOString();
+  }
+
+  const newInvite = {
+    code,
+    createdBy,
+    createdAt: new Date().toISOString(),
+    expiresAt,
+    maxUses: Math.max(1, Number(maxUses) || 1),
+    usedCount: 0,
+    usedBy: [],
+    status: 'active' as const,
+  };
+
+  invites.unshift(newInvite);
+  saveInvites(invites);
+  return res.json({ success: true, invite: newInvite });
+});
+
+app.delete('/api/invites/:code', async (req, res) => {
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/invites/${encodeURIComponent(req.params.code)}`, {
+        method: 'DELETE',
+        headers: { Authorization: req.headers.authorization || '' },
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch {
+      // fallback
+    }
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Não autorizado.' });
+  }
+  const token = authHeader.split(' ')[1];
+  const user = getUserFromToken(token);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  let code = req.params.code?.trim().toUpperCase();
+  if (!code.startsWith('@')) code = '@' + code;
+
+  const invites = getAllInvites();
+  const invite = invites.find((i) => i.code.toUpperCase() === code);
+  if (!invite) {
+    return res.status(404).json({ success: false, error: 'Convite não encontrado.' });
+  }
+
+  invite.status = 'revoked';
+  saveInvites(invites);
+  return res.json({ success: true, message: 'Convite revogado com sucesso.' });
+});
+
+// User Career Stats storage
+const userStatsMemory = new Map<string, any>();
+
+app.get('/api/user/stats', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Não autenticado' });
+  }
+  const token = authHeader.split(' ')[1];
+  const user = getUserFromToken(token);
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Token inválido' });
+  }
+
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/user/stats`, {
+        headers: { Authorization: req.headers.authorization || '' },
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch {
+      // fallback
+    }
+  }
+
+  const stats = userStatsMemory.get(user.id) || null;
+  return res.json({ success: true, stats });
+});
+
+app.post('/api/user/stats', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Não autenticado' });
+  }
+  const token = authHeader.split(' ')[1];
+  const user = getUserFromToken(token);
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Token inválido' });
+  }
+
+  const { stats } = req.body;
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/user/stats`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: req.headers.authorization || '',
+        },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch {
+      // fallback
+    }
+  }
+
+  userStatsMemory.set(user.id, stats);
+  return res.json({ success: true, message: 'Estatísticas salvas com sucesso' });
+});
+
 // In-memory rooms repository
 const rooms = new Map<string, RoomData>();
 // Map client WebSocket to playerId and roomId
@@ -181,6 +413,12 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
     unoVulnerablePlayerId: room.unoVulnerablePlayerId,
     deckCardsCount: room.deck.length,
     settings: room.settings,
+    roundDurationSeconds: room.lastRoundDurationSeconds,
+    roundTurnCount: room.lastRoundTurnCount,
+    roundPointsWon: room.lastRoundPointsWon,
+    isFastestWin: room.lastRoundIsFastest,
+    tableScores: room.tableScores,
+    tableFastestSeconds: room.fastestRoundSeconds,
   };
 
   if (ws.readyState === WebSocket.OPEN) {
@@ -254,6 +492,26 @@ function startGame(room: RoomData) {
   room.unoVulnerablePlayerId = null;
   room.turnDirection = 1;
   room.currentTurnIndex = Math.floor(Math.random() * room.players.length);
+
+  // Stats tracking for current round
+  room.roundStartTime = Date.now();
+  room.roundTurnCount = 0;
+  if (!room.tableScores) room.tableScores = {};
+  room.players.forEach((p) => {
+    if (!room.tableScores![p.id]) {
+      room.tableScores![p.id] = {
+        playerId: p.id,
+        name: p.name,
+        avatar: p.avatar,
+        wins: 0,
+        points: p.score || 0,
+        roundsPlayed: 0,
+      };
+    }
+    room.tableScores![p.id].name = p.name;
+    room.tableScores![p.id].avatar = p.avatar;
+    room.tableScores![p.id].roundsPlayed += 1;
+  });
 
   // Deal 7 cards each
   room.players.forEach((p) => {
@@ -337,6 +595,7 @@ function handleTurnTimeout(room: RoomData) {
 
 function advanceTurn(room: RoomData, steps = 1) {
   room.players[room.currentTurnIndex].hasDrawnThisTurn = false;
+  room.roundTurnCount = (room.roundTurnCount || 0) + 1;
   room.currentTurnIndex = getNextPlayerIndex(room.currentTurnIndex, room.turnDirection, room.players.length, steps);
   syncRoomState(room);
   startTurnTimer(room);
@@ -357,7 +616,41 @@ function checkWinCondition(room: RoomData, player: InternalPlayer): boolean {
     });
     player.score += points;
 
-    broadcastLog(room, `🏆 ${player.name} VENCEU A PARTIDA! (+${points} pontos)`, 'uno', player.name);
+    // Calculate duration & turns
+    const durationSeconds = Math.max(1, Math.round((Date.now() - (room.roundStartTime || Date.now())) / 1000));
+    const turnCount = room.roundTurnCount || 1;
+    const isFastest = !room.fastestRoundSeconds || durationSeconds < room.fastestRoundSeconds;
+    if (isFastest) {
+      room.fastestRoundSeconds = durationSeconds;
+    }
+    if (!room.fewestTurnsRound || turnCount < room.fewestTurnsRound) {
+      room.fewestTurnsRound = turnCount;
+    }
+
+    room.lastRoundDurationSeconds = durationSeconds;
+    room.lastRoundTurnCount = turnCount;
+    room.lastRoundPointsWon = points;
+    room.lastRoundIsFastest = isFastest;
+
+    if (!room.tableScores) room.tableScores = {};
+    if (!room.tableScores[player.id]) {
+      room.tableScores[player.id] = {
+        playerId: player.id,
+        name: player.name,
+        avatar: player.avatar,
+        wins: 0,
+        points: 0,
+        roundsPlayed: 1,
+      };
+    }
+    room.tableScores[player.id].wins += 1;
+    room.tableScores[player.id].points += points;
+
+    let winMsg = `🏆 ${player.name} VENCEU A PARTIDA! (+${points} pontos)`;
+    if (isFastest) {
+      winMsg += ` ⚡ NOVO RECORDE DA MESA: ${durationSeconds}s!`;
+    }
+    broadcastLog(room, winMsg, 'uno', player.name);
     broadcastSound(room.id, 'win');
     syncRoomState(room);
     return true;

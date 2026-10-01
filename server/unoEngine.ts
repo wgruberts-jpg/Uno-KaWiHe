@@ -93,6 +93,16 @@ export interface RoomData {
   unoVulnerablePlayerId: string | null;
   turnTimerInterval: NodeJS.Timeout | null;
   botTimerTimeout: NodeJS.Timeout | null;
+  // Session & Round statistics
+  roundStartTime?: number;
+  roundTurnCount?: number;
+  tableScores?: Record<string, { playerId: string; name: string; avatar: string; wins: number; points: number; roundsPlayed: number }>;
+  fastestRoundSeconds?: number | null;
+  fewestTurnsRound?: number | null;
+  lastRoundDurationSeconds?: number;
+  lastRoundTurnCount?: number;
+  lastRoundPointsWon?: number;
+  lastRoundIsFastest?: boolean;
 }
 
 export function isCardPlayable(card: Card, topCard: Card, currentColor: CardColor): boolean {

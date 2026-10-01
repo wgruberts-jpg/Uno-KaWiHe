@@ -16,8 +16,11 @@ import { GameOverModal } from './components/GameOverModal.js';
 import { VmGuideModal } from './components/VmGuideModal.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import { AuthModal } from './components/AuthModal.js';
+import { StatsModal } from './components/StatsModal.js';
+import { AdminInvitesModal } from './components/AdminInvitesModal.js';
 import { sound } from './services/sound.js';
 import { auth } from './services/auth.js';
+import { statsManager } from './services/statsManager.js';
 import { UserProfile } from './types/uno.js';
 
 export default function App() {
@@ -32,6 +35,9 @@ export default function App() {
   const [isVmGuideOpen, setIsVmGuideOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [isAdminInvitesOpen, setIsAdminInvitesOpen] = useState(false);
+  const lastProcessedWinnerRef = useRef<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => auth.getCurrentUser());
   const [currentAvatar, setCurrentAvatar] = useState<string>(() => localStorage.getItem('uno_avatar') || '🦸‍♂️');
   const [activeEmotes, setActiveEmotes] = useState<Record<string, ActiveEmote>>({});
@@ -130,6 +136,23 @@ export default function App() {
           setGameState(msg.state);
           if (msg.state.roomId) {
             setRoomId(msg.state.roomId);
+          }
+
+          if (msg.state.status === 'playing') {
+            lastProcessedWinnerRef.current = null;
+          } else if (
+            msg.state.status === 'ended' &&
+            msg.state.winnerId &&
+            lastProcessedWinnerRef.current !== msg.state.winnerId
+          ) {
+            lastProcessedWinnerRef.current = msg.state.winnerId;
+            const isWinner = msg.state.winnerId === myPlayerIdRef.current;
+            statsManager.recordGameFinished({
+              won: isWinner,
+              durationSeconds: msg.state.roundDurationSeconds,
+              turnsCount: msg.state.roundTurnCount,
+              pointsWon: isWinner ? (msg.state.roundPointsWon || 0) : 0,
+            });
           }
 
           // If turn changed to me, chime!
@@ -381,6 +404,8 @@ export default function App() {
             onResetRoom={handleResetRoom}
             onOpenVmGuide={() => setIsVmGuideOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenStats={() => setIsStatsOpen(true)}
+            onOpenInvites={() => setIsAdminInvitesOpen(true)}
             onLeaveRoom={handleLeaveGame}
             onOpenAuth={() => setIsAuthOpen(true)}
             currentUser={currentUser}
@@ -406,6 +431,7 @@ export default function App() {
             activeEmotes={activeEmotes}
             onSendEmote={handleSendEmote}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenStats={() => setIsStatsOpen(true)}
           />
         )}
       </div>
@@ -432,6 +458,12 @@ export default function App() {
           onRestart={handleRestartGame}
           onReturnToLobby={handleReturnToLobby}
           onLeave={handleLeaveGame}
+          roundDurationSeconds={gameState.roundDurationSeconds}
+          roundTurnCount={gameState.roundTurnCount}
+          roundPointsWon={gameState.roundPointsWon}
+          isFastestWin={gameState.isFastestWin}
+          tableScores={gameState.tableScores}
+          onOpenStats={() => setIsStatsOpen(true)}
         />
       )}
 
@@ -457,6 +489,20 @@ export default function App() {
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
+      />
+
+      {/* Player Career Stats & Trophies Modal */}
+      <StatsModal
+        isOpen={isStatsOpen}
+        onClose={() => setIsStatsOpen(false)}
+        playerName={currentUser?.displayName || localStorage.getItem('uno_nickname') || 'Jogador'}
+        playerAvatar={currentUser?.avatar || currentAvatar}
+      />
+
+      {/* Admin Invites Management Modal (Edinho Admin) */}
+      <AdminInvitesModal
+        isOpen={isAdminInvitesOpen}
+        onClose={() => setIsAdminInvitesOpen(false)}
       />
     </div>
   );
