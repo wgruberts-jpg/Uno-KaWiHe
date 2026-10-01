@@ -1,0 +1,41 @@
+# Docker Compose para Hospedar UNO e Múltiplos Jogos na VM Oracle (12GB RAM, 2 OCPU)
+services:
+  # JOGO 1: UNO Multiplayer
+  uno-game:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: uno-game
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    # Limites de recursos para garantir que 1 jogo não consuma toda a VM (12GB)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ==============================================================
+  # EXEMPLO: COMO ADICIONAR UM SEGUNDO JOGO NA MESMA VM (Ex: Truco)
+  # ==============================================================
+  # truco-game:
+  #   build:
+  #     context: ../truco-game
+  #   container_name: truco-game
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3001:3000"   # Acessível externamente na porta 3001
+  #   environment:
+  #     - NODE_ENV=production
+  #     - PORT=3000
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '0.75'
+  #         memory: 512M

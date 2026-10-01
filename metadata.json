@@ -1,0 +1,6 @@
+{
+  "name": "Uno KaWiHe",
+  "description": "Uno KaWiHe - Jogo de cartas multiplayer com matchmaking em tempo real, salas, chat e modo criança.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
