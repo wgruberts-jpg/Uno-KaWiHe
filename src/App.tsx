@@ -18,6 +18,7 @@ import { SettingsModal } from './components/SettingsModal.js';
 import { AuthModal } from './components/AuthModal.js';
 import { StatsModal } from './components/StatsModal.js';
 import { AdminInvitesModal } from './components/AdminInvitesModal.js';
+import { LoginScreen } from './components/LoginScreen.js';
 import { sound } from './services/sound.js';
 import { auth } from './services/auth.js';
 import { statsManager } from './services/statsManager.js';
@@ -37,13 +38,16 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isAdminInvitesOpen, setIsAdminInvitesOpen] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const lastProcessedWinnerRef = useRef<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => auth.getCurrentUser());
   const [currentAvatar, setCurrentAvatar] = useState<string>(() => localStorage.getItem('uno_avatar') || '🦸‍♂️');
   const [activeEmotes, setActiveEmotes] = useState<Record<string, ActiveEmote>>({});
 
   useEffect(() => {
-    auth.initSession();
+    auth.initSession().finally(() => {
+      setIsAuthChecking(false);
+    });
     const unsub = auth.subscribe((user) => {
       setCurrentUser(user);
       if (user) {
@@ -388,6 +392,26 @@ export default function App() {
     autoUnoProtection: localStorage.getItem('uno_auto_uno') === 'true',
     highlightHints: localStorage.getItem('uno_highlight_hints') !== 'false',
   };
+
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center text-white select-none">
+        <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <div className="font-black text-sm tracking-wider text-amber-400">CARREGANDO UNO KAWIHE...</div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <LoginScreen
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          setCurrentAvatar(user.avatar);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] w-full bg-gradient-to-br from-indigo-950 via-purple-950 to-sky-950 font-sans text-slate-100 flex overflow-hidden select-none">
