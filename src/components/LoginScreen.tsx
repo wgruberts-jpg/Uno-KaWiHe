@@ -83,7 +83,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950/80 p-3 sm:p-6 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950/80 p-3 sm:p-6 overflow-y-auto">
       {/* Decorative Background Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
         <div className="absolute -top-24 -left-24 w-96 h-96 bg-amber-500 rounded-full blur-3xl"></div>
@@ -91,7 +91,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-blue-500 rounded-full blur-3xl"></div>
       </div>
 
-      <div className="relative z-10 bg-white/95 backdrop-blur-md border-4 border-amber-400 rounded-3xl max-w-md w-full p-5 sm:p-7 shadow-2xl my-auto text-slate-800 flex flex-col">
+      <div className="relative z-10 bg-white/95 backdrop-blur-md border-4 border-amber-400 rounded-3xl max-w-md w-full p-5 sm:p-7 shadow-2xl my-auto text-slate-800 flex flex-col shrink-0">
         {/* Brand Logo & Title */}
         <div className="text-center pb-4 border-b-2 border-amber-100">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-gradient-to-tr from-amber-500 to-yellow-300 text-3xl shadow-lg border-2 border-white mb-2">

@@ -139,7 +139,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   const filteredAvatars = AVATARS_CATALOG.filter((a) => a.category === avatarCategory);
 
   return (
-    <div className="w-full h-full min-h-full bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 text-slate-800 flex flex-col items-center justify-start sm:justify-center p-3 sm:p-6 select-none relative overflow-y-auto overflow-x-hidden pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div className="w-full h-full bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 text-slate-800 flex flex-col items-center justify-start px-3 sm:px-6 py-4 sm:py-6 select-none relative overflow-y-auto overflow-x-hidden">
       {/* Decorative Cartoon Elements */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
         <div className="absolute top-10 left-10 w-36 h-20 bg-white rounded-full blur-[1px]" />
