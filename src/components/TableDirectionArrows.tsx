@@ -25,7 +25,7 @@ export const TableDirectionArrows: React.FC<TableDirectionArrowsProps> = ({
     >
       <svg
         viewBox="0 0 400 400"
-        className="absolute -inset-10 sm:-inset-14 m-auto w-[340px] h-[340px] sm:w-[430px] sm:h-[430px] overflow-visible transition-transform duration-700 ease-out"
+        className="absolute inset-0 m-auto w-[130%] h-[130%] pointer-events-none overflow-visible transition-transform duration-700 ease-out"
         style={{
           // Mirror horizontally when clockwise so left points up and right points down!
           transform: isClockwise ? 'scaleX(-1)' : 'scaleX(1)',

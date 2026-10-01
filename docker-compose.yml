@@ -1,5 +1,29 @@
-# Docker Compose para Hospedar UNO e Múltiplos Jogos na VM Oracle (12GB RAM, 2 OCPU)
+# Docker Compose para Hospedar UNO e Microserviço Central de Autenticação KaWiHe
 services:
+  # SERVIÇO CENTRAL DE AUTENTICAÇÃO (SSO / Contas para todos os jogos)
+  kawihe-auth:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: kawihe-auth
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - auth-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - JWT_SECRET=kawihe_jwt_super_secret_key_2026
+      - ADMIN_PIN=1234
+    networks:
+      - kawihe-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
   # JOGO 1: UNO Multiplayer
   uno-game:
     build:
@@ -12,7 +36,13 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-    # Limites de recursos para garantir que 1 jogo não consuma toda a VM (12GB)
+      - AUTH_SERVICE_URL=http://kawihe-auth:4000
+      - JWT_SECRET=kawihe_jwt_super_secret_key_2026
+      - ADMIN_PIN=1234
+    depends_on:
+      - kawihe-auth
+    networks:
+      - kawihe-net
     deploy:
       resources:
         limits:
@@ -22,7 +52,7 @@ services:
           memory: 128M
 
   # ==============================================================
-  # EXEMPLO: COMO ADICIONAR UM SEGUNDO JOGO NA MESMA VM (Ex: Truco)
+  # EXEMPLO: COMO CONECTAR UM SEGUNDO JOGO AO MESMO SERVIÇO DE AUTH
   # ==============================================================
   # truco-game:
   #   build:
@@ -30,12 +60,19 @@ services:
   #   container_name: truco-game
   #   restart: unless-stopped
   #   ports:
-  #     - "3001:3000"   # Acessível externamente na porta 3001
+  #     - "3001:3000"
   #   environment:
   #     - NODE_ENV=production
   #     - PORT=3000
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: '0.75'
-  #         memory: 512M
+  #     - AUTH_SERVICE_URL=http://kawihe-auth:4000
+  #   depends_on:
+  #     - kawihe-auth
+  #   networks:
+  #     - kawihe-net
+
+volumes:
+  auth-data:
+
+networks:
+  kawihe-net:
+    name: kawihe-net

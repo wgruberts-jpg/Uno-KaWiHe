@@ -69,27 +69,38 @@ sudo netfilter-persistent save
 #   - Destination Port Range: 80, 443, 3000`,
     },
     {
+      id: 'docker-auth-admin',
+      title: '4. Contas Centralizadas e Senha de Administrador',
+      desc: 'O sistema inclui o microserviço dedicado (kawihe-auth) que gerencia os usuários em banco persistente e protege as trapaças (cheats).',
+      command: `# Credenciais do Administrador Padrão:
+#   Usuário: admin
+#   Senha:   admin123
+#   PIN para Liberar Cheats: 1234
+#
+# Para alterar a qualquer momento no docker-compose.yml:
+#   JWT_SECRET=sua_chave_secreta_aqui
+#   ADMIN_PIN=5678  <- Seu PIN mestre personalizado`,
+    },
+    {
       id: 'docker-multi-games',
-      title: '4. Como Adicionar Mais Jogos na Mesma VM de 12GB',
-      desc: 'Com 12GB você pode rodar 10+ jogos simultâneos! Cada jogo roda em um container isolado com sua própria porta.',
+      title: '5. Como Adicionar Mais Jogos na Mesma VM e Conectar ao Mesmo Auth',
+      desc: 'Com 12GB você pode rodar 10+ jogos simultâneos! Todos eles podem se conectar ao kawihe-auth na porta 4000.',
       command: `# Exemplo de estrutura na sua VM:
 # /home/ubuntu/
-#   ├── uno-game/       (Porta 3000)
-#   ├── truco-game/     (Porta 3001)
-#   ├── ludo-game/      (Porta 3002)
-#   └── domino-game/    (Porta 3003)
+#   ├── Uno-KaWiHe/     (Porta 3000 + Auth 4000)
+#   ├── truco-game/     (Porta 3001 -> conecta em http://kawihe-auth:4000)
+#   ├── ludo-game/      (Porta 3002 -> conecta em http://kawihe-auth:4000)
+#   └── domino-game/    (Porta 3003 -> conecta em http://kawihe-auth:4000)
 
-# Para cada novo jogo, basta definir no seu docker-compose.yml:
-# ports:
-#   - "3001:3000"   <- mapeia a porta 3001 da VM para a 3000 do container
-# deploy:
-#   resources:
-#     limits:
-#       memory: 512M   <- cada jogo consome no máximo 512MB dos 12GB!`,
+# Para cada novo jogo no docker-compose:
+# environment:
+#   - AUTH_SERVICE_URL=http://kawihe-auth:4000
+# networks:
+#   - kawihe-net`,
     },
     {
       id: 'docker-nginx-domain',
-      title: '5. Nginx Proxy Reverso para Usar Subdomínios e SSL (Opcional)',
+      title: '6. Nginx Proxy Reverso para Usar Subdomínios e SSL (Opcional)',
       desc: 'Para acessar uno.seusite.com, truco.seusite.com na porta 80/443 com certificado HTTPS grátis (Let\'s Encrypt):',
       command: `# Instalar Nginx e Certbot
 sudo apt install -y nginx certbot python3-certbot-nginx

@@ -1,21 +1,21 @@
-# Multi-stage Dockerfile for UNO Multiplayer Game (Node 22 + React + WebSockets)
-# Compatible with both x86_64 and ARM64 (Oracle Cloud Ampere A1)
+# Multi-stage Dockerfile for Uno KaWiHe (Node 22 + React + WebSockets)
+# Optimized for Oracle Cloud (x86_64 and ARM64 Ampere A1)
 
 # Stage 1: Build
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install dependencies first for Docker layer caching
-COPY package*.json ./
-RUN npm ci
+# Copy package.json and install dependencies
+COPY package.json ./
+RUN npm install --legacy-peer-deps
 
-# Copy source code and build the Vite frontend
+# Copy source code and build Vite frontend
 COPY . .
 RUN npm run build
 
 # Stage 2: Production Runner
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
 
 WORKDIR /app
 
@@ -23,8 +23,8 @@ ENV NODE_ENV=production
 ENV PORT=3000
 
 # Install production dependencies only
-COPY package*.json ./
-RUN npm ci --omit=dev && npm install -g tsx
+COPY package.json ./
+RUN npm install --omit=dev --legacy-peer-deps && npm install -g tsx
 
 # Copy built frontend assets and server files from builder
 COPY --from=builder /app/dist ./dist

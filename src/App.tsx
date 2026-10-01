@@ -15,7 +15,10 @@ import { ChatPanel } from './components/ChatPanel.js';
 import { GameOverModal } from './components/GameOverModal.js';
 import { VmGuideModal } from './components/VmGuideModal.js';
 import { SettingsModal } from './components/SettingsModal.js';
+import { AuthModal } from './components/AuthModal.js';
 import { sound } from './services/sound.js';
+import { auth } from './services/auth.js';
+import { UserProfile } from './types/uno.js';
 
 export default function App() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -28,8 +31,21 @@ export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isVmGuideOpen, setIsVmGuideOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => auth.getCurrentUser());
   const [currentAvatar, setCurrentAvatar] = useState<string>(() => localStorage.getItem('uno_avatar') || '🦸‍♂️');
   const [activeEmotes, setActiveEmotes] = useState<Record<string, ActiveEmote>>({});
+
+  useEffect(() => {
+    auth.initSession();
+    const unsub = auth.subscribe((user) => {
+      setCurrentUser(user);
+      if (user) {
+        setCurrentAvatar(user.avatar);
+      }
+    });
+    return unsub;
+  }, []);
 
   const handleIncomingEmote = (emote: ActiveEmote) => {
     setActiveEmotes((prev) => ({
@@ -351,8 +367,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-sky-950 font-sans text-slate-100 flex overflow-hidden">
-      <div className="flex-1 flex flex-col min-w-0 h-screen">
+    <div className="h-[100dvh] max-h-[100dvh] w-full bg-gradient-to-br from-indigo-950 via-purple-950 to-sky-950 font-sans text-slate-100 flex overflow-hidden select-none">
+      <div className="flex-1 flex flex-col min-w-0 h-[100dvh] max-h-[100dvh] overflow-hidden">
         {!gameState || gameState.status === 'waiting' ? (
           <Lobby
             onCreateRoom={handleCreateRoom}
@@ -366,6 +382,9 @@ export default function App() {
             onOpenVmGuide={() => setIsVmGuideOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onLeaveRoom={handleLeaveGame}
+            onOpenAuth={() => setIsAuthOpen(true)}
+            currentUser={currentUser}
+            onLogout={() => auth.logout()}
             roomId={roomId}
             players={gameState?.players || []}
             myPlayerId={myPlayerId}
@@ -432,6 +451,12 @@ export default function App() {
       <VmGuideModal
         isOpen={isVmGuideOpen}
         onClose={() => setIsVmGuideOpen(false)}
+      />
+
+      {/* KaWiHe Central Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
       />
     </div>
   );
