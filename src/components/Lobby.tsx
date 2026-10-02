@@ -133,8 +133,9 @@ export const Lobby: React.FC<LobbyProps> = ({
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinCodeInput.trim()) return;
-    onJoinRoom(joinCodeInput.trim().toUpperCase(), playerName, selectedAvatar);
+    const clean = joinCodeInput.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
+    if (!clean) return;
+    onJoinRoom(clean, playerName, selectedAvatar);
   };
 
   const copyRoomCode = () => {

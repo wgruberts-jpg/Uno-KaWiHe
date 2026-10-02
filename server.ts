@@ -27,7 +27,8 @@ import {
   getUserFromToken,
   verifyAdminPin,
   getAllInvites,
-  saveInvites
+  saveInvites,
+  getAllUsers
 } from './server/authService.js';
 
 const app = express();
@@ -369,19 +370,21 @@ function isAdminRequest(req: any): boolean {
 // REST API for Room Administration
 app.get('/api/admin/cli-status', (req, res) => {
   const activeRooms = Array.from(rooms.values());
+  const allUsers = getAllUsers();
   const humanCount = activeRooms.reduce((acc, r) => acc + r.players.filter((p) => !p.isBot && p.isConnected).length, 0);
   const botCount = activeRooms.reduce((acc, r) => acc + r.players.filter((p) => p.isBot).length, 0);
 
   let output = `\n======================================================\n`;
   output += `           🎴 UNO KAWIHE - MONITOR DA VM\n`;
   output += `======================================================\n`;
-  output += `🟢 Servidor: ONLINE\n`;
+  output += `🟢 Servidor: ONLINE (Porta 3000)\n`;
   output += `🏠 Salas Abertas: ${activeRooms.length}\n`;
   output += `👥 Jogadores Conectados: ${humanCount} humano(s), ${botCount} robô(s)\n`;
+  output += `📋 Usuários Cadastrados: ${allUsers.length}\n`;
   output += `------------------------------------------------------\n`;
 
   if (activeRooms.length === 0) {
-    output += `(Nenhum jogador ou sala ativa no momento)\n`;
+    output += `(Nenhuma sala ativa no momento)\n`;
   } else {
     activeRooms.forEach((r) => {
       const statusStr = r.status === 'playing' ? '🎮 EM JOGO' : '⏳ LOBBY';
@@ -395,9 +398,96 @@ app.get('/api/admin/cli-status', (req, res) => {
     });
   }
 
-  output += `------------------------------------------------------\n\n`;
+  output += `\n------------------------------------------------------\n`;
+  output += `👤 USUÁRIOS REGISTRADOS NO SISTEMA:\n`;
+  allUsers.forEach((u) => {
+    // Check if user is currently playing in any active room
+    let onlineRoom: string | null = null;
+    activeRooms.forEach((r) => {
+      const p = r.players.find((pl) => !pl.isBot && pl.isConnected && (pl.name.toLowerCase() === u.displayName.toLowerCase() || pl.name.toLowerCase() === u.username.toLowerCase()));
+      if (p) onlineRoom = r.id;
+    });
+
+    const statusBadge = onlineRoom ? `🟢 ONLINE (Na Sala #${onlineRoom})` : `⚪ Offline`;
+    output += `   ${u.avatar} ${u.displayName} (@${u.username} ${u.tag || ''}) - [${u.role === 'admin' ? '👑 Admin' : '🎮 Jogador'}] -> ${statusBadge}\n`;
+  });
+  output += `======================================================\n\n`;
+
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   return res.send(output);
+});
+
+// Get all users with online & room status
+app.get('/api/admin/users', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const allUsers = getAllUsers();
+  const activeRooms = Array.from(rooms.values());
+
+  const userList = allUsers.map((u) => {
+    let isOnline = false;
+    let currentRoomId: string | null = null;
+    let roomStatus: string | null = null;
+
+    activeRooms.forEach((r) => {
+      const match = r.players.find(
+        (p) => !p.isBot && p.isConnected && (p.name.toLowerCase() === u.displayName.toLowerCase() || p.name.toLowerCase() === u.username.toLowerCase())
+      );
+      if (match) {
+        isOnline = true;
+        currentRoomId = r.id;
+        roomStatus = r.status;
+      }
+    });
+
+    return {
+      id: u.id,
+      username: u.username,
+      displayName: u.displayName,
+      avatar: u.avatar,
+      role: u.role,
+      tag: u.tag,
+      createdAt: u.createdAt,
+      isOnline,
+      currentRoomId,
+      roomStatus,
+    };
+  });
+
+  return res.json({ success: true, users: userList });
+});
+
+// Send message to a specific room
+app.post('/api/admin/rooms/:id/message', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const room = rooms.get(req.params.id?.toUpperCase());
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Sala não encontrada.' });
+  }
+
+  const { text, sender = '👑 Admin Edinho' } = req.body;
+  if (!text || !text.trim()) {
+    return res.status(400).json({ success: false, error: 'Mensagem vazia.' });
+  }
+
+  const chatMsg: ChatMessage = {
+    id: `admin-msg-${Date.now()}`,
+    playerId: 'admin',
+    playerName: sender,
+    avatar: '👑',
+    text: text.trim(),
+    timestamp: Date.now(),
+  };
+
+  broadcastToRoom(room.id, { type: 'chat_message', message: chatMsg });
+  broadcastLog(room, `💬 ${sender}: ${text.trim()}`, 'chat', sender);
+
+  return res.json({ success: true, message: `Mensagem transmitida para a Sala #${room.id} com sucesso!` });
 });
 
 app.get('/api/admin/rooms', (req, res) => {
@@ -1186,7 +1276,8 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'sync_session') {
-        const room = rooms.get(msg.roomId.toUpperCase());
+        const cleanRoomId = (msg.roomId || '').replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
+        const room = rooms.get(cleanRoomId);
         if (room) {
           const player = room.players.find((p) => p.id === msg.playerId);
           if (player) {
@@ -1195,19 +1286,56 @@ wss.on('connection', (ws: WebSocket) => {
             ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: player.id }));
             syncRoomState(room);
             return;
+          } else if (room.status === 'waiting') {
+            // Player had an ID from another session/room, but is trying to access this existing waiting room.
+            // Automatically join them!
+            // If room has bot and is full, replace a bot
+            if (room.players.length >= room.settings.maxPlayers) {
+              const botIdx = room.players.findIndex((p) => p.isBot);
+              if (botIdx !== -1) {
+                room.players.splice(botIdx, 1);
+              }
+            }
+
+            if (room.players.length < room.settings.maxPlayers) {
+              const newPlayer: InternalPlayer = {
+                id: `player-${Math.random().toString(36).substring(2, 9)}`,
+                name: 'Jogador',
+                avatar: '🎲',
+                isHost: room.players.filter((p) => !p.isBot && p.isConnected).length === 0,
+                isBot: false,
+                cardsCount: 0,
+                hasCalledUno: false,
+                isConnected: true,
+                score: 0,
+                hand: [],
+                hasDrawnThisTurn: false,
+              };
+
+              room.players.push(newPlayer);
+              clientConnections.set(ws, { roomId: room.id, playerId: newPlayer.id });
+              ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: newPlayer.id }));
+              broadcastLog(room, `${newPlayer.name} entrou na sala!`, 'system');
+              syncRoomState(room);
+              return;
+            }
           }
         }
         return;
       }
 
       if (msg.type === 'join_room') {
-        const room = rooms.get(msg.roomId.toUpperCase());
+        const cleanRoomId = (msg.roomId || '').replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
+        const room = rooms.get(cleanRoomId);
         if (!room) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Sala não encontrada. Verifique o código!' }));
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: `Sala #${cleanRoomId} não encontrada. Verifique se o código está correto ou se a sala já expirou.`
+          }));
           return;
         }
 
-        // Check if existing player is reconnecting
+        // Check if existing player in THIS room is reconnecting
         if (msg.existingPlayerId) {
           const existing = room.players.find((p) => p.id === msg.existingPlayerId);
           if (existing) {
@@ -1219,21 +1347,41 @@ wss.on('connection', (ws: WebSocket) => {
           }
         }
 
+        // Check if player by same name/avatar is reconnecting to a game in progress
         if (room.status === 'playing') {
+          const disc = room.players.find((p) => !p.isBot && !p.isConnected && p.name.toLowerCase() === msg.playerName.trim().toLowerCase());
+          if (disc) {
+            disc.isConnected = true;
+            clientConnections.set(ws, { roomId: room.id, playerId: disc.id });
+            ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: disc.id }));
+            broadcastLog(room, `🔄 ${disc.name} reconectou à partida!`, 'system');
+            syncRoomState(room);
+            return;
+          }
+
           ws.send(JSON.stringify({ type: 'error', message: 'A partida já está em andamento nesta sala.' }));
           return;
         }
 
+        // If room is full with bots, replace a bot with the real human player!
         if (room.players.length >= room.settings.maxPlayers) {
-          ws.send(JSON.stringify({ type: 'error', message: 'A sala já está cheia (máximo de jogadores atingido).' }));
-          return;
+          const botIdx = room.players.findIndex((p) => p.isBot);
+          if (botIdx !== -1) {
+            const removedBot = room.players.splice(botIdx, 1)[0];
+            broadcastLog(room, `🤖 ${removedBot.name} deu espaço para ${msg.playerName || 'Jogador'} entrar na mesa.`, 'system');
+          } else {
+            ws.send(JSON.stringify({ type: 'error', message: 'A sala já está cheia (máximo de 4 jogadores atingido).' }));
+            return;
+          }
         }
+
+        const hasOnlineHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);
 
         const newPlayer: InternalPlayer = {
           id: `player-${Math.random().toString(36).substring(2, 9)}`,
           name: msg.playerName.trim() || `Jogador ${room.players.length + 1}`,
           avatar: msg.avatar || '🎲',
-          isHost: false,
+          isHost: !hasOnlineHost && room.players.filter((p) => !p.isBot).length === 0,
           isBot: false,
           cardsCount: 0,
           hasCalledUno: false,
@@ -1608,9 +1756,21 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       const hasOnlineHumans = room.players.some((p) => !p.isBot && p.isConnected);
-      if (!hasOnlineHumans && (room.status === 'waiting' || room.status === 'ended')) {
-        stopTurnTimer(room);
-        rooms.delete(room.id);
+      if (!hasOnlineHumans) {
+        // Keep the room alive for 5 minutes so other players can join or the host can reconnect!
+        if (!room.emptyRoomTimeout) {
+          room.emptyRoomTimeout = setTimeout(() => {
+            const currentRoom = rooms.get(room.id);
+            if (currentRoom) {
+              const stillNoHumans = currentRoom.players.every((p) => p.isBot || !p.isConnected);
+              if (stillNoHumans) {
+                stopTurnTimer(currentRoom);
+                rooms.delete(currentRoom.id);
+                console.log(`[Room Cleanup] Sala #${currentRoom.id} encerrada por inatividade (5min).`);
+              }
+            }
+          }, 5 * 60 * 1000);
+        }
       } else {
         syncRoomState(room);
       }
