@@ -352,6 +352,154 @@ app.post('/api/user/stats', async (req, res) => {
   return res.json({ success: true, message: 'Estatísticas salvas com sucesso' });
 });
 
+// Admin Room Management Helper
+function isAdminRequest(req: any): boolean {
+  const pinHeader = req.headers['x-admin-pin'];
+  if (pinHeader === '774007' || pinHeader === process.env.ADMIN_PIN || pinHeader === '1234') {
+    return true;
+  }
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const user = getUserFromToken(authHeader.split(' ')[1]);
+    if (user && user.role === 'admin') return true;
+  }
+  return false;
+}
+
+// REST API for Room Administration
+app.get('/api/admin/cli-status', (req, res) => {
+  const activeRooms = Array.from(rooms.values());
+  const humanCount = activeRooms.reduce((acc, r) => acc + r.players.filter((p) => !p.isBot && p.isConnected).length, 0);
+  const botCount = activeRooms.reduce((acc, r) => acc + r.players.filter((p) => p.isBot).length, 0);
+
+  let output = `\n======================================================\n`;
+  output += `           🎴 UNO KAWIHE - MONITOR DA VM\n`;
+  output += `======================================================\n`;
+  output += `🟢 Servidor: ONLINE\n`;
+  output += `🏠 Salas Abertas: ${activeRooms.length}\n`;
+  output += `👥 Jogadores Conectados: ${humanCount} humano(s), ${botCount} robô(s)\n`;
+  output += `------------------------------------------------------\n`;
+
+  if (activeRooms.length === 0) {
+    output += `(Nenhum jogador ou sala ativa no momento)\n`;
+  } else {
+    activeRooms.forEach((r) => {
+      const statusStr = r.status === 'playing' ? '🎮 EM JOGO' : '⏳ LOBBY';
+      output += `\n[SALA #${r.id}] - ${statusStr} | Turno: ${r.settings.turnDuration}s | ${r.players.length}/${r.settings.maxPlayers} vagas\n`;
+      r.players.forEach((p) => {
+        const role = p.isHost ? '👑 Anfitrião' : p.isBot ? '🤖 Robô' : '🎮 Jogador';
+        const conn = p.isConnected ? '🟢 Online' : '🔴 Desconectado';
+        const cards = r.status === 'playing' ? `(${p.hand?.length || 0} cartas)` : '';
+        output += `   • ${p.avatar} ${p.name} [${role}] ${cards} - ${conn}\n`;
+      });
+    });
+  }
+
+  output += `------------------------------------------------------\n\n`;
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  return res.send(output);
+});
+
+app.get('/api/admin/rooms', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const list = Array.from(rooms.values()).map((r) => ({
+    id: r.id,
+    status: r.status,
+    playersCount: r.players.length,
+    maxPlayers: r.settings.maxPlayers,
+    turnDuration: r.settings.turnDuration,
+    roundTurnCount: r.roundTurnCount || 0,
+    players: r.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      avatar: p.avatar,
+      isHost: p.isHost,
+      isBot: p.isBot,
+      isConnected: p.isConnected,
+      cardsCount: p.hand?.length || 0,
+    })),
+  }));
+
+  return res.json({ success: true, rooms: list });
+});
+
+app.post('/api/admin/rooms/:id/close', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const room = rooms.get(req.params.id?.toUpperCase());
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Sala não encontrada.' });
+  }
+
+  const reason = req.body.reason || 'Esta sala foi encerrada pelo Administrador Edinho.';
+  broadcastToRoom(room.id, { type: 'player_kicked', reason });
+  stopTurnTimer(room);
+  rooms.delete(room.id);
+
+  return res.json({ success: true, message: `Sala ${room.id} fechada com sucesso.` });
+});
+
+app.post('/api/admin/rooms/:id/kick', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const room = rooms.get(req.params.id?.toUpperCase());
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Sala não encontrada.' });
+  }
+
+  const { targetPlayerId, reason = 'Você foi expulso pelo Administrador.' } = req.body;
+  const idx = room.players.findIndex((p) => p.id === targetPlayerId);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, error: 'Jogador não encontrado na sala.' });
+  }
+
+  const removed = room.players.splice(idx, 1)[0];
+  // Find connection to notify
+  clientConnections.forEach((meta, ws) => {
+    if (meta.playerId === targetPlayerId && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'player_kicked', reason }));
+      clientConnections.delete(ws);
+    }
+  });
+
+  broadcastLog(room, `🚫 ${removed.name} foi expulso da sala pelo Administrador.`, 'system');
+  syncRoomState(room);
+
+  return res.json({ success: true, message: `${removed.name} foi expulso com sucesso.` });
+});
+
+app.post('/api/admin/broadcast', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const { message, sender = '👑 Admin Edinho' } = req.body;
+  if (!message || !message.trim()) {
+    return res.status(400).json({ success: false, error: 'Mensagem não pode estar vazia.' });
+  }
+
+  const announcement: ServerMessage = {
+    type: 'global_announcement',
+    message: message.trim(),
+    sender,
+    timestamp: Date.now(),
+  };
+
+  rooms.forEach((room) => {
+    broadcastToRoom(room.id, announcement);
+    broadcastLog(room, `📢 [AVISO GLOBAL]: ${message.trim()}`, 'system', sender);
+  });
+
+  return res.json({ success: true, message: 'Aviso global transmitido a todas as salas com sucesso.' });
+});
+
 // In-memory rooms repository
 const rooms = new Map<string, RoomData>();
 // Map client WebSocket to playerId and roomId
@@ -1002,7 +1150,7 @@ wss.on('connection', (ws: WebSocket) => {
           hasDrawnThisTurn: false,
         };
 
-        const duration = msg.settings?.turnDuration !== undefined ? msg.settings.turnDuration : 25;
+        const duration = msg.settings?.turnDuration !== undefined ? msg.settings.turnDuration : 90;
         const room: RoomData = {
           id: roomId,
           settings: {
@@ -1104,6 +1252,88 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
+      // Global Admin WebSocket Messages
+      if (msg.type === 'admin_get_rooms') {
+        const isAdm = msg.adminSecret === '774007' || msg.adminSecret === process.env.ADMIN_PIN || msg.adminSecret === '1234';
+        if (isAdm) {
+          const list = Array.from(rooms.values()).map((r) => ({
+            id: r.id,
+            status: r.status,
+            playersCount: r.players.length,
+            maxPlayers: r.settings.maxPlayers,
+            turnDuration: r.settings.turnDuration,
+            roundTurnCount: r.roundTurnCount || 0,
+            players: r.players.map((p) => ({
+              id: p.id,
+              name: p.name,
+              avatar: p.avatar,
+              isHost: p.isHost,
+              isBot: p.isBot,
+              isConnected: p.isConnected,
+              cardsCount: p.hand?.length || 0,
+            })),
+          }));
+          ws.send(JSON.stringify({ type: 'admin_rooms_list', rooms: list }));
+        }
+        return;
+      }
+
+      if (msg.type === 'admin_close_room') {
+        const isAdm = msg.adminSecret === '774007' || msg.adminSecret === process.env.ADMIN_PIN || msg.adminSecret === '1234';
+        if (isAdm) {
+          const targetRoom = rooms.get(msg.roomId?.toUpperCase());
+          if (targetRoom) {
+            broadcastToRoom(targetRoom.id, {
+              type: 'player_kicked',
+              reason: msg.reason || 'Esta sala foi encerrada pelo Administrador Edinho.',
+            });
+            stopTurnTimer(targetRoom);
+            rooms.delete(targetRoom.id);
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'admin_force_end_game') {
+        const isAdm = msg.adminSecret === '774007' || msg.adminSecret === process.env.ADMIN_PIN || msg.adminSecret === '1234';
+        if (isAdm) {
+          const targetRoom = rooms.get(msg.roomId?.toUpperCase());
+          if (targetRoom) {
+            stopTurnTimer(targetRoom);
+            targetRoom.status = 'waiting';
+            targetRoom.winnerId = null;
+            targetRoom.unoVulnerablePlayerId = null;
+            targetRoom.discardPile = [];
+            targetRoom.deck = [];
+            targetRoom.players.forEach((p) => {
+              p.hand = [];
+              p.hasCalledUno = false;
+              p.hasDrawnThisTurn = false;
+            });
+            broadcastLog(targetRoom, '⚠️ Partida encerrada pelo Administrador. A sala retornou ao Lobby.', 'system');
+            syncRoomState(targetRoom);
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'admin_global_broadcast') {
+        const isAdm = msg.adminSecret === '774007' || msg.adminSecret === process.env.ADMIN_PIN || msg.adminSecret === '1234';
+        if (isAdm && msg.message) {
+          const announcement: ServerMessage = {
+            type: 'global_announcement',
+            message: msg.message.trim(),
+            sender: msg.sender || '👑 Admin Edinho',
+            timestamp: Date.now(),
+          };
+          rooms.forEach((r) => {
+            broadcastToRoom(r.id, announcement);
+            broadcastLog(r, `📢 [AVISO GLOBAL]: ${msg.message}`, 'system', msg.sender || 'Admin Edinho');
+          });
+        }
+        return;
+      }
+
       let meta = clientConnections.get(ws);
       if (!meta && 'roomId' in msg && 'playerId' in msg && msg.roomId && msg.playerId) {
         meta = { roomId: msg.roomId, playerId: msg.playerId };
@@ -1148,6 +1378,44 @@ wss.on('connection', (ws: WebSocket) => {
         if (idx !== -1) {
           const removed = room.players.splice(idx, 1)[0];
           broadcastLog(room, `${removed.name} foi removido.`, 'system');
+          syncRoomState(room);
+        }
+        return;
+      }
+
+      if (msg.type === 'kick_player') {
+        if (!player.isHost) return;
+        if (msg.targetPlayerId === player.id) return; // Cannot kick self
+
+        const idx = room.players.findIndex((p) => p.id === msg.targetPlayerId);
+        if (idx !== -1) {
+          const target = room.players.splice(idx, 1)[0];
+          // Notify target player connection
+          clientConnections.forEach((meta, wsClient) => {
+            if (meta.playerId === target.id && wsClient.readyState === WebSocket.OPEN) {
+              wsClient.send(
+                JSON.stringify({
+                  type: 'player_kicked',
+                  reason: msg.reason || `Você foi expulso da sala por ${player.name}.`,
+                })
+              );
+              clientConnections.delete(wsClient);
+            }
+          });
+
+          broadcastLog(room, `🚫 ${target.name} foi expulso da sala por ${player.name}.`, 'system');
+          syncRoomState(room);
+        }
+        return;
+      }
+
+      if (msg.type === 'transfer_host') {
+        if (!player.isHost) return;
+        const target = room.players.find((p) => p.id === msg.targetPlayerId && !p.isBot && p.isConnected);
+        if (target && target.id !== player.id) {
+          player.isHost = false;
+          target.isHost = true;
+          broadcastLog(room, `👑 ${target.name} foi promovido a novo Anfitrião da sala!`, 'system');
           syncRoomState(room);
         }
         return;
