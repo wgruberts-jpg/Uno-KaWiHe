@@ -20,7 +20,9 @@ import {
   LogOut,
   User,
   KeyRound,
-  Trophy
+  Trophy,
+  UserX,
+  Crown
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -30,12 +32,15 @@ interface LobbyProps {
   onAddBot: () => void;
   onFillBots: () => void;
   onRemoveBot: (botId: string) => void;
+  onKickPlayer?: (targetPlayerId: string) => void;
+  onTransferHost?: (targetPlayerId: string) => void;
   onStartGame: () => void;
   onResetRoom?: () => void;
   onOpenVmGuide: () => void;
   onOpenSettings: () => void;
   onOpenStats?: () => void;
   onOpenInvites?: () => void;
+  onOpenAdminRooms?: () => void;
   onLeaveRoom: () => void;
   onOpenAuth: () => void;
   currentUser: UserProfile | null;
@@ -54,12 +59,15 @@ export const Lobby: React.FC<LobbyProps> = ({
   onAddBot,
   onFillBots,
   onRemoveBot,
+  onKickPlayer,
+  onTransferHost,
   onStartGame,
   onResetRoom,
   onOpenVmGuide,
   onOpenSettings,
   onOpenStats,
   onOpenInvites,
+  onOpenAdminRooms,
   onLeaveRoom,
   onOpenAuth,
   currentUser,
@@ -83,7 +91,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [turnDuration, setTurnDuration] = useState<number>(() => {
     const saved = localStorage.getItem('uno_turn_duration');
-    return saved !== null ? Number(saved) : 25;
+    return saved !== null ? Number(saved) : 90; // Padrão: 1 minuto e meio (90s)
   });
   const [maxPlayers, setMaxPlayers] = useState<number>(4);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -217,6 +225,19 @@ export const Lobby: React.FC<LobbyProps> = ({
             >
               <span>🎟️</span>
               <span className="hidden sm:inline">Convites</span>
+            </button>
+          )}
+
+          {/* Admin Rooms Management Button (Visible to Edinho and Admins) */}
+          {currentUser?.role === 'admin' && onOpenAdminRooms && (
+            <button
+              type="button"
+              onClick={onOpenAdminRooms}
+              className="px-2.5 sm:px-3 py-1.5 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white border-2 border-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95"
+              title="Painel de Moderação e Gestão de Salas"
+            >
+              <span>🛡️</span>
+              <span className="hidden sm:inline">Salas</span>
             </button>
           )}
 
@@ -477,20 +498,20 @@ export const Lobby: React.FC<LobbyProps> = ({
                       <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
                         <Clock className="w-3.5 h-3.5 text-amber-500" /> Tempo de Turno (vs Humanos):
                       </span>
-                      <div className="grid grid-cols-4 gap-1.5">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                         {[
-                          { sec: 15, label: '15s' },
-                          { sec: 25, label: '25s' },
-                          { sec: 40, label: '40s' },
+                          { sec: 30, label: '30s (Rápido)' },
                           { sec: 60, label: '1 Min (60s)' },
+                          { sec: 90, label: '1m30s (Padrão ⭐)' },
+                          { sec: 120, label: '2 Min (120s)' },
                         ].map((item) => (
                           <button
                             key={item.sec}
                             type="button"
                             onClick={() => setTurnDuration(item.sec)}
-                            className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 ${
+                            className={`py-2 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
                               turnDuration === item.sec
-                                ? 'bg-gradient-to-r from-yellow-300 to-amber-400 text-amber-950 border-white shadow'
+                                ? 'bg-gradient-to-r from-yellow-300 to-amber-400 text-amber-950 border-white shadow-md scale-102 ring-2 ring-amber-400'
                                 : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
                             }`}
                           >
@@ -682,15 +703,43 @@ export const Lobby: React.FC<LobbyProps> = ({
                         </div>
                       </div>
 
-                      {isHost && p.isBot && (
-                        <button
-                          type="button"
-                          onClick={() => onRemoveBot(p.id)}
-                          className="p-1.5 rounded-xl text-rose-500 hover:text-white hover:bg-rose-500 cursor-pointer transition-colors"
-                          title="Remover Bot"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      {/* Host Moderation Controls */}
+                      {(isHost || currentUser?.role === 'admin') && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {p.isBot ? (
+                            <button
+                              type="button"
+                              onClick={() => onRemoveBot(p.id)}
+                              className="p-1.5 rounded-xl text-rose-500 hover:text-white hover:bg-rose-500 cursor-pointer transition-colors"
+                              title="Remover Robô"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ) : !isMe ? (
+                            <>
+                              {onTransferHost && (
+                                <button
+                                  type="button"
+                                  onClick={() => onTransferHost(p.id)}
+                                  className="p-1.5 rounded-xl text-amber-500 hover:text-slate-900 hover:bg-amber-400 cursor-pointer transition-colors"
+                                  title="Passar Liderança da Sala para este jogador"
+                                >
+                                  <Crown className="w-4 h-4" />
+                                </button>
+                              )}
+                              {onKickPlayer && (
+                                <button
+                                  type="button"
+                                  onClick={() => onKickPlayer(p.id)}
+                                  className="p-1.5 rounded-xl text-rose-500 hover:text-white hover:bg-rose-500 cursor-pointer transition-colors"
+                                  title="Expulsar Jogador da Sala"
+                                >
+                                  <UserX className="w-4 h-4" />
+                                </button>
+                              )}
+                            </>
+                          ) : null}
+                        </div>
                       )}
                     </div>
                   );

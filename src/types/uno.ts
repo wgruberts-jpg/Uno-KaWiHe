@@ -176,6 +176,24 @@ export interface ActiveEmote {
   timestamp: number;
 }
 
+export interface AdminRoomSummary {
+  id: string;
+  status: 'waiting' | 'playing' | 'ended';
+  playersCount: number;
+  maxPlayers: number;
+  turnDuration: number;
+  players: Array<{
+    id: string;
+    name: string;
+    avatar: string;
+    isHost: boolean;
+    isBot: boolean;
+    isConnected: boolean;
+    cardsCount: number;
+  }>;
+  roundTurnCount?: number;
+}
+
 // WebSocket message protocols
 export type ClientMessage =
   | { type: 'create_room'; playerName: string; avatar: string; settings?: Partial<RoomSettings> }
@@ -187,6 +205,8 @@ export type ClientMessage =
   | { type: 'update_settings'; roomId: string; settings: Partial<RoomSettings>; playerId?: string }
   | { type: 'leave_room'; roomId: string; playerId: string }
   | { type: 'remove_bot'; roomId: string; botId: string; playerId?: string }
+  | { type: 'kick_player'; roomId: string; targetPlayerId: string; playerId?: string; reason?: string }
+  | { type: 'transfer_host'; roomId: string; targetPlayerId: string; playerId?: string }
   | { type: 'start_game'; roomId: string; playerId?: string }
   | { type: 'play_card'; roomId: string; cardId: string; chosenColor?: CardColor; playerId?: string }
   | { type: 'draw_card'; roomId: string; playerId?: string }
@@ -197,7 +217,11 @@ export type ClientMessage =
   | { type: 'return_to_lobby'; roomId: string; playerId?: string }
   | { type: 'reset_room'; roomId: string; playerId?: string }
   | { type: 'send_chat'; roomId: string; text: string; playerId?: string }
-  | { type: 'send_emote'; roomId: string; emoteId: string; playerId?: string };
+  | { type: 'send_emote'; roomId: string; emoteId: string; playerId?: string }
+  | { type: 'admin_get_rooms'; adminSecret?: string }
+  | { type: 'admin_close_room'; roomId: string; adminSecret?: string; reason?: string }
+  | { type: 'admin_force_end_game'; roomId: string; adminSecret?: string }
+  | { type: 'admin_global_broadcast'; message: string; sender?: string; adminSecret?: string };
 
 export type ServerMessage =
   | { type: 'room_joined'; roomId: string; playerId: string }
@@ -206,4 +230,7 @@ export type ServerMessage =
   | { type: 'game_log'; log: GameLog }
   | { type: 'sound_event'; sound: 'play' | 'draw' | 'uno' | 'reverse' | 'skip' | 'wild' | 'win' | 'penalty' }
   | { type: 'player_emote'; emote: ActiveEmote }
+  | { type: 'admin_rooms_list'; rooms: AdminRoomSummary[] }
+  | { type: 'player_kicked'; reason: string }
+  | { type: 'global_announcement'; message: string; sender: string; timestamp: number }
   | { type: 'error'; message: string };

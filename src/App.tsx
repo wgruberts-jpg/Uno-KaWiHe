@@ -18,6 +18,7 @@ import { SettingsModal } from './components/SettingsModal.js';
 import { AuthModal } from './components/AuthModal.js';
 import { StatsModal } from './components/StatsModal.js';
 import { AdminInvitesModal } from './components/AdminInvitesModal.js';
+import { AdminRoomsModal } from './components/AdminRoomsModal.js';
 import { LoginScreen } from './components/LoginScreen.js';
 import { sound } from './services/sound.js';
 import { auth } from './services/auth.js';
@@ -38,6 +39,8 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isAdminInvitesOpen, setIsAdminInvitesOpen] = useState(false);
+  const [isAdminRoomsOpen, setIsAdminRoomsOpen] = useState(false);
+  const [globalAnnouncement, setGlobalAnnouncement] = useState<{ message: string; sender: string } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const lastProcessedWinnerRef = useRef<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => auth.getCurrentUser());
@@ -201,6 +204,19 @@ export default function App() {
           }
         } else if (msg.type === 'player_emote') {
           handleIncomingEmote(msg.emote);
+        } else if (msg.type === 'player_kicked') {
+          setErrorMessage(`🚫 ${msg.reason || 'Você foi removido da sala.'}`);
+          setRoomId(null);
+          setGameState(null);
+          sessionStorage.removeItem('uno_player_id');
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('room');
+          window.history.replaceState({}, '', newUrl.toString());
+          setTimeout(() => setErrorMessage(null), 5000);
+        } else if (msg.type === 'global_announcement') {
+          setGlobalAnnouncement({ message: msg.message, sender: msg.sender });
+          sound.unoCall();
+          setTimeout(() => setGlobalAnnouncement(null), 7000);
         } else if (msg.type === 'error') {
           setErrorMessage(msg.message);
           if (
@@ -352,6 +368,18 @@ export default function App() {
     send({ type: 'reset_room', roomId: rid, playerId: myPlayerId });
   };
 
+  const handleKickPlayer = (targetPlayerId: string) => {
+    const rid = getActiveRoomId();
+    if (!rid) return;
+    send({ type: 'kick_player', roomId: rid, targetPlayerId, playerId: myPlayerId });
+  };
+
+  const handleTransferHost = (targetPlayerId: string) => {
+    const rid = getActiveRoomId();
+    if (!rid) return;
+    send({ type: 'transfer_host', roomId: rid, targetPlayerId, playerId: myPlayerId });
+  };
+
   const handleSendEmote = (emoteId: string) => {
     const rid = getActiveRoomId();
     if (!rid) return;
@@ -430,6 +458,9 @@ export default function App() {
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenStats={() => setIsStatsOpen(true)}
             onOpenInvites={() => setIsAdminInvitesOpen(true)}
+            onOpenAdminRooms={() => setIsAdminRoomsOpen(true)}
+            onKickPlayer={handleKickPlayer}
+            onTransferHost={handleTransferHost}
             onLeaveRoom={handleLeaveGame}
             onOpenAuth={() => setIsAuthOpen(true)}
             currentUser={currentUser}
@@ -528,6 +559,36 @@ export default function App() {
         isOpen={isAdminInvitesOpen}
         onClose={() => setIsAdminInvitesOpen(false)}
       />
+
+      {/* Admin Rooms Management & Moderation Modal (Edinho Admin) */}
+      <AdminRoomsModal
+        isOpen={isAdminRoomsOpen}
+        onClose={() => setIsAdminRoomsOpen(false)}
+        currentUser={currentUser}
+        ws={wsRef.current}
+      />
+
+      {/* Global Server Announcement Banner */}
+      {globalAnnouncement && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[90%] bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 p-4 rounded-3xl shadow-2xl border-4 border-white animate-in slide-in-from-top-4 duration-300 flex items-start gap-3">
+          <div className="text-2xl shrink-0">📢</div>
+          <div className="flex-1">
+            <div className="text-[11px] font-black uppercase tracking-wider text-amber-950">
+              Aviso Global de {globalAnnouncement.sender}
+            </div>
+            <div className="text-xs sm:text-sm font-black text-slate-950 mt-0.5">
+              {globalAnnouncement.message}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setGlobalAnnouncement(null)}
+            className="p-1 rounded-full hover:bg-black/10 text-slate-900 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }
