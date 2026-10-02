@@ -130,7 +130,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 Configurações & Painel Admin
               </h3>
               <p className="text-[11px] text-slate-500 font-bold">
-                Ajuste opções gerais ou desbloqueie trapaças com senha
+                Ajuste opções gerais ou acesse recursos avançados do administrador
               </p>
             </div>
           </div>
@@ -144,7 +144,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Tab switcher: Geral vs Trapaças / Admin */}
+        {/* Tab switcher: Geral vs Avançado / Admin */}
         <div className="grid grid-cols-2 gap-2 mt-3 p-1 bg-slate-100 rounded-2xl shrink-0">
           <button
             type="button"
@@ -164,7 +164,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={() => setActiveTab('admin')}
             className={`py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'admin'
-                ? 'bg-rose-500 text-white shadow-sm border border-rose-600'
+                ? 'bg-indigo-600 text-white shadow-sm border border-indigo-700'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -173,7 +173,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             ) : (
               <Lock className="w-3.5 h-3.5 text-amber-500" />
             )}
-            <span>Trapaças & Admin</span>
+            <span>Avançado & Admin</span>
             {isAdminUnlocked && (
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
             )}
@@ -308,7 +308,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       Área Restrita do Administrador
                     </h4>
                     <p className="text-[11px] text-rose-800 font-medium mt-1">
-                      As opções de trapaça (ver cartas dos robôs, acelerar tempo e proteção) são bloqueadas para evitar trapaças por outros jogadores ou crianças sem permissão.
+                      Os recursos avançados da mesa (ver cartas dos robôs no modo treino, ajuste de velocidade e proteção auxiliar) são protegidos por PIN para controle do administrador.
                     </p>
                   </div>
 
@@ -352,11 +352,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </span>
                     </div>
                     <span className="text-[10px] bg-emerald-200 text-emerald-900 font-black px-2 py-0.5 rounded-full border border-emerald-300">
-                      Cheats Liberados
+                      Recursos Liberados
                     </span>
                   </div>
 
-                  {/* Cheat 1: Ver Cartas dos Robôs (Modo Raio-X) */}
+                  {/* Recurso 1: Ver Cartas dos Robôs (Modo Treino / Aprendizado) */}
                   <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-sky-50 rounded-2xl border-2 border-emerald-300 flex items-center justify-between gap-3 shadow-sm">
                     <div className="flex items-start gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-700 shrink-0 mt-0.5">
@@ -364,10 +364,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <div>
                         <span className="font-black text-slate-900 block text-xs">
-                          👀 Ver Cartas dos Robôs (Modo Raio-X / Criança)
+                          👀 Ver Cartas dos Robôs (Modo Treino / Criança)
                         </span>
                         <p className="text-[11px] text-slate-600 font-medium">
-                          Mostra as cartas dos robôs abertas e visíveis na mesa.
+                          Mostra as cartas dos robôs abertas e visíveis na mesa para auxiliar crianças e iniciantes.
                         </p>
                       </div>
                     </div>
@@ -387,7 +387,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Cheat 2: Velocidade dos Robôs */}
+                  {/* Recurso 2: Velocidade dos Robôs */}
                   <div className="p-3.5 bg-sky-50 rounded-2xl border-2 border-sky-200 shadow-sm space-y-2">
                     <div className="flex items-center gap-2">
                       <Bot className="w-4 h-4 text-sky-600" />
@@ -418,7 +418,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Cheat 3: Tempo de Turno */}
+                  {/* Recurso 3: Tempo de Turno */}
                   <div className="p-3.5 bg-amber-50 rounded-2xl border-2 border-amber-200 shadow-sm space-y-2">
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4 text-amber-600" />
@@ -451,7 +451,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Cheat 4: Proteção Infantil de UNO */}
+                  {/* Recurso 4: Proteção Infantil de UNO */}
                   <div className="p-3.5 bg-rose-50 rounded-2xl border-2 border-rose-200 flex items-center justify-between gap-3 shadow-sm">
                     <div className="flex items-start gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-600 shrink-0 mt-0.5">
