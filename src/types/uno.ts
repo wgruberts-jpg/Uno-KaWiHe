@@ -194,6 +194,19 @@ export interface AdminRoomSummary {
   roundTurnCount?: number;
 }
 
+export interface AdminUserSummary {
+  id: string;
+  username: string;
+  displayName: string;
+  avatar: string;
+  role: UserRole;
+  tag?: string;
+  createdAt: string;
+  isOnline: boolean;
+  currentRoomId?: string | null;
+  roomStatus?: string | null;
+}
+
 // WebSocket message protocols
 export type ClientMessage =
   | { type: 'create_room'; playerName: string; avatar: string; settings?: Partial<RoomSettings> }

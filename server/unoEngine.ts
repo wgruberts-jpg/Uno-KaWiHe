@@ -93,6 +93,7 @@ export interface RoomData {
   unoVulnerablePlayerId: string | null;
   turnTimerInterval: NodeJS.Timeout | null;
   botTimerTimeout: NodeJS.Timeout | null;
+  emptyRoomTimeout?: NodeJS.Timeout | null;
   // Session & Round statistics
   roundStartTime?: number;
   roundTurnCount?: number;
