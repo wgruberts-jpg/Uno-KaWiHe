@@ -26,7 +26,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
   const [pushToTalkMode, setPushToTalkMode] = useState(false);
 
   useEffect(() => {
-    voiceChat.setEvents({
+    const unsubscribe = voiceChat.subscribe({
       onPeersChange: (peers) => setPeerStates(peers),
       onLocalStateChange: (state) => {
         setIsJoined(state.isJoined);
@@ -41,7 +41,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
     });
 
     return () => {
-      // Keep voice alive during page stay, leave on unmount
+      unsubscribe();
     };
   }, []);
 
@@ -114,88 +114,98 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
         </div>
       )}
 
-      {!isJoined ? (
-        /* Connect to Voice Button */
-        <button
-          type="button"
-          onClick={handleJoinVoice}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-emerald-500/90 hover:bg-emerald-500 text-white font-black text-xs shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer border border-emerald-300/40 backdrop-blur-xs"
-          title="Entrar no Chat de Voz P2P (Direto PC a PC, sem lag)"
-        >
-          <Radio className="w-4 h-4 animate-pulse text-emerald-100" />
-          <span className="hidden sm:inline">Voz P2P</span>
-          <span className="sm:hidden">Voz</span>
-          {activeInVoiceCount > 0 && (
-            <span className="bg-emerald-700 text-emerald-100 px-1.5 py-0.2 rounded-full text-[10px]">
-              {activeInVoiceCount}
-            </span>
-          )}
-        </button>
-      ) : (
-        /* Connected Voice Control Bar */
-        <div className="flex items-center gap-1.5 bg-slate-900/90 text-white px-2 py-1 rounded-2xl shadow-lg border border-emerald-500/40 backdrop-blur-md">
-          {/* Speaking Wave Indicator */}
-          <div
-            className={`w-2.5 h-2.5 rounded-full transition-all ${
-              isSpeaking
-                ? 'bg-emerald-400 ring-4 ring-emerald-400/40 scale-125'
-                : isMuted
-                ? 'bg-rose-500'
-                : 'bg-emerald-500'
-            }`}
-            title={isSpeaking ? 'Você está falando' : isMuted ? 'Microfone Mutado' : 'Microfone Ativo'}
-          />
-
-          {/* Mute Button */}
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* 1. Main Voice Status Button */}
+        {!isJoined ? (
           <button
             type="button"
-            onClick={handleToggleMute}
-            className={`p-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
-              isMuted
-                ? 'bg-rose-500 text-white hover:bg-rose-600'
-                : 'bg-emerald-600/80 hover:bg-emerald-600 text-white'
-            }`}
-            title={isMuted ? 'Desmutar Microfone' : 'Mutar Microfone'}
+            onClick={handleJoinVoice}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs shadow-sm hover:scale-102 active:scale-95 transition-all cursor-pointer border-2 border-emerald-300"
+            title="Entrar no Chat de Voz P2P (Sem servidor, direto entre navegadores)"
           >
-            {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            <Radio className="w-4 h-4 animate-pulse text-emerald-100" />
+            <span className="hidden xs:inline">Voz P2P</span>
+            <span className="xs:hidden">Voz</span>
+            {activeInVoiceCount > 0 && (
+              <span className="bg-emerald-800 text-emerald-100 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                {activeInVoiceCount}
+              </span>
+            )}
           </button>
-
-          {/* Deafen Button */}
-          <button
-            type="button"
-            onClick={handleToggleDeafen}
-            className={`p-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              isDeafened
-                ? 'bg-amber-500 text-slate-950 hover:bg-amber-600'
-                : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-            }`}
-            title={isDeafened ? 'Ouvir a Sala (Desensurdecer)' : 'Ensurdecer (Não ouvir ninguém)'}
-          >
-            {isDeafened ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-          </button>
-
-          {/* Toggle Voice Member List Popup */}
+        ) : (
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer flex items-center gap-1"
-            title="Ver participantes no áudio"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-sm active:scale-95 transition-all cursor-pointer border-2 border-emerald-300"
+            title="Clique para ver participantes e configurações de áudio"
           >
-            <Users className="w-3.5 h-3.5" />
-            <span className="text-[10px] font-black">{activeInVoiceCount}</span>
+            <Radio className="w-4 h-4 text-emerald-200 animate-pulse" />
+            <span className="hidden sm:inline">Voz Conectada</span>
+            <span className="sm:hidden">Voz</span>
+            <span className="bg-emerald-900 text-emerald-100 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+              {activeInVoiceCount}
+            </span>
           </button>
+        )}
 
-          {/* Disconnect from Voice */}
+        {/* 2. Direct Mute/Unmute Microphone Button - Always beside it! */}
+        {!isJoined ? (
+          <button
+            type="button"
+            onClick={handleJoinVoice}
+            className="p-1.5 sm:p-2 px-2 sm:px-3 rounded-xl sm:rounded-2xl bg-white border-2 border-emerald-400 text-emerald-800 hover:bg-emerald-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-black text-xs"
+            title="Ligar microfone e entrar na chamada de voz"
+          >
+            <Mic className="w-4 h-4 text-emerald-600" />
+            <span className="hidden sm:inline">Microfone</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleToggleMute}
+            className={`p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl border-2 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 font-black text-xs ${
+              isMuted
+                ? 'bg-rose-50 border-rose-400 text-rose-700 hover:bg-rose-100 ring-2 ring-rose-400/40'
+                : 'bg-white border-emerald-400 text-emerald-800 hover:bg-emerald-50'
+            }`}
+            title={isMuted ? 'Microfone Mutado (Clique para Falar)' : 'Microfone Aberto (Clique para Mutar)'}
+          >
+            {/* Speaking Pulse Dot */}
+            <span
+              className={`w-2.5 h-2.5 rounded-full transition-all ${
+                isMuted
+                  ? 'bg-rose-500'
+                  : isSpeaking
+                  ? 'bg-emerald-500 ring-4 ring-emerald-400/40 animate-pulse scale-110'
+                  : 'bg-emerald-500'
+              }`}
+            />
+            {isMuted ? (
+              <>
+                <MicOff className="w-4 h-4 text-rose-600" />
+                <span>Mutado</span>
+              </>
+            ) : (
+              <>
+                <Mic className="w-4 h-4 text-emerald-600" />
+                <span>Mutar</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* 3. Disconnect button when joined */}
+        {isJoined && (
           <button
             type="button"
             onClick={handleLeaveVoice}
-            className="p-1.5 rounded-xl bg-rose-600/80 hover:bg-rose-600 text-white text-xs cursor-pointer transition-colors"
-            title="Desconectar da chamada de voz"
+            className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-rose-50 hover:bg-rose-100 border-2 border-rose-300 text-rose-700 text-xs font-bold cursor-pointer transition-all shadow-sm active:scale-95 flex items-center"
+            title="Desconectar do chat de voz"
           >
-            <PhoneOff className="w-3.5 h-3.5" />
+            <PhoneOff className="w-4 h-4 text-rose-600" />
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Expanded Voice Menu Overlay / Dropdown */}
       {isJoined && isExpanded && (

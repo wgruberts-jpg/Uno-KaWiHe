@@ -31,10 +31,26 @@ export class VoiceChatService {
   private analyser: AnalyserNode | null = null;
   private animFrameId: number | null = null;
   private speakingThreshold = 18; // volume sensitivity
-  private events: VoiceEvents | null = null;
+  private listeners: Set<VoiceEvents> = new Set();
+
+  public subscribe(events: VoiceEvents): () => void {
+    this.listeners.add(events);
+    // Send initial state immediately
+    events.onLocalStateChange({
+      isJoined: this.isJoined,
+      isMuted: this.isMuted,
+      isDeafened: this.isDeafened,
+      isSpeaking: this.isSpeaking,
+    });
+    events.onPeersChange({ ...this.peerStates });
+
+    return () => {
+      this.listeners.delete(events);
+    };
+  }
 
   public setEvents(events: VoiceEvents) {
-    this.events = events;
+    this.subscribe(events);
   }
 
   public getIsJoined(): boolean {
@@ -63,7 +79,14 @@ export class VoiceChatService {
     activePlayers: Array<{ id: string; isBot?: boolean }>,
     sendMessage: (msg: ClientMessage) => void
   ): Promise<boolean> {
-    if (this.isJoined) return true;
+    // If already joined in a different room or with different player, reset completely first!
+    if (this.isJoined) {
+      const tracksActive = this.localStream?.getAudioTracks().some((t) => t.readyState === 'live');
+      if (this.roomId === roomId && this.myPlayerId === myPlayerId && tracksActive) {
+        return true;
+      }
+      this.leaveVoice();
+    }
 
     this.roomId = roomId;
     this.myPlayerId = myPlayerId;
@@ -71,7 +94,7 @@ export class VoiceChatService {
 
     if (!window.isSecureContext || !navigator?.mediaDevices?.getUserMedia) {
       const msg = 'Navegadores exigem conexão segura (HTTPS) para liberar o microfone. Em HTTP (IP direto), o microfone é bloqueado pelo próprio navegador.';
-      this.events?.onError(msg);
+      this.notifyError(msg);
       return false;
     }
 
@@ -114,14 +137,12 @@ export class VoiceChatService {
       } else if (err.name === 'NotFoundError') {
         msg = 'Nenhum microfone encontrado neste dispositivo.';
       }
-      this.events?.onError(msg);
+      this.notifyError(msg);
       return false;
     }
   }
 
   public leaveVoice() {
-    if (!this.isJoined) return;
-
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
@@ -134,13 +155,17 @@ export class VoiceChatService {
       this.audioContext = null;
     }
 
-    // Stop local tracks
+    // Stop local tracks safely
     if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => track.stop());
+      this.localStream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {}
+      });
       this.localStream = null;
     }
 
-    // Close all peer connections
+    // Close all peer connections safely
     for (const [peerId, pc] of this.peerConnections.entries()) {
       try {
         pc.close();
@@ -148,7 +173,7 @@ export class VoiceChatService {
     }
     this.peerConnections.clear();
 
-    // Remove remote audio elements
+    // Remove remote audio elements safely
     for (const [peerId, audio] of this.remoteAudioElements.entries()) {
       try {
         audio.pause();
@@ -157,26 +182,36 @@ export class VoiceChatService {
       } catch (e) {}
     }
     this.remoteAudioElements.clear();
+    this.peerStates = {};
+
+    const prevRoomId = this.roomId;
+    const prevPlayerId = this.myPlayerId;
+    const prevSender = this.sendSocketMessage;
 
     this.isJoined = false;
     this.isSpeaking = false;
     this.isMuted = false;
     this.isDeafened = false;
+    this.roomId = null;
+    this.myPlayerId = null;
 
-    // Broadcast leave
-    if (this.roomId && this.myPlayerId && this.sendSocketMessage) {
-      this.sendSocketMessage({
-        type: 'rtc_voice_state',
-        roomId: this.roomId,
-        playerId: this.myPlayerId,
-        isMuted: true,
-        isDeafened: true,
-        isSpeaking: false,
-        joined: false,
-      });
+    // Broadcast leave to peers in that room
+    if (prevRoomId && prevPlayerId && prevSender) {
+      try {
+        prevSender({
+          type: 'rtc_voice_state',
+          roomId: prevRoomId,
+          playerId: prevPlayerId,
+          isMuted: true,
+          isDeafened: true,
+          isSpeaking: false,
+          joined: false,
+        });
+      } catch (e) {}
     }
 
     this.notifyLocalState();
+    this.notifyPeersChange();
   }
 
   public toggleMute(): boolean {
@@ -256,7 +291,7 @@ export class VoiceChatService {
       }
     }
 
-    this.events?.onPeersChange({ ...this.peerStates });
+    this.notifyPeersChange();
   }
 
   // WebRTC Mesh Connection Logic
@@ -432,11 +467,33 @@ export class VoiceChatService {
   }
 
   private notifyLocalState() {
-    this.events?.onLocalStateChange({
+    const state = {
       isJoined: this.isJoined,
       isMuted: this.isMuted,
       isDeafened: this.isDeafened,
       isSpeaking: this.isSpeaking,
+    };
+    this.listeners.forEach((listener) => {
+      try {
+        listener.onLocalStateChange(state);
+      } catch (e) {}
+    });
+  }
+
+  private notifyPeersChange() {
+    const peers = { ...this.peerStates };
+    this.listeners.forEach((listener) => {
+      try {
+        listener.onPeersChange(peers);
+      } catch (e) {}
+    });
+  }
+
+  private notifyError(msg: string) {
+    this.listeners.forEach((listener) => {
+      try {
+        listener.onError(msg);
+      } catch (e) {}
     });
   }
 }

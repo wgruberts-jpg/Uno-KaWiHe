@@ -33,9 +33,39 @@ obter_link_tunnel() {
   echo "$link"
 }
 
+fazer_backup_seguranca() {
+  mostrar_banner
+  echo -e "${YELLOW}💾 Executando backup com a tag #antescloudflare...${NC}"
+  echo ""
+  local script_backup="./backup.sh"
+  if [ -f "./scripts/backup.sh" ]; then
+    script_backup="./scripts/backup.sh"
+  fi
+
+  bash "$script_backup" antescloudflare
+  echo ""
+  echo -e "${GREEN}✓ Ponto de restauração seguro criado com sucesso!${NC}"
+  echo -e "Caso queira restaurar a qualquer momento no futuro, basta rodar:"
+  echo -e "${BOLD}${CYAN}bash restore.sh antescloudflare${NC}"
+  echo ""
+  read -r -p "Pressione [ENTER] para voltar ao menu..."
+}
+
 ativar_cloudflare() {
   mostrar_banner
   echo -e "${CYAN}▶ Verificando status do Cloudflare...${NC}"
+
+  # Se for a primeira inicialização, garante o backup com tag #antescloudflare antes de subir o túnel
+  if [ ! -f "${HOME}/backups/uno-kawihe/LATEST_BACKUP_antescloudflare.txt" ]; then
+    echo ""
+    echo -e "${YELLOW}🛡️  [SEGURANÇA] Criando backup automático com a tag #antescloudflare...${NC}"
+    local script_backup="./backup.sh"
+    if [ -f "./scripts/backup.sh" ]; then
+      script_backup="./scripts/backup.sh"
+    fi
+    bash "$script_backup" antescloudflare || true
+    echo ""
+  fi
 
   if docker ps --format '{{.Names}}' | grep -q "^uno-tunnel$"; then
     echo -e "${GREEN}✓ O túnel Cloudflare já está em execução!${NC}"
@@ -171,16 +201,18 @@ while true; do
   echo -e "  ${BOLD}2)${NC} ${CYAN}🔍 Ver Link Atual e Status${NC}"
   echo -e "  ${BOLD}3)${NC} ${YELLOW}⏸  Parar Cloudflare${NC} (Pausar o túnel)"
   echo -e "  ${BOLD}4)${NC} ${RED}🗑️  Desinstalar / Remover Cloudflare${NC} (Apagar tudo)"
-  echo -e "  ${BOLD}5)${NC} 🚪 Sair"
+  echo -e "  ${BOLD}5)${NC} ${BLUE}💾 Fazer Backup de Segurança (#antescloudflare)${NC}"
+  echo -e "  ${BOLD}6)${NC} 🚪 Sair"
   echo ""
-  read -r -p "Digite o número da opção desejada [1-5]: " opcao
+  read -r -p "Digite o número da opção desejada [1-6]: " opcao
 
   case $opcao in
     1) ativar_cloudflare ;;
     2) status_link ;;
     3) parar_cloudflare ;;
     4) desinstalar_cloudflare ;;
-    5)
+    5) fazer_backup_seguranca ;;
+    6)
       echo ""
       echo -e "${GREEN}Até logo! Bom jogo! 🃏${NC}"
       exit 0

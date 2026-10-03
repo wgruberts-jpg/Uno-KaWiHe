@@ -293,5 +293,6 @@ export type ServerMessage =
   | { type: 'rtc_voice_state'; roomId: string; playerId: string; isMuted: boolean; isDeafened: boolean; isSpeaking: boolean; joined: boolean }
   | { type: 'admin_rooms_list'; rooms: AdminRoomSummary[] }
   | { type: 'player_kicked'; reason: string }
+  | { type: 'left_room_confirmed'; roomId?: string }
   | { type: 'global_announcement'; message: string; sender: string; timestamp: number }
   | { type: 'error'; message: string };

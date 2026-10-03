@@ -110,6 +110,7 @@ export default function App() {
   const prevTurnRef = useRef<string>('');
   const roomIdRef = useRef<string | null>(roomId);
   const myPlayerIdRef = useRef<string>(myPlayerId);
+  const hasLeftRoomRef = useRef<boolean>(false);
 
   useEffect(() => {
     roomIdRef.current = roomId;
@@ -131,6 +132,10 @@ export default function App() {
 
     socket.onopen = () => {
       console.log('Connected to UNO Game Server');
+      if (hasLeftRoomRef.current) {
+        return;
+      }
+
       const urlParams = new URLSearchParams(window.location.search);
       const activeRoom = roomIdRef.current || urlParams.get('room');
       const activePlayer = myPlayerIdRef.current;
@@ -172,7 +177,18 @@ export default function App() {
       try {
         const msg: ServerMessage = JSON.parse(event.data);
 
+        if (msg.type === 'left_room_confirmed') {
+          hasLeftRoomRef.current = true;
+          setRoomId(null);
+          setMyPlayerId('');
+          setGameState(null);
+          setChatMessages([]);
+          setGameLogs([]);
+          return;
+        }
+
         if (msg.type === 'room_joined') {
+          hasLeftRoomRef.current = false;
           setRoomId(msg.roomId);
           setMyPlayerId(msg.playerId);
           setErrorMessage(null);
@@ -182,6 +198,14 @@ export default function App() {
           newUrl.searchParams.set('room', msg.roomId);
           window.history.replaceState({}, '', newUrl.toString());
         } else if (msg.type === 'game_state') {
+          // If the player has deliberately left the room, ignore any arriving game_state
+          if (hasLeftRoomRef.current || !roomIdRef.current) {
+            return;
+          }
+          if (msg.state.roomId && roomIdRef.current !== msg.state.roomId) {
+            return;
+          }
+
           setGameState(msg.state);
           if (msg.state.roomId) {
             setRoomId(msg.state.roomId);
@@ -329,10 +353,14 @@ export default function App() {
 
   // Actions
   const handleCreateRoom = (playerName: string, avatar: string, settings: RoomSettings) => {
+    hasLeftRoomRef.current = false;
+    voiceChat.leaveVoice();
     send({ type: 'create_room', playerName, avatar, settings });
   };
 
   const handleStartSolo = (playerName: string, avatar: string, botCount: number, settings?: Partial<RoomSettings>) => {
+    hasLeftRoomRef.current = false;
+    voiceChat.leaveVoice();
     send({ type: 'start_solo', playerName, avatar, botCount, settings });
   };
 
@@ -355,12 +383,14 @@ export default function App() {
     asSpectator?: boolean,
     spectatorRevealCards?: boolean
   ) => {
+    hasLeftRoomRef.current = false;
+    voiceChat.leaveVoice();
     send({
       type: 'join_room',
       roomId: targetRoomId,
       playerName,
       avatar,
-      existingPlayerId: myPlayerId,
+      existingPlayerId: myPlayerId || undefined,
       asSpectator,
       spectatorRevealCards,
     });
@@ -475,19 +505,30 @@ export default function App() {
   };
 
   const handleLeaveGame = () => {
+    hasLeftRoomRef.current = true;
+    voiceChat.leaveVoice();
+
     const rid = getActiveRoomId();
-    if (rid && myPlayerId) {
-      send({ type: 'leave_room', roomId: rid, playerId: myPlayerId });
-    }
+    const pid = myPlayerIdRef.current || myPlayerId;
+
     roomIdRef.current = null;
     myPlayerIdRef.current = '';
+
+    if (rid && pid) {
+      send({ type: 'leave_room', roomId: rid, playerId: pid });
+    }
+
     setRoomId(null);
+    setMyPlayerId('');
     setGameState(null);
     setChatMessages([]);
     setGameLogs([]);
     sessionStorage.removeItem('uno_player_id');
     const newUrl = new URL(window.location.href);
     newUrl.searchParams.delete('room');
+    newUrl.searchParams.delete('watch');
+    newUrl.searchParams.delete('mode');
+    newUrl.searchParams.delete('reveal');
     window.history.replaceState({}, '', newUrl.toString());
   };
 
@@ -552,6 +593,7 @@ export default function App() {
             myPlayerId={myPlayerId}
             isHost={isHost}
             errorMessage={errorMessage}
+            sendMessage={send}
           />
         ) : (
           <GameBoard
