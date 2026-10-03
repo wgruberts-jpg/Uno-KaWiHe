@@ -28,7 +28,11 @@ import {
   Eye,
   EyeOff,
   Radio,
-  Zap
+  Zap,
+  Menu,
+  X,
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
 import { sound } from '../services/sound.js';
 
@@ -90,6 +94,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTableScoreboardOpen, setIsTableScoreboardOpen] = useState(false);
   const [localSpectatorShowCards, setLocalSpectatorShowCards] = useState(true);
+  const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -208,21 +213,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         <div className="absolute inset-0 pointer-events-none z-10 bg-radial from-transparent via-amber-500/10 to-rose-600/30 animate-pulse" />
       )}
 
-      {/* Top Header Bar */}
-      <header className="h-11 sm:h-12 shrink-0 border-b-2 sm:border-b-4 border-white/70 px-2 sm:px-4 flex items-center justify-between bg-white/90 backdrop-blur-md z-30 shadow-md">
+      {/* Top Header Bar (Clean, Space-saving) */}
+      <header className="h-10 sm:h-12 shrink-0 border-b-2 sm:border-b-4 border-white/70 px-2 sm:px-4 flex items-center justify-between bg-white/95 backdrop-blur-md z-30 shadow-md">
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          <div className="hidden sm:flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-[10px] sm:text-[11px] shadow border-2 border-white tracking-wider">
               KWH
             </div>
-            <span className="font-black text-xs text-slate-800 hidden md:inline">Uno KaWiHe</span>
+            <span className="font-black text-xs text-slate-800 hidden xs:inline">Uno KaWiHe</span>
           </div>
 
-          <span className="font-black text-[11px] sm:text-xs text-amber-950 bg-gradient-to-r from-yellow-300 to-amber-300 px-2.5 sm:px-3.5 py-1 rounded-xl sm:rounded-2xl border-2 border-white shadow-sm flex items-center gap-1">
+          <span className="font-black text-[11px] sm:text-xs text-amber-950 bg-gradient-to-r from-yellow-300 to-amber-300 px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-xl sm:rounded-2xl border-2 border-white shadow-sm flex items-center gap-1">
             <span>🏷️</span> <span className="hidden xs:inline">SALA:</span> {state.roomId}
           </span>
 
-          <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-sky-900 bg-sky-100/90 px-2.5 py-1 rounded-xl sm:rounded-2xl border-2 border-white shadow-sm">
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-sky-900 bg-sky-100/90 px-2.5 py-0.5 rounded-xl sm:rounded-2xl border-2 border-white shadow-sm">
             <span>Sentido:</span>
             {state.turnDirection === 1 ? (
               <span className="flex items-center gap-1 text-amber-600 font-black">
@@ -236,15 +241,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2">
-          {/* Chat Toggle Button with Unread Badge */}
+        {/* Right Header: Chat Shortcut & Collapsible Side Menu Button */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Quick Chat Button */}
           <button
             type="button"
             onClick={onToggleChat}
             className="relative p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-sky-300 text-sky-900 hover:bg-sky-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-bold text-xs"
             title="Abrir Chat da Sala"
           >
-            <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-600" />
+            <MessageCircle className="w-4 h-4 text-sky-600" />
             <span className="hidden md:inline">Chat</span>
             {unreadChatCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center border border-white animate-pulse">
@@ -253,80 +259,28 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             )}
           </button>
 
-          {/* Fullscreen Toggle Button */}
+          {/* Collapsible Menu Toggle Button */}
           <button
             type="button"
-            onClick={toggleFullscreen}
-            className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-purple-300 text-purple-900 hover:bg-purple-50 cursor-pointer transition-all shadow-sm active:scale-95"
-            title={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia (ocultar barras)'}
+            onClick={() => setIsSideMenuOpen(!isSideMenuOpen)}
+            className={`py-1.5 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl border-2 font-black text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer transition-all shadow-md active:scale-95 ${
+              isSideMenuOpen
+                ? 'bg-amber-400 border-white text-slate-950 ring-2 ring-amber-300'
+                : 'bg-white border-amber-300 text-slate-800 hover:bg-yellow-50'
+            }`}
+            title="Abrir / Recolher Menu de Opções"
           >
-            {isFullscreen ? (
-              <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-600" />
+            {isSideMenuOpen ? (
+              <>
+                <X className="w-4 h-4 text-slate-950" />
+                <span>Fechar</span>
+              </>
             ) : (
-              <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-600" />
+              <>
+                <Menu className="w-4 h-4 text-amber-600" />
+                <span className="hidden xs:inline">Menu</span>
+              </>
             )}
-          </button>
-
-          {/* Table Leaderboard Button */}
-          <button
-            type="button"
-            onClick={() => setIsTableScoreboardOpen(true)}
-            className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-yellow-400 text-amber-900 hover:bg-yellow-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-bold text-xs"
-            title="Ver Placar da Mesa (Sessão)"
-          >
-            <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500 fill-amber-400" />
-            <span className="hidden lg:inline">Placar</span>
-          </button>
-
-          {/* Player Career Stats & Trophies */}
-          {onOpenStats && (
-            <button
-              type="button"
-              onClick={onOpenStats}
-              className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-indigo-300 text-indigo-900 hover:bg-indigo-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-bold text-xs"
-              title="Ver Minhas Estatísticas & Troféus"
-            >
-              <BarChart2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500" />
-              <span className="hidden lg:inline">Stats</span>
-            </button>
-          )}
-
-          {/* Settings Gear Button */}
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-yellow-300 text-amber-900 hover:bg-yellow-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-bold text-xs"
-              title="Configurações & Modo Treino"
-            >
-              <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500" />
-              <span className="hidden md:inline">Ajustes</span>
-            </button>
-          )}
-
-          {/* Sound Toggle */}
-          <button
-            type="button"
-            onClick={handleToggleMute}
-            className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-sky-200 text-slate-700 hover:bg-sky-50 cursor-pointer transition-all shadow-sm active:scale-95"
-            title={isMuted ? 'Desmutar sons' : 'Mutar sons'}
-          >
-            {isMuted ? (
-              <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-500" />
-            ) : (
-              <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500" />
-            )}
-          </button>
-
-          {/* Leave Button */}
-          <button
-            type="button"
-            onClick={onLeave}
-            className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl sm:rounded-2xl bg-gradient-to-b from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 border-2 border-white text-white text-[11px] sm:text-xs font-black flex items-center gap-1 cursor-pointer transition-all shadow-md active:scale-95"
-            title="Sair para o Menu Principal"
-          >
-            <LogOut className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-            <span className="hidden sm:inline">Sair</span>
           </button>
         </div>
       </header>
@@ -739,6 +693,199 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           )}
         </div>
       </main>
+
+      {/* ========================================================================= */}
+      {/* COLLAPSIBLE SIDE MENU / DRAWER (MENU LATERAL RETRÁTIL EXPANSÍVEL)        */}
+      {/* ========================================================================= */}
+      {isSideMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setIsSideMenuOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`fixed top-0 right-0 h-full w-72 sm:w-80 bg-white/95 backdrop-blur-md shadow-2xl border-l-4 border-amber-400 z-50 transform transition-transform duration-300 flex flex-col justify-between text-slate-800 ${
+          isSideMenuOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        {/* Side Menu Header */}
+        <div className="p-4 border-b-2 border-yellow-200 flex items-center justify-between bg-gradient-to-r from-yellow-300 to-amber-400 text-slate-950">
+          <div className="flex items-center gap-2 font-black text-sm uppercase tracking-wider">
+            <Settings className="w-5 h-5 text-slate-950" />
+            <span>Menu do Jogo</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsSideMenuOpen(false)}
+            className="p-1.5 rounded-full hover:bg-black/10 text-slate-950 cursor-pointer transition-colors"
+            title="Recolher Menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Side Menu Options List */}
+        <div className="p-3 space-y-2 overflow-y-auto flex-1">
+          {/* Chat Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsSideMenuOpen(false);
+              onToggleChat();
+            }}
+            className="w-full p-3 rounded-2xl bg-sky-50 hover:bg-sky-100 border-2 border-sky-200 text-sky-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-sky-200 flex items-center justify-center text-sky-700">
+                <MessageCircle className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Chat da Sala</div>
+                <div className="text-[10px] text-slate-500 font-medium">Conversar com os jogadores</div>
+              </div>
+            </div>
+            {unreadChatCount > 0 && (
+              <span className="bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full border border-white animate-pulse">
+                {unreadChatCount} novas
+              </span>
+            )}
+          </button>
+
+          {/* Table Leaderboard Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsSideMenuOpen(false);
+              setIsTableScoreboardOpen(true);
+            }}
+            className="w-full p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 border-2 border-amber-200 text-amber-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-200 flex items-center justify-center text-amber-800">
+                <Trophy className="w-5 h-5 fill-amber-500" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Placar da Mesa</div>
+                <div className="text-[10px] text-slate-500 font-medium">Vitórias e pontos da sessão</div>
+              </div>
+            </div>
+          </button>
+
+          {/* Player Career Stats & Trophies */}
+          {onOpenStats && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsSideMenuOpen(false);
+                onOpenStats();
+              }}
+              className="w-full p-3 rounded-2xl bg-purple-50 hover:bg-purple-100 border-2 border-purple-200 text-purple-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-200 flex items-center justify-center text-purple-800">
+                  <BarChart2 className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Troféus & Estatísticas</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Conquistas e histórico pessoal</div>
+                </div>
+              </div>
+            </button>
+          )}
+
+          {/* Settings Gear Button */}
+          {onOpenSettings && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsSideMenuOpen(false);
+                onOpenSettings();
+              }}
+              className="w-full p-3 rounded-2xl bg-yellow-50 hover:bg-yellow-100 border-2 border-yellow-300 text-amber-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-yellow-200 flex items-center justify-center text-amber-700">
+                  <Settings className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Ajustes & Modo Criança</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Regras, velocidade e animações</div>
+                </div>
+              </div>
+            </button>
+          )}
+
+          {/* Sound Toggle */}
+          <button
+            type="button"
+            onClick={handleToggleMute}
+            className="w-full p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 text-slate-800 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-slate-200 flex items-center justify-center text-slate-700">
+                {isMuted ? <VolumeX className="w-5 h-5 text-rose-500" /> : <Volume2 className="w-5 h-5 text-emerald-600" />}
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Efeitos Sonoros</div>
+                <div className="text-[10px] text-slate-500 font-medium">{isMuted ? 'Mutado' : 'Som Ativado'}</div>
+              </div>
+            </div>
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${isMuted ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {isMuted ? 'MUTADO' : 'LIGADO'}
+            </span>
+          </button>
+
+          {/* Fullscreen Toggle Button */}
+          <button
+            type="button"
+            onClick={() => {
+              toggleFullscreen();
+            }}
+            className="w-full p-3 rounded-2xl bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-200 text-indigo-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-indigo-200 flex items-center justify-center text-indigo-700">
+                {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Tela Cheia</div>
+                <div className="text-[10px] text-slate-500 font-medium">Modo Imersivo</div>
+              </div>
+            </div>
+            <span className="text-[10px] font-black text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full">
+              {isFullscreen ? 'Sair' : 'Ativar'}
+            </span>
+          </button>
+        </div>
+
+        {/* Side Menu Footer: Leave Room & Close */}
+        <div className="p-3 border-t-2 border-slate-200 bg-slate-50 space-y-2">
+          {/* Leave Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsSideMenuOpen(false);
+              onLeave();
+            }}
+            className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-95 border border-white"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Sair da Sala</span>
+          </button>
+
+          {/* Collapse Button */}
+          <button
+            type="button"
+            onClick={() => setIsSideMenuOpen(false)}
+            className="w-full py-1.5 px-3 text-center text-slate-500 hover:text-slate-800 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+            <span>Recolher Menu Lateral</span>
+          </button>
+        </div>
+      </aside>
 
       {/* Color Picker for Wild cards */}
       <ColorPickerModal
