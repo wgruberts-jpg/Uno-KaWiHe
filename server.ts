@@ -501,12 +501,29 @@ app.get('/api/admin/cli-status', (req, res) => {
 });
 
 // Get all users with online & room status
-app.get('/api/admin/users', (req, res) => {
+app.get('/api/admin/users', async (req, res) => {
   if (!isAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
-  const allUsers = getAllUsers();
+  let allUsers = getAllUsers();
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/admin/users`, {
+        headers: {
+          Authorization: req.headers.authorization || '',
+          'x-admin-pin': (req.headers['x-admin-pin'] as string) || '774007',
+        },
+      });
+      const data = await response.json();
+      if (data.success && Array.isArray(data.users)) {
+        allUsers = data.users;
+      }
+    } catch (err) {
+      console.error('Failed to proxy /api/admin/users to auth service, falling back to local:', err);
+    }
+  }
+
   const activeRooms = Array.from(rooms.values());
 
   const userList = allUsers.map((u) => {
@@ -548,6 +565,24 @@ app.post('/api/admin/users/create', async (req, res) => {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/admin/users/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: req.headers.authorization || '',
+          'x-admin-pin': (req.headers['x-admin-pin'] as string) || '774007',
+        },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (err) {
+      console.error('Failed to proxy /api/admin/users/create, falling back to local:', err);
+    }
+  }
+
   const result = await adminCreateUser(req.body);
   if (!result.success) {
     return res.status(400).json(result);
@@ -561,6 +596,24 @@ app.post('/api/admin/users/:id/reset-password', async (req, res) => {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/admin/users/${encodeURIComponent(req.params.id)}/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: req.headers.authorization || '',
+          'x-admin-pin': (req.headers['x-admin-pin'] as string) || '774007',
+        },
+        body: JSON.stringify(req.body),
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (err) {
+      console.error('Failed to proxy /api/admin/users/:id/reset-password, falling back to local:', err);
+    }
+  }
+
   const { newPassword } = req.body;
   const result = await adminResetPassword(req.params.id, newPassword);
   if (!result.success) {
@@ -570,9 +623,25 @@ app.post('/api/admin/users/:id/reset-password', async (req, res) => {
 });
 
 // Admin: Delete user
-app.delete('/api/admin/users/:id', (req, res) => {
+app.delete('/api/admin/users/:id', async (req, res) => {
   if (!isAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  if (AUTH_SERVICE_URL) {
+    try {
+      const response = await fetch(`${AUTH_SERVICE_URL}/api/admin/users/${encodeURIComponent(req.params.id)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: req.headers.authorization || '',
+          'x-admin-pin': (req.headers['x-admin-pin'] as string) || '774007',
+        },
+      });
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (err) {
+      console.error('Failed to proxy /api/admin/users/:id delete, falling back to local:', err);
+    }
   }
 
   const result = adminDeleteUser(req.params.id);
