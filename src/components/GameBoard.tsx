@@ -6,7 +6,10 @@ import { TableDirectionArrows } from './TableDirectionArrows.js';
 import { EmoteBubble } from './EmoteBubble.js';
 import { EmotePicker } from './EmotePicker.js';
 import { TableScoreboardModal } from './TableScoreboardModal.js';
+import { VoiceControls } from './VoiceControls.js';
+import { voiceChat } from '../services/voiceChat.js';
 import { statsManager } from '../services/statsManager.js';
+import { ClientMessage, VoicePeerState } from '../types/uno.js';
 import {
   Volume2,
   VolumeX,
@@ -52,6 +55,7 @@ interface GameBoardProps {
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
   onToggleSpectatorReveal?: (reveal: boolean) => void;
+  sendMessage?: (msg: ClientMessage) => void;
 }
 
 const currentColorBg: Record<CardColor, string> = {
@@ -86,6 +90,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   onOpenSettings,
   onOpenStats,
   onToggleSpectatorReveal,
+  sendMessage,
 }) => {
   const [isMuted, setIsMuted] = useState(() => sound.getIsMuted());
   const [selectedWildCard, setSelectedWildCard] = useState<Card | null>(null);
@@ -95,6 +100,19 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [isTableScoreboardOpen, setIsTableScoreboardOpen] = useState(false);
   const [localSpectatorShowCards, setLocalSpectatorShowCards] = useState(true);
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
+  const [peerVoiceStates, setPeerVoiceStates] = useState<Record<string, VoicePeerState>>({});
+  const [localVoiceSpeaking, setLocalVoiceSpeaking] = useState(false);
+
+  useEffect(() => {
+    voiceChat.setEvents({
+      onPeersChange: (peers) => setPeerVoiceStates(peers),
+      onLocalStateChange: (state) => setLocalVoiceSpeaking(state.isSpeaking),
+      onError: (msg) => {
+        setFeedbackToast(msg);
+        setTimeout(() => setFeedbackToast(null), 4000);
+      },
+    });
+  }, []);
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -241,8 +259,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           </div>
         </div>
 
-        {/* Right Header: Chat Shortcut & Collapsible Side Menu Button */}
+        {/* Right Header: Voice Chat, Chat Shortcut & Collapsible Side Menu Button */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Peer-to-Peer WebRTC Voice Controls */}
+          {sendMessage && (
+            <VoiceControls
+              roomId={state.roomId}
+              myPlayerId={myPlayerId}
+              players={state.players}
+              sendMessage={sendMessage}
+            />
+          )}
+
           {/* Quick Chat Button */}
           <button
             type="button"
@@ -352,9 +380,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
                 {/* Avatar and Name */}
                 <div className="relative mt-1">
+                  {/* Speaking Pulsing Green Waves */}
+                  {peerVoiceStates[opp.id]?.isSpeaking && (
+                    <span className="absolute -inset-1.5 rounded-full bg-emerald-400/60 animate-ping pointer-events-none" />
+                  )}
+
                   <div
-                    className={`w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-gradient-to-br from-amber-300 via-orange-400 to-pink-500 border-2 sm:border-4 border-white flex items-center justify-center text-xl sm:text-2xl md:text-3xl shadow-md ${
-                      isOppTurn ? 'ring-2 ring-amber-500' : ''
+                    className={`w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-gradient-to-br from-amber-300 via-orange-400 to-pink-500 border-2 sm:border-4 border-white flex items-center justify-center text-xl sm:text-2xl md:text-3xl shadow-md transition-all ${
+                      peerVoiceStates[opp.id]?.isSpeaking
+                        ? 'ring-4 ring-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.9)] scale-105'
+                        : isOppTurn
+                        ? 'ring-2 ring-amber-500'
+                        : ''
                     }`}
                   >
                     {opp.avatar}
@@ -362,6 +399,29 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   {opp.isHost && (
                     <span className="absolute -top-1.5 -right-1.5 text-xs sm:text-sm drop-shadow">👑</span>
                   )}
+
+                  {/* Voice Status Indicator Badge */}
+                  {peerVoiceStates[opp.id] && (
+                    <span
+                      className={`absolute -top-1 -left-1.5 text-[10px] sm:text-xs rounded-full p-0.5 border border-white shadow-sm flex items-center justify-center ${
+                        peerVoiceStates[opp.id].isSpeaking
+                          ? 'bg-emerald-500 text-white animate-bounce'
+                          : peerVoiceStates[opp.id].isMuted
+                          ? 'bg-rose-500 text-white'
+                          : 'bg-slate-700 text-slate-200'
+                      }`}
+                      title={
+                        peerVoiceStates[opp.id].isSpeaking
+                          ? 'Falando no microfone'
+                          : peerVoiceStates[opp.id].isMuted
+                          ? 'Microfone Mutado'
+                          : 'No Chat de Voz'
+                      }
+                    >
+                      {peerVoiceStates[opp.id].isSpeaking ? '🗣️' : peerVoiceStates[opp.id].isMuted ? '🔇' : '🎙️'}
+                    </span>
+                  )}
+
                   {opp.cardsCount === 1 && opp.hasCalledUno && (
                     <span className="absolute -bottom-1 -right-2 bg-rose-600 text-white text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full border-2 border-white animate-pulse shadow-md">
                       UNO!

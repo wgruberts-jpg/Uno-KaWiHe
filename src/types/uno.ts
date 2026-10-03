@@ -236,6 +236,14 @@ export interface AdminUserSummary {
   roomStatus?: string | null;
 }
 
+export interface VoicePeerState {
+  playerId: string;
+  isMuted: boolean;
+  isDeafened: boolean;
+  isSpeaking: boolean;
+  joined: boolean;
+}
+
 // WebSocket message protocols
 export type ClientMessage =
   | { type: 'create_room'; playerName: string; avatar: string; settings?: Partial<RoomSettings> }
@@ -262,6 +270,10 @@ export type ClientMessage =
   | { type: 'send_emote'; roomId: string; emoteId: string; playerId?: string }
   | { type: 'vote_rematch'; roomId: string; ready: boolean; phrase: string; playerId?: string }
   | { type: 'toggle_spectator_reveal'; roomId: string; reveal: boolean; playerId?: string }
+  | { type: 'rtc_offer'; roomId: string; fromPlayerId: string; toPlayerId: string; offer: any }
+  | { type: 'rtc_answer'; roomId: string; fromPlayerId: string; toPlayerId: string; answer: any }
+  | { type: 'rtc_ice_candidate'; roomId: string; fromPlayerId: string; toPlayerId: string; candidate: any }
+  | { type: 'rtc_voice_state'; roomId: string; playerId: string; isMuted: boolean; isDeafened: boolean; isSpeaking: boolean; joined: boolean }
   | { type: 'admin_get_rooms'; adminSecret?: string }
   | { type: 'admin_close_room'; roomId: string; adminSecret?: string; reason?: string }
   | { type: 'admin_force_end_game'; roomId: string; adminSecret?: string }
@@ -274,6 +286,10 @@ export type ServerMessage =
   | { type: 'game_log'; log: GameLog }
   | { type: 'sound_event'; sound: 'play' | 'draw' | 'uno' | 'reverse' | 'skip' | 'wild' | 'win' | 'penalty' }
   | { type: 'player_emote'; emote: ActiveEmote }
+  | { type: 'rtc_offer'; fromPlayerId: string; toPlayerId: string; offer: any }
+  | { type: 'rtc_answer'; fromPlayerId: string; toPlayerId: string; answer: any }
+  | { type: 'rtc_ice_candidate'; fromPlayerId: string; toPlayerId: string; candidate: any }
+  | { type: 'rtc_voice_state'; roomId: string; playerId: string; isMuted: boolean; isDeafened: boolean; isSpeaking: boolean; joined: boolean }
   | { type: 'admin_rooms_list'; rooms: AdminRoomSummary[] }
   | { type: 'player_kicked'; reason: string }
   | { type: 'global_announcement'; message: string; sender: string; timestamp: number }

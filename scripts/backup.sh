@@ -2,12 +2,23 @@
 # ==============================================================================
 # Script de Backup Completo da Aplicação Uno KaWiHe
 # Salva código-fonte, banco de dados de contas (auth-data) e configurações.
+# Suporta TAGs personalizadas (ex: bash backup.sh antesaudio)
 # ==============================================================================
 set -e
 
+TAG="${1:-}"
+TAG_CLEAN=$(echo "${TAG}" | sed 's/^#//' | tr -cd '[:alnum:]_-')
+
 BACKUP_DIR="${HOME}/backups/uno-kawihe"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-BACKUP_FILE="${BACKUP_DIR}/uno_backup_${TIMESTAMP}.tar.gz"
+
+if [ -n "${TAG_CLEAN}" ]; then
+  BACKUP_FILE="${BACKUP_DIR}/uno_backup_${TAG_CLEAN}_${TIMESTAMP}.tar.gz"
+  echo "🏷️  Tag identificadora de backup: #${TAG_CLEAN}"
+else
+  BACKUP_FILE="${BACKUP_DIR}/uno_backup_${TIMESTAMP}.tar.gz"
+fi
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "📦 [1/3] Criando diretório de backup em: ${BACKUP_DIR}..."
@@ -31,10 +42,17 @@ tar --exclude="node_modules" \
 # Salva referência do último backup
 echo "${BACKUP_FILE}" > "${BACKUP_DIR}/LATEST_BACKUP.txt"
 
+if [ -n "${TAG_CLEAN}" ]; then
+  echo "${BACKUP_FILE}" > "${BACKUP_DIR}/LATEST_BACKUP_${TAG_CLEAN}.txt"
+fi
+
 FILE_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
 echo ""
 echo "================================================================="
 echo "✅ BACKUP CONCLUÍDO COM SUCESSO!"
+if [ -n "${TAG_CLEAN}" ]; then
+  echo "🏷️  Tag: #${TAG_CLEAN}"
+fi
 echo "📁 Arquivo: ${BACKUP_FILE}"
 echo "📏 Tamanho: ${FILE_SIZE}"
 echo "================================================================="

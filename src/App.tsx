@@ -23,6 +23,7 @@ import { LoginScreen } from './components/LoginScreen.js';
 import { sound } from './services/sound.js';
 import { auth } from './services/auth.js';
 import { statsManager } from './services/statsManager.js';
+import { voiceChat } from './services/voiceChat.js';
 import { UserProfile } from './types/uno.js';
 
 export default function App() {
@@ -245,6 +246,20 @@ export default function App() {
           }
         } else if (msg.type === 'player_emote') {
           handleIncomingEmote(msg.emote);
+        } else if (msg.type === 'rtc_offer') {
+          voiceChat.handleOffer(msg.fromPlayerId, msg.offer);
+        } else if (msg.type === 'rtc_answer') {
+          voiceChat.handleAnswer(msg.fromPlayerId, msg.answer);
+        } else if (msg.type === 'rtc_ice_candidate') {
+          voiceChat.handleIceCandidate(msg.fromPlayerId, msg.candidate);
+        } else if (msg.type === 'rtc_voice_state') {
+          voiceChat.handleRemoteVoiceState(
+            msg.playerId,
+            msg.isMuted,
+            msg.isDeafened,
+            msg.isSpeaking,
+            msg.joined
+          );
         } else if (msg.type === 'player_kicked') {
           setErrorMessage(`🚫 ${msg.reason || 'Você foi removido da sala.'}`);
           setRoomId(null);
@@ -555,6 +570,7 @@ export default function App() {
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenStats={() => setIsStatsOpen(true)}
             onToggleSpectatorReveal={handleToggleSpectatorReveal}
+            sendMessage={send}
           />
         )}
       </div>
