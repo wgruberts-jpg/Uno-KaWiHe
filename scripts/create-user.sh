@@ -56,14 +56,14 @@ if [ -z "$ROLE" ]; then
   read -rp "Escolha (1 ou 2) [1]: " ROLE_CHOICE
   if [ "$ROLE_CHOICE" = "2" ]; then
     ROLE="admin"
-    read -rp "👉 Digite o PIN de Administrador (padrão é 1234): " ADMIN_PIN
+    read -rp "👉 Digite o PIN de Administrador (padrão é 774007): " ADMIN_PIN
   else
     ROLE="player"
   fi
 fi
 
 if [ "$ROLE" = "admin" ] && [ -z "$ADMIN_PIN" ]; then
-  ADMIN_PIN="1234"
+  ADMIN_PIN="774007"
 fi
 
 # Cria a requisição JSON
