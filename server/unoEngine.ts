@@ -80,6 +80,7 @@ export interface InternalPlayer extends Player {
 
 export interface RoomData {
   id: string;
+  creatorName?: string;
   settings: RoomSettings;
   status: 'waiting' | 'playing' | 'ended';
   players: InternalPlayer[];

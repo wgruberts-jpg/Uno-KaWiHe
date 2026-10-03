@@ -813,6 +813,38 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             )}
           </button>
 
+          {/* Claim Host / Reivindicar Anfitrião Button */}
+          {sendMessage && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsSideMenuOpen(false);
+                sendMessage({
+                  type: 'claim_host',
+                  roomId: state.roomId,
+                  playerId: myPlayerId,
+                });
+                setFeedbackToast('Reivindicação de Anfitrião enviada!');
+                setTimeout(() => setFeedbackToast(null), 3000);
+              }}
+              className="w-full p-3 rounded-2xl bg-amber-100 hover:bg-amber-200 border-2 border-amber-300 text-amber-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+              title="Recuperar o cargo de Anfitrião da sala"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-300 flex items-center justify-center text-amber-950 text-base shadow-sm">
+                  👑
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Reivindicar Anfitrião</div>
+                  <div className="text-[10px] text-amber-900 font-medium">Recuperar coroa da sala</div>
+                </div>
+              </div>
+              <span className="text-[9px] bg-amber-300 text-amber-950 font-black px-2 py-0.5 rounded-full">
+                Coroa
+              </span>
+            </button>
+          )}
+
           {/* Table Leaderboard Button */}
           <button
             type="button"
