@@ -142,6 +142,8 @@ export interface TrophyDefinition {
   getProgress: (stats: PlayerCareerStats) => number;
 }
 
+export type SpectatorPermission = 'disabled' | 'hidden_cards' | 'reveal_cards';
+
 export interface RoomSettings {
   maxPlayers: number;
   turnDuration: number; // 0 = Sem pressa / ilimitado para crianças, ou 15, 25, 40, 60s
@@ -150,6 +152,7 @@ export interface RoomSettings {
   botSpeedMs?: number; // Tempo que os robôs demoram para largar cartas (ex: 800ms, 1800ms, 3000ms)
   autoUnoProtection?: boolean; // Proteção infantil de UNO (grita automaticamente)
   highlightHints?: boolean; // Destaque visual de cartas jogáveis
+  spectatorPermission?: SpectatorPermission; // 'disabled' | 'hidden_cards' | 'reveal_cards'
   spectatorMode?: 'reveal_cards' | 'hidden_cards'; // Espectador pode ver as mãos ou apenas a mesa
   playAnimationDelay?: number; // 0s, 1s, 2s, 3s de elevação da carta antes de ir pro centro
 }

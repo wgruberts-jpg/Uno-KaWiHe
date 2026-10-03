@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RoomSettings } from '../types/uno.js';
+import { RoomSettings, SpectatorPermission } from '../types/uno.js';
 import { AVATARS_CATALOG, AVATAR_CATEGORIES } from '../utils/avatars.js';
 import {
   X,
@@ -50,6 +50,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [botSpeedMs, setBotSpeedMs] = useState<number>(currentSettings.botSpeedMs ?? 1800);
   const [autoUnoProtection, setAutoUnoProtection] = useState<boolean>(currentSettings.autoUnoProtection ?? false);
   const [highlightHints, setHighlightHints] = useState<boolean>(currentSettings.highlightHints ?? true);
+  const [spectatorPermission, setSpectatorPermission] = useState<SpectatorPermission>(
+    currentSettings.spectatorPermission ?? 'hidden_cards'
+  );
   const [spectatorMode, setSpectatorMode] = useState<'reveal_cards' | 'hidden_cards'>(currentSettings.spectatorMode ?? 'hidden_cards');
   const [playAnimationDelay, setPlayAnimationDelay] = useState<number>(currentSettings.playAnimationDelay ?? 2);
   const [avatarCategory, setAvatarCategory] = useState<'heroes' | 'animals' | 'classics'>('heroes');
@@ -100,7 +103,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       botSpeedMs,
       autoUnoProtection,
       highlightHints,
-      spectatorMode,
+      spectatorPermission,
+      spectatorMode: spectatorPermission === 'reveal_cards' ? 'reveal_cards' : 'hidden_cards',
       playAnimationDelay,
     };
 
@@ -109,7 +113,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     localStorage.setItem('uno_bot_speed_ms', String(botSpeedMs));
     localStorage.setItem('uno_auto_uno', String(autoUnoProtection));
     localStorage.setItem('uno_highlight_hints', String(highlightHints));
-    localStorage.setItem('uno_spectator_mode', String(spectatorMode));
+    localStorage.setItem('uno_spectator_permission', String(spectatorPermission));
     localStorage.setItem('uno_anim_delay', String(playAnimationDelay));
 
     onUpdateSettings(updated);
@@ -339,39 +343,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* Spectator Visibility Rule */}
+              {/* Spectator Visibility Rule & Creator Permission */}
               <div className="p-3.5 bg-sky-50 rounded-2xl border-2 border-sky-200 shadow-sm space-y-2">
-                <div className="flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-sky-600" />
-                  <span className="font-black text-slate-900 text-xs">
-                    Visão para Espectadores em Espera:
-                  </span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-sky-600" />
+                    <span className="font-black text-slate-900 text-xs">
+                      Permissão de Espectadores & Transmissão:
+                    </span>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <p className="text-[11px] text-slate-600 font-medium">
+                  Defina se pessoas externas podem assistir ao vivo a esta sala e se podem ver as cartas:
+                </p>
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setSpectatorMode('hidden_cards')}
-                    className={`p-2 rounded-xl border-2 text-left transition-all cursor-pointer ${
-                      spectatorMode === 'hidden_cards'
-                        ? 'bg-sky-500 text-white border-sky-600 font-black shadow-sm'
-                        : 'bg-white text-slate-700 border-sky-200 font-bold hover:bg-sky-100'
+                    onClick={() => setSpectatorPermission('disabled')}
+                    className={`p-2 rounded-xl border-2 text-center transition-all cursor-pointer ${
+                      spectatorPermission === 'disabled'
+                        ? 'bg-rose-500 text-white border-rose-600 font-black shadow-sm'
+                        : 'bg-white text-slate-700 border-sky-200 font-bold hover:bg-rose-50'
                     }`}
                   >
-                    <div className="text-[11px] font-black">🔒 Apenas Mesa</div>
-                    <div className="text-[9px] opacity-80 mt-0.5">Vê apenas descarte e histórico</div>
+                    <div className="text-[11px] font-black">🚫 Bloqueado</div>
+                    <div className="text-[9px] opacity-80 mt-0.5">Ninguém assiste</div>
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => setSpectatorMode('reveal_cards')}
-                    className={`p-2 rounded-xl border-2 text-left transition-all cursor-pointer ${
-                      spectatorMode === 'reveal_cards'
+                    onClick={() => setSpectatorPermission('hidden_cards')}
+                    className={`p-2 rounded-xl border-2 text-center transition-all cursor-pointer ${
+                      spectatorPermission === 'hidden_cards'
                         ? 'bg-sky-500 text-white border-sky-600 font-black shadow-sm'
                         : 'bg-white text-slate-700 border-sky-200 font-bold hover:bg-sky-100'
                     }`}
                   >
+                    <div className="text-[11px] font-black">🔒 Só Mesa</div>
+                    <div className="text-[9px] opacity-80 mt-0.5">Mãos ocultas</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSpectatorPermission('reveal_cards')}
+                    className={`p-2 rounded-xl border-2 text-center transition-all cursor-pointer ${
+                      spectatorPermission === 'reveal_cards'
+                        ? 'bg-amber-500 text-slate-950 border-amber-600 font-black shadow-sm'
+                        : 'bg-white text-slate-700 border-amber-200 font-bold hover:bg-amber-100'
+                    }`}
+                  >
                     <div className="text-[11px] font-black">👀 Cartas Abertas</div>
-                    <div className="text-[9px] opacity-80 mt-0.5">Espectador pode ver todas as mãos</div>
+                    <div className="text-[9px] opacity-80 mt-0.5">Modo TV / Juiz</div>
                   </button>
                 </div>
               </div>
