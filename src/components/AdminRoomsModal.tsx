@@ -370,7 +370,7 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
 
   const totalOnlinePlayers = rooms.reduce((acc, r) => acc + r.players.filter((p) => !p.isBot && p.isConnected).length, 0);
   const totalBots = rooms.reduce((acc, r) => acc + r.players.filter((p) => p.isBot).length, 0);
-  const totalUsersOnline = users.filter((u) => u.isOnline).length;
+  const totalUsersOnline = users.filter((u) => u.isOnline || (currentUser && (currentUser.id === u.id || currentUser.username.toLowerCase() === u.username.toLowerCase()))).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-6 overflow-y-auto">
@@ -874,12 +874,14 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {filteredUsers.map((u) => {
                     const isResettingThis = resettingUserId === u.id;
+                    const isMe = !!(currentUser && (currentUser.id === u.id || currentUser.username.toLowerCase() === u.username.toLowerCase()));
+                    const isOnline = u.isOnline || isMe;
 
                     return (
                       <div
                         key={u.id}
                         className={`p-3 rounded-2xl border-2 flex flex-col justify-between gap-2.5 transition-all ${
-                          u.isOnline
+                          isOnline
                             ? 'bg-slate-800/90 border-emerald-500/60 shadow-md'
                             : 'bg-slate-800/50 border-slate-700/70'
                         }`}
@@ -890,6 +892,11 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
                                 <span className="text-xs font-black text-white truncate">{u.displayName}</span>
+                                {isMe && (
+                                  <span className="text-[9px] font-black bg-blue-500 text-white px-1.5 py-0.2 rounded">
+                                    VOCÊ
+                                  </span>
+                                )}
                                 {u.tag && (
                                   <span className="font-mono text-[9px] font-black text-amber-400 bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-500/40">
                                     {u.tag}
@@ -908,15 +915,19 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                           </div>
 
                           <div className="text-right shrink-0">
-                            {u.isOnline ? (
+                            {isOnline ? (
                               <div>
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
                                   Online
                                 </span>
-                                {u.currentRoomId && (
+                                {u.currentRoomId ? (
                                   <div className="text-[10px] text-amber-400 font-mono font-black mt-0.5">
                                     Sala #{u.currentRoomId}
+                                  </div>
+                                ) : (
+                                  <div className="text-[9px] text-slate-400 font-medium mt-0.5">
+                                    (No Lobby)
                                   </div>
                                 )}
                               </div>
