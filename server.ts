@@ -30,7 +30,11 @@ import {
   verifyAdminPin,
   getAllInvites,
   saveInvites,
-  getAllUsers
+  getAllUsers,
+  updateUserProfile,
+  adminCreateUser,
+  adminResetPassword,
+  adminDeleteUser
 } from './server/authService.js';
 
 const app = express();
@@ -100,6 +104,24 @@ app.get('/api/auth/me', async (req, res) => {
     return res.status(401).json({ success: false, error: 'Sessão expirada.' });
   }
   return res.json({ success: true, user });
+});
+
+app.post('/api/auth/update-profile', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Não autorizado.' });
+  }
+  const token = authHeader.split(' ')[1];
+  const user = getUserFromToken(token);
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Sessão expirada.' });
+  }
+  const { displayName, avatar } = req.body;
+  const updated = updateUserProfile(user.id, displayName, avatar);
+  if (!updated) {
+    return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+  }
+  return res.json({ success: true, user: updated });
 });
 
 app.post('/api/auth/verify-admin-pin', async (req, res) => {
@@ -520,6 +542,46 @@ app.get('/api/admin/users', (req, res) => {
   return res.json({ success: true, users: userList });
 });
 
+// Admin: Create user directly (without invite code)
+app.post('/api/admin/users/create', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const result = await adminCreateUser(req.body);
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+  return res.json(result);
+});
+
+// Admin: Reset any user password
+app.post('/api/admin/users/:id/reset-password', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const { newPassword } = req.body;
+  const result = await adminResetPassword(req.params.id, newPassword);
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+  return res.json(result);
+});
+
+// Admin: Delete user
+app.delete('/api/admin/users/:id', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const result = adminDeleteUser(req.params.id);
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+  return res.json(result);
+});
+
 // Send message to a specific room
 app.post('/api/admin/rooms/:id/message', (req, res) => {
   if (!isAdminRequest(req)) {
@@ -701,6 +763,7 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
 
   const clientState: GameState = {
     roomId: room.id,
+    creatorName: room.creatorName,
     status: room.status,
     players: publicPlayers,
     spectators: room.spectators?.map((s) => ({ id: s.id, name: s.name, avatar: s.avatar, isConnected: s.isConnected })),
@@ -1236,10 +1299,85 @@ function executePlayCard(
 // WebSocket setup
 const wss = new WebSocketServer({ server, path: '/ws' });
 
+const onlinePlayers = new Map<WebSocket, { id: string; name: string; avatar: string; roomId: string | null }>();
+
+function broadcastOnlinePlayers() {
+  const playersList = Array.from(onlinePlayers.values());
+  const payload = JSON.stringify({ type: 'lobby_online_players', players: playersList });
+  onlinePlayers.forEach((meta, ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(payload);
+      } catch (e) {}
+    }
+  });
+}
+
+function updatePlayerRoom(ws: WebSocket, roomId: string | null) {
+  const meta = onlinePlayers.get(ws);
+  if (meta) {
+    meta.roomId = roomId;
+    broadcastOnlinePlayers();
+  }
+}
+
 wss.on('connection', (ws: WebSocket) => {
   ws.on('message', (data: string) => {
     try {
       const msg: ClientMessage = JSON.parse(data.toString());
+
+      if (msg.type === 'register_lobby') {
+        const pId = msg.playerId || `player-${Math.random().toString(36).substring(2, 9)}`;
+        onlinePlayers.set(ws, {
+          id: pId,
+          name: msg.name,
+          avatar: msg.avatar,
+          roomId: null
+        });
+        broadcastOnlinePlayers();
+        return;
+      }
+
+      if (msg.type === 'send_lobby_chat') {
+        const payload = JSON.stringify({
+          type: 'lobby_chat_message',
+          message: {
+            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            name: msg.name,
+            avatar: msg.avatar,
+            text: msg.text,
+            timestamp: Date.now()
+          }
+        });
+        onlinePlayers.forEach((meta, clientWs) => {
+          if (clientWs.readyState === WebSocket.OPEN) {
+            try {
+              clientWs.send(payload);
+            } catch (e) {}
+          }
+        });
+        return;
+      }
+
+      if (msg.type === 'send_lobby_invite') {
+        const payload = JSON.stringify({
+          type: 'lobby_invite_received',
+          invite: {
+            fromName: msg.name,
+            fromAvatar: msg.avatar,
+            roomId: msg.roomId,
+            timestamp: Date.now()
+          }
+        });
+        onlinePlayers.forEach((meta, clientWs) => {
+          if (clientWs !== ws && clientWs.readyState === WebSocket.OPEN) {
+            try {
+              clientWs.send(payload);
+            } catch (e) {}
+          }
+        });
+        return;
+      }
 
       if (msg.type === 'start_solo') {
         const roomId = generateRoomId();
@@ -1291,6 +1429,7 @@ wss.on('connection', (ws: WebSocket) => {
 
         rooms.set(roomId, room);
         clientConnections.set(ws, { roomId, playerId: hostPlayer.id });
+        updatePlayerRoom(ws, roomId);
 
         ws.send(JSON.stringify({ type: 'room_joined', roomId, playerId: hostPlayer.id }));
         startGame(room);
@@ -1314,6 +1453,7 @@ wss.on('connection', (ws: WebSocket) => {
             ws.send(JSON.stringify({ type: 'left_room_confirmed', roomId: cleanRoomId }));
           }
         } catch (e) {}
+        updatePlayerRoom(ws, null);
 
         const room = rooms.get(cleanRoomId);
         if (room) {
@@ -1408,6 +1548,7 @@ wss.on('connection', (ws: WebSocket) => {
 
         rooms.set(roomId, room);
         clientConnections.set(ws, { roomId, playerId: hostPlayer.id });
+        updatePlayerRoom(ws, roomId);
 
         ws.send(JSON.stringify({ type: 'room_joined', roomId, playerId: hostPlayer.id }));
         broadcastLog(room, `Sala ${roomId} criada por ${hostPlayer.name}.`, 'system');
@@ -1422,40 +1563,25 @@ wss.on('connection', (ws: WebSocket) => {
           const player = room.players.find((p) => p.id === msg.playerId);
           if (player) {
             player.isConnected = true;
+            const hasOtherOnlineHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected && p.id !== player.id);
+            const isCreator = !!(room.creatorName && player.name.toLowerCase() === room.creatorName.toLowerCase());
+            if (!hasOtherOnlineHost || isCreator) {
+              room.players.forEach((p) => { p.isHost = false; });
+              player.isHost = true;
+            }
             clientConnections.set(ws, { roomId: room.id, playerId: player.id });
+            updatePlayerRoom(ws, room.id);
             ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: player.id }));
             syncRoomState(room);
             return;
           } else if (room.status === 'waiting') {
-            // Player had an ID from another session/room, but is trying to access this existing waiting room.
-            // Automatically join them!
-            // If room has bot and is full, replace a bot
-            if (room.players.length >= room.settings.maxPlayers) {
-              const botIdx = room.players.findIndex((p) => p.isBot);
-              if (botIdx !== -1) {
-                room.players.splice(botIdx, 1);
-              }
-            }
-
-            if (room.players.length < room.settings.maxPlayers) {
-              const newPlayer: InternalPlayer = {
-                id: `player-${Math.random().toString(36).substring(2, 9)}`,
-                name: 'Jogador',
-                avatar: '🎲',
-                isHost: room.players.filter((p) => !p.isBot && p.isConnected).length === 0,
-                isBot: false,
-                cardsCount: 0,
-                hasCalledUno: false,
-                isConnected: true,
-                score: 0,
-                hand: [],
-                hasDrawnThisTurn: false,
-              };
-
-              room.players.push(newPlayer);
-              clientConnections.set(ws, { roomId: room.id, playerId: newPlayer.id });
-              ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: newPlayer.id }));
-              broadcastLog(room, `${newPlayer.name} entrou na sala!`, 'system');
+            // Check if there is an offline player slot that was disconnected
+            const disc = room.players.find((p) => !p.isBot && !p.isConnected);
+            if (disc) {
+              disc.isConnected = true;
+              clientConnections.set(ws, { roomId: room.id, playerId: disc.id });
+              updatePlayerRoom(ws, room.id);
+              ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: disc.id }));
               syncRoomState(room);
               return;
             }
@@ -1467,8 +1593,9 @@ wss.on('connection', (ws: WebSocket) => {
       if (msg.type === 'join_room') {
         const rawRoomInput = (msg.roomId || '').trim();
         const startsWithDollar = rawRoomInput.startsWith('$');
-        const startsWithAtOrStar = rawRoomInput.startsWith('@') || rawRoomInput.startsWith('*') || rawRoomInput.startsWith('#');
-        const wantsSpectator = msg.asSpectator === true || startsWithDollar || startsWithAtOrStar;
+        const startsWithStar = rawRoomInput.startsWith('*');
+        // Note: '@' is used as prefix in invite codes, so do NOT treat '@' as spectator mode
+        const wantsSpectator = msg.asSpectator === true || startsWithDollar || startsWithStar;
         const wantsRevealHands = msg.spectatorRevealCards === true || startsWithDollar;
 
         const cleanRoomId = rawRoomInput.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
@@ -1520,41 +1647,64 @@ wss.on('connection', (ws: WebSocket) => {
           return;
         }
 
-        // Check if existing player in THIS room is reconnecting
+        const requestedName = msg.playerName.trim() || `Jogador ${room.players.length + 1}`;
+        const isOriginalCreator = !!(room.creatorName && requestedName.toLowerCase() === room.creatorName.toLowerCase());
+
+        // 1. Check if existing player in THIS room is reconnecting by existingPlayerId
         if (msg.existingPlayerId) {
           const existing = room.players.find((p) => p.id === msg.existingPlayerId);
           if (existing) {
             existing.isConnected = true;
+            if (msg.avatar) existing.avatar = msg.avatar;
+            if (msg.playerName?.trim()) existing.name = msg.playerName.trim();
+            const hasOtherOnlineHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected && p.id !== existing.id);
+            const isCreator = !!(room.creatorName && existing.name.toLowerCase() === room.creatorName.toLowerCase());
+            if (!hasOtherOnlineHost || isCreator) {
+              room.players.forEach((p) => { p.isHost = false; });
+              existing.isHost = true;
+            }
             clientConnections.set(ws, { roomId: room.id, playerId: existing.id });
+            updatePlayerRoom(ws, room.id);
             ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: existing.id }));
+            broadcastLog(room, `🔄 ${existing.name} reconectou à sala!`, 'system');
             syncRoomState(room);
             return;
           }
         }
 
-        // Check if player by same name/avatar is reconnecting to a game in progress
-        if (room.status === 'playing') {
-          const disc = room.players.find((p) => !p.isBot && !p.isConnected && p.name.toLowerCase() === msg.playerName.trim().toLowerCase());
-          if (disc) {
-            disc.isConnected = true;
-            clientConnections.set(ws, { roomId: room.id, playerId: disc.id });
-            ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: disc.id }));
-            broadcastLog(room, `🔄 ${disc.name} reconectou à partida!`, 'system');
-            syncRoomState(room);
-            return;
+        // 2. Check if a player with matching name was disconnected in this room (reconnect slot)
+        const discMatch = room.players.find(
+          (p) => !p.isBot && !p.isConnected && p.name.trim().toLowerCase() === requestedName.toLowerCase()
+        );
+        if (discMatch) {
+          discMatch.isConnected = true;
+          if (msg.avatar) discMatch.avatar = msg.avatar;
+          const hasOtherOnlineHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected && p.id !== discMatch.id);
+          if (!hasOtherOnlineHost || isOriginalCreator) {
+            room.players.forEach((p) => { p.isHost = false; });
+            discMatch.isHost = true;
           }
+          clientConnections.set(ws, { roomId: room.id, playerId: discMatch.id });
+          updatePlayerRoom(ws, room.id);
+          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: discMatch.id }));
+          broadcastLog(room, `🔄 ${discMatch.name} reconectou à sala!`, 'system');
+          syncRoomState(room);
+          return;
+        }
 
-          // Game is in progress: add as Spectator / Waiting for next round!
+        // 3. If game is already in progress and not an existing player: join as waiting spectator
+        if (room.status === 'playing') {
           if (!room.spectators) room.spectators = [];
           const spectatorId = `spectator-${Math.random().toString(36).substring(2, 9)}`;
           const spectatorObj = {
             id: spectatorId,
-            name: msg.playerName.trim() || `Espectador ${room.spectators.length + 1}`,
+            name: requestedName || `Espectador ${room.spectators.length + 1}`,
             avatar: msg.avatar || '👀',
             isConnected: true,
           };
           room.spectators.push(spectatorObj);
           clientConnections.set(ws, { roomId: room.id, playerId: spectatorId });
+          updatePlayerRoom(ws, room.id);
 
           ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: spectatorId }));
           broadcastLog(room, `👀 ${spectatorObj.name} entrou na sala como Espectador (Aguardando próxima rodada)!`, 'system');
@@ -1562,38 +1712,42 @@ wss.on('connection', (ws: WebSocket) => {
           return;
         }
 
-        // If room is full with bots, replace a bot with the real human player!
+        // 4. Room is waiting: If room has bot and is full, replace a bot for human player
         if (room.players.length >= room.settings.maxPlayers) {
           const botIdx = room.players.findIndex((p) => p.isBot);
           if (botIdx !== -1) {
             const removedBot = room.players.splice(botIdx, 1)[0];
-            broadcastLog(room, `🤖 ${removedBot.name} deu espaço para ${msg.playerName || 'Jogador'} entrar na mesa.`, 'system');
+            broadcastLog(room, `🤖 ${removedBot.name} deu espaço para ${requestedName} entrar na mesa.`, 'system');
           } else {
             ws.send(JSON.stringify({ type: 'error', message: 'A sala já está cheia (máximo de 4 jogadores atingido).' }));
             return;
           }
         }
 
-        const hasOnlineHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);
-        const requestedName = msg.playerName.trim() || `Jogador ${room.players.length + 1}`;
-
-        // Verify if name is already taken in this room
+        // 5. Check if active online player already has this exact name
         const isNameTakenInRoom = room.players.some(
-          (p) => p.isConnected && p.name.trim().toLowerCase() === requestedName.toLowerCase()
+          (p) => p.isConnected && !p.isBot && p.name.trim().toLowerCase() === requestedName.toLowerCase()
         );
         if (isNameTakenInRoom) {
           ws.send(JSON.stringify({
             type: 'error',
-            message: `O nome "${requestedName}" já está em uso por outro jogador nesta sala! Quem escolheu primeiro escolheu. Escolha outro apelido para entrar.`
+            message: `O nome "${requestedName}" já está em uso por outro jogador conectado nesta sala! Escolha outro apelido ou nome para entrar.`
           }));
           return;
+        }
+
+        const hasOnlineHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);
+        const shouldBeHost = !hasOnlineHost || isOriginalCreator;
+
+        if (shouldBeHost && isOriginalCreator) {
+          room.players.forEach((p) => { p.isHost = false; });
         }
 
         const newPlayer: InternalPlayer = {
           id: `player-${Math.random().toString(36).substring(2, 9)}`,
           name: requestedName,
           avatar: msg.avatar || '🎲',
-          isHost: !hasOnlineHost && room.players.filter((p) => !p.isBot).length === 0,
+          isHost: shouldBeHost,
           isBot: false,
           cardsCount: 0,
           hasCalledUno: false,
@@ -1605,6 +1759,7 @@ wss.on('connection', (ws: WebSocket) => {
 
         room.players.push(newPlayer);
         clientConnections.set(ws, { roomId: room.id, playerId: newPlayer.id });
+        updatePlayerRoom(ws, room.id);
 
         ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: newPlayer.id }));
         broadcastLog(room, `${newPlayer.name} entrou na sala!`, 'system');
@@ -1811,6 +1966,19 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
+      if (msg.type === 'claim_host') {
+        const targetPlayer = player || room.players.find((p) => p.id === msg.playerId);
+        if (!targetPlayer) return;
+
+        room.players.forEach((p) => {
+          p.isHost = false;
+        });
+        targetPlayer.isHost = true;
+        broadcastLog(room, `👑 ${targetPlayer.name} assumiu a liderança como Anfitrião da sala!`, 'system');
+        syncRoomState(room);
+        return;
+      }
+
       if (msg.type === 'update_settings') {
         if (!player.isHost) return;
         room.settings = {
@@ -1960,23 +2128,6 @@ wss.on('connection', (ws: WebSocket) => {
           room.spectatorCardsRevealed = msg.reveal;
           broadcastLog(room, `👁️ O Anfitrião ${msg.reveal ? 'liberou a visão das cartas para os Espectadores' : 'ocultou as cartas dos Espectadores'}.`, 'system');
           syncRoomState(room);
-        }
-        return;
-      }
-
-      if (msg.type === 'claim_host') {
-        if (!player) return;
-        const isCreator = room.creatorName && player.name.toLowerCase() === room.creatorName.toLowerCase();
-        const hasActiveHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);
-
-        if (isCreator || !hasActiveHost || room.players.filter((p) => !p.isBot && p.isConnected).length === 1) {
-          room.players.forEach((p) => {
-            p.isHost = (p.id === player.id);
-          });
-          broadcastLog(room, `👑 ${player.name} reivindicou e assumiu o cargo de Anfitrião da sala!`, 'system');
-          syncRoomState(room);
-        } else {
-          ws.send(JSON.stringify({ type: 'error', message: 'Já existe um Anfitrião ativo na sala.' }));
         }
         return;
       }
@@ -2147,12 +2298,27 @@ wss.on('connection', (ws: WebSocket) => {
         });
         return;
       }
+
+      // Automatically keep onlinePlayers roomId in sync with clientConnections!
+      const conn = clientConnections.get(ws);
+      const onlineMeta = onlinePlayers.get(ws);
+      if (onlineMeta) {
+        const targetRoomId = conn ? conn.roomId : null;
+        if (onlineMeta.roomId !== targetRoomId) {
+          onlineMeta.roomId = targetRoomId;
+          broadcastOnlinePlayers();
+        }
+      }
     } catch (e) {
       console.error('Error handling WebSocket message:', e);
     }
   });
 
   ws.on('close', () => {
+    // Delete from online lobby registry and notify
+    onlinePlayers.delete(ws);
+    broadcastOnlinePlayers();
+
     const meta = clientConnections.get(ws);
     if (!meta) return;
 

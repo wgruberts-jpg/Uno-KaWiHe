@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AdminRoomSummary, AdminUserSummary, UserProfile } from '../types/uno.js';
+import { auth } from '../services/auth.js';
 import {
   ShieldAlert,
   Users,
@@ -22,7 +23,12 @@ import {
   User,
   Shield,
   Activity,
-  Layers
+  Layers,
+  KeyRound,
+  Plus,
+  Lock,
+  Key,
+  Search
 } from 'lucide-react';
 
 interface AdminRoomsModalProps {
@@ -32,6 +38,7 @@ interface AdminRoomsModalProps {
   onJoinRoomAsAdmin?: (roomId: string) => void;
   onWatchRoom?: (roomId: string, revealCards?: boolean) => void;
   ws?: WebSocket | null;
+  initialTab?: 'rooms' | 'users' | 'messages';
 }
 
 export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
@@ -41,12 +48,34 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
   onJoinRoomAsAdmin,
   onWatchRoom,
   ws,
+  initialTab,
 }) => {
-  const [activeTab, setActiveTab] = useState<'rooms' | 'users' | 'messages'>('rooms');
+  const [activeTab, setActiveTab] = useState<'rooms' | 'users' | 'messages'>(initialTab || 'rooms');
   const [rooms, setRooms] = useState<AdminRoomSummary[]>([]);
   const [users, setUsers] = useState<AdminUserSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+
+  // Confirmation Modals State (avoid window.confirm)
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ id: string; username: string } | null>(null);
+  const [confirmCloseRoomId, setConfirmCloseRoomId] = useState<string | null>(null);
+  const [confirmKickPlayer, setConfirmKickPlayer] = useState<{ roomId: string; playerId: string; playerName: string } | null>(null);
+
+  // Create User Form States
+  const [showCreateUserForm, setShowCreateUserForm] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [newAvatar, setNewAvatar] = useState('🦸‍♂️');
+  const [newRole, setNewRole] = useState<'player' | 'admin'>('player');
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
+
+  // Reset Password States
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const [newPasswordForReset, setNewPasswordForReset] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   // Message Sending States
   const [messageTargetRoom, setMessageTargetRoom] = useState<string>('all');
@@ -87,17 +116,112 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      if (initialTab) {
+        setActiveTab(initialTab);
+      }
       fetchAdminData();
       const interval = setInterval(fetchAdminData, 3500);
       return () => clearInterval(interval);
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab]);
 
-  if (!isOpen) return null;
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUsername.trim() || !newPassword.trim()) {
+      setActionError('Informe o nome de usuário e a senha.');
+      setTimeout(() => setActionError(null), 4000);
+      return;
+    }
+    if (newUsername.trim().length < 3) {
+      setActionError('O nome de usuário deve ter no mínimo 3 caracteres.');
+      setTimeout(() => setActionError(null), 4000);
+      return;
+    }
+    if (newPassword.trim().length < 3) {
+      setActionError('A senha deve ter no mínimo 3 caracteres.');
+      setTimeout(() => setActionError(null), 4000);
+      return;
+    }
 
-  const handleCloseRoom = async (roomId: string) => {
-    if (!confirm(`Tem certeza que deseja encerrar e fechar a sala ${roomId}? Todos os jogadores serão desconectados.`)) return;
+    setIsSubmittingUser(true);
+    setActionError(null);
+    try {
+      const res = await auth.adminCreateUser({
+        username: newUsername.trim(),
+        password: newPassword.trim(),
+        displayName: newDisplayName.trim() || newUsername.trim(),
+        avatar: newAvatar,
+        role: newRole,
+      });
+      if (res.success && res.user) {
+        setActionFeedback(`✅ Usuário @${res.user.username} cadastrado com sucesso!`);
+        setShowCreateUserForm(false);
+        setNewUsername('');
+        setNewPassword('');
+        setNewDisplayName('');
+        setNewAvatar('🦸‍♂️');
+        setNewRole('player');
+        fetchAdminData();
+        setTimeout(() => setActionFeedback(null), 4500);
+      } else {
+        setActionError(res.error || 'Erro ao cadastrar usuário.');
+        setTimeout(() => setActionError(null), 5000);
+      }
+    } catch {
+      setActionError('Erro de conexão ao criar usuário.');
+      setTimeout(() => setActionError(null), 5000);
+    } finally {
+      setIsSubmittingUser(false);
+    }
+  };
 
+  const handleResetPassword = async (userId: string, username: string) => {
+    if (!newPasswordForReset.trim() || newPasswordForReset.trim().length < 3) {
+      setActionError('A nova senha deve ter no mínimo 3 caracteres.');
+      setTimeout(() => setActionError(null), 4000);
+      return;
+    }
+    setIsResettingPassword(true);
+    setActionError(null);
+    try {
+      const res = await auth.adminResetPassword(userId, newPasswordForReset.trim());
+      if (res.success) {
+        setActionFeedback(`🔑 Senha do usuário @${username} alterada com sucesso!`);
+        setResettingUserId(null);
+        setNewPasswordForReset('');
+        fetchAdminData();
+        setTimeout(() => setActionFeedback(null), 4500);
+      } else {
+        setActionError(res.error || 'Erro ao redefinir senha.');
+        setTimeout(() => setActionError(null), 5000);
+      }
+    } catch {
+      setActionError('Erro de conexão ao redefinir senha.');
+      setTimeout(() => setActionError(null), 5000);
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  const executeDeleteUser = async (userId: string, username: string) => {
+    try {
+      const res = await auth.adminDeleteUser(userId);
+      if (res.success) {
+        setActionFeedback(`🗑️ Usuário @${username} removido com sucesso.`);
+        setConfirmDeleteUser(null);
+        fetchAdminData();
+        setTimeout(() => setActionFeedback(null), 4000);
+      } else {
+        setActionError(res.error || 'Erro ao excluir usuário.');
+        setTimeout(() => setActionError(null), 4000);
+      }
+    } catch {
+      setActionError('Erro ao excluir usuário.');
+      setTimeout(() => setActionError(null), 4000);
+    }
+  };
+
+  const executeCloseRoom = async (roomId: string) => {
     try {
       const res = await fetch(`/api/admin/rooms/${roomId}/close`, {
         method: 'POST',
@@ -110,17 +234,21 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
       });
       const data = await res.json();
       if (data.success) {
-        setActionFeedback(`Sala ${roomId} encerrada com sucesso!`);
+        setActionFeedback(`Sala #${roomId} encerrada com sucesso!`);
+        setConfirmCloseRoomId(null);
         fetchAdminData();
+        setTimeout(() => setActionFeedback(null), 4000);
+      } else {
+        setActionError(data.error || 'Erro ao fechar sala.');
+        setTimeout(() => setActionError(null), 4000);
       }
     } catch {
-      setActionFeedback('Erro ao fechar a sala.');
+      setActionError('Erro ao fechar a sala.');
+      setTimeout(() => setActionError(null), 4000);
     }
   };
 
-  const handleKickPlayer = async (roomId: string, playerId: string, playerName: string) => {
-    if (!confirm(`Expulsar o jogador "${playerName}" da sala ${roomId}?`)) return;
-
+  const executeKickPlayer = async (roomId: string, playerId: string, playerName: string) => {
     try {
       const res = await fetch(`/api/admin/rooms/${roomId}/kick`, {
         method: 'POST',
@@ -134,12 +262,20 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
       const data = await res.json();
       if (data.success) {
         setActionFeedback(`${playerName} foi expulso da sala.`);
+        setConfirmKickPlayer(null);
         fetchAdminData();
+        setTimeout(() => setActionFeedback(null), 4000);
+      } else {
+        setActionError(data.error || 'Erro ao expulsar jogador.');
+        setTimeout(() => setActionError(null), 4000);
       }
     } catch {
-      setActionFeedback('Erro ao expulsar jogador.');
+      setActionError('Erro ao expulsar jogador.');
+      setTimeout(() => setActionError(null), 4000);
     }
   };
+
+  if (!isOpen) return null;
 
   const handleForceEndGame = (roomId: string) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -323,7 +459,7 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Usuários & Logados ({users.length})</span>
+            <span>👥 Usuários & Senhas ({users.length})</span>
             {totalUsersOnline > 0 && (
               <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse"></span>
             )}
@@ -348,6 +484,14 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
           <div className="p-2.5 mb-3 rounded-xl bg-emerald-950/80 border border-emerald-500 text-emerald-300 text-xs font-bold flex items-center gap-2 shrink-0 animate-in fade-in duration-200">
             <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
             <span>{actionFeedback}</span>
+          </div>
+        )}
+
+        {/* Error Alert */}
+        {actionError && (
+          <div className="p-2.5 mb-3 rounded-xl bg-rose-950/80 border border-rose-500 text-rose-300 text-xs font-bold flex items-center gap-2 shrink-0 animate-in fade-in duration-200">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{actionError}</span>
           </div>
         )}
 
@@ -457,7 +601,7 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => handleCloseRoom(room.id)}
+                          onClick={() => setConfirmCloseRoomId(room.id)}
                           className="px-2 py-1 bg-rose-600/30 hover:bg-rose-600 text-rose-200 rounded-lg text-[11px] font-black border border-rose-500/40 transition-all flex items-center gap-1 cursor-pointer"
                         >
                           <Trash2 className="w-3 h-3" /> Fechar
@@ -520,7 +664,7 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
 
                             <button
                               type="button"
-                              onClick={() => handleKickPlayer(room.id, p.id, p.name)}
+                              onClick={() => setConfirmKickPlayer({ roomId: room.id, playerId: p.id, playerName: p.name })}
                               title={`Expulsar ${p.name}`}
                               className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-600 rounded-lg transition-all cursor-pointer shrink-0"
                             >
@@ -537,69 +681,320 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
           </div>
         )}
 
-        {/* TAB 2: REGISTERED USERS & ONLINE STATUS */}
+        {/* TAB 2: REGISTERED USERS & PASSWORD MANAGEMENT */}
         {activeTab === 'users' && (
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
-            <div className="text-xs text-slate-400 font-bold mb-2 flex items-center justify-between">
-              <span>Lista de Usuários Cadastrados ({users.length}):</span>
-              <span className="text-emerald-400 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                {totalUsersOnline} Online agora
-              </span>
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[220px]">
+            {/* Top Toolbar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-slate-800/80 rounded-2xl border border-slate-700">
+              <div className="text-xs text-slate-300 font-bold flex items-center gap-3">
+                <span>Total de Usuários: <strong className="text-white font-black">{users.length}</strong></span>
+                <span className="text-emerald-400 flex items-center gap-1.5 font-black">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  {totalUsersOnline} Online
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowCreateUserForm(!showCreateUserForm)}
+                className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{showCreateUserForm ? 'Fechar Cadastro' : 'Cadastrar Novo Usuário'}</span>
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {users.map((u) => (
-                <div
-                  key={u.id}
-                  className={`p-3 rounded-2xl border-2 flex items-center justify-between gap-3 transition-all ${
-                    u.isOnline
-                      ? 'bg-slate-800/90 border-emerald-500/60 shadow-md'
-                      : 'bg-slate-800/50 border-slate-700/70 opacity-80'
-                  }`}
+            {/* Quick Search Bar */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar usuário por nome, @login ou #tag..."
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-800/90 border border-slate-700 text-white placeholder-slate-400 font-medium text-xs focus:outline-none focus:border-amber-400"
+              />
+              {userSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setUserSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-2xl shrink-0">{u.avatar}</span>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-black text-white truncate">{u.displayName}</span>
-                        {u.tag && (
-                          <span className="font-mono text-[9px] font-black text-amber-400 bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-500/40">
-                            {u.tag}
-                          </span>
-                        )}
-                        {u.role === 'admin' && (
-                          <span className="text-[9px] font-black bg-amber-500 text-slate-950 px-1.5 rounded">
-                            ADMIN
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                        <span>@{u.username}</span>
-                      </div>
-                    </div>
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Create User Expandable Form */}
+            {showCreateUserForm && (
+              <form onSubmit={handleCreateUser} className="p-4 bg-slate-800 border-2 border-amber-400 rounded-2xl space-y-3 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-700">
+                  <h4 className="font-black text-xs uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                    <User className="w-4 h-4" /> Criar Conta de Usuário (Direto sem Convite)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateUserForm(false)}
+                    className="text-slate-400 hover:text-white text-xs font-black cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-300 mb-1">
+                      Nome de Usuário / Login (sem espaços):
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: pedrinho"
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                      className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-600 text-white font-bold text-xs focus:outline-none focus:border-amber-400"
+                    />
                   </div>
 
-                  <div className="text-right shrink-0">
-                    {u.isOnline ? (
-                      <div>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                          Online
-                        </span>
-                        {u.currentRoomId && (
-                          <div className="text-[10px] text-amber-400 font-mono font-black mt-0.5">
-                            Sala #{u.currentRoomId}
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-300 mb-1">
+                      Senha Inicial:
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Mínimo 3 caracteres"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-600 text-white font-bold text-xs focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-300 mb-1">
+                      Nome / Apelido de Exibição:
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Pedro Silva"
+                      value={newDisplayName}
+                      onChange={(e) => setNewDisplayName(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-600 text-white font-bold text-xs focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-300 mb-1">
+                      Tipo de Acesso (Cargo):
+                    </label>
+                    <select
+                      value={newRole}
+                      onChange={(e) => setNewRole(e.target.value as 'player' | 'admin')}
+                      className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-600 text-white font-bold text-xs focus:outline-none focus:border-amber-400"
+                    >
+                      <option value="player">🎮 Jogador Padrão</option>
+                      <option value="admin">👑 Administrador Total</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Avatar Quick Selection */}
+                <div>
+                  <label className="block text-[11px] font-black text-slate-300 mb-1">
+                    Escolha um Avatar Inicial:
+                  </label>
+                  <div className="flex gap-2 flex-wrap">
+                    {['🦸‍♂️', '👑', '🦊', '🦁', '🐼', '🐯', '🦄', '🧙‍♂️', '⚡', '🚀'].map((av) => (
+                      <button
+                        key={av}
+                        type="button"
+                        onClick={() => setNewAvatar(av)}
+                        className={`w-9 h-9 rounded-xl border-2 text-xl flex items-center justify-center cursor-pointer transition-all ${
+                          newAvatar === av
+                            ? 'bg-amber-400 border-white scale-110 shadow-sm'
+                            : 'bg-slate-900 border-slate-700 hover:bg-slate-800'
+                        }`}
+                      >
+                        {av}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateUserForm(false)}
+                    className="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold text-xs cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingUser}
+                    className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{isSubmittingUser ? 'Criando...' : 'Salvar Novo Usuário'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Registered Users List */}
+            {(() => {
+              const query = userSearchQuery.trim().toLowerCase();
+              const filteredUsers = users.filter((u) => {
+                if (!query) return true;
+                return (
+                  u.username.toLowerCase().includes(query) ||
+                  u.displayName.toLowerCase().includes(query) ||
+                  (u.tag && u.tag.toLowerCase().includes(query))
+                );
+              });
+
+              if (filteredUsers.length === 0) {
+                return (
+                  <div className="p-8 text-center text-slate-400 bg-slate-800/40 rounded-2xl border border-slate-700/60">
+                    <p className="text-sm font-bold">Nenhum usuário encontrado{query ? ` para "${userSearchQuery}"` : ''}.</p>
+                    {query && (
+                      <button
+                        type="button"
+                        onClick={() => setUserSearchQuery('')}
+                        className="mt-2 text-xs text-amber-400 font-black hover:underline cursor-pointer"
+                      >
+                        Limpar busca
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {filteredUsers.map((u) => {
+                    const isResettingThis = resettingUserId === u.id;
+
+                    return (
+                      <div
+                        key={u.id}
+                        className={`p-3 rounded-2xl border-2 flex flex-col justify-between gap-2.5 transition-all ${
+                          u.isOnline
+                            ? 'bg-slate-800/90 border-emerald-500/60 shadow-md'
+                            : 'bg-slate-800/50 border-slate-700/70'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-2xl shrink-0">{u.avatar}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-black text-white truncate">{u.displayName}</span>
+                                {u.tag && (
+                                  <span className="font-mono text-[9px] font-black text-amber-400 bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-500/40">
+                                    {u.tag}
+                                  </span>
+                                )}
+                                {u.role === 'admin' && (
+                                  <span className="text-[9px] font-black bg-amber-500 text-slate-950 px-1.5 rounded">
+                                    ADMIN
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                <span>@{u.username}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            {u.isOnline ? (
+                              <div>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                                  Online
+                                </span>
+                                {u.currentRoomId && (
+                                  <div className="text-[10px] text-amber-400 font-mono font-black mt-0.5">
+                                    Sala #{u.currentRoomId}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-500 font-bold">⚪ Offline</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Inline Reset Password Form */}
+                        {isResettingThis ? (
+                          <div className="p-2.5 bg-slate-900/90 rounded-xl border border-amber-500/60 space-y-2 animate-in fade-in duration-150">
+                            <div className="text-[11px] font-black text-amber-400 flex items-center gap-1">
+                              <Key className="w-3.5 h-3.5" /> Nova senha para @{u.username}:
+                            </div>
+                            <div className="flex gap-2">
+                              <input
+                                type="password"
+                                autoFocus
+                                placeholder="Digite nova senha..."
+                                value={newPasswordForReset}
+                                onChange={(e) => setNewPasswordForReset(e.target.value)}
+                                className="flex-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-600 text-white font-medium text-xs focus:outline-none focus:border-amber-400"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleResetPassword(u.id, u.username)}
+                                disabled={isResettingPassword || !newPasswordForReset.trim()}
+                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-lg cursor-pointer disabled:opacity-50"
+                              >
+                                {isResettingPassword ? 'Salvando...' : 'Salvar'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setResettingUserId(null);
+                                  setNewPasswordForReset('');
+                                }}
+                                className="px-2 py-1 bg-slate-800 text-slate-400 hover:text-white text-xs font-bold rounded-lg cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* User Action Toolbar */
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-700/60 mt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResettingUserId(u.id);
+                                setNewPasswordForReset('');
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 border border-purple-500/40 text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                              title="Trocar a senha deste usuário"
+                            >
+                              <KeyRound className="w-3 h-3 text-purple-300" />
+                              <span>Redefinir Senha</span>
+                            </button>
+
+                            {u.username.toLowerCase() !== 'edinho' && (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteUser({ id: u.id, username: u.username })}
+                                className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                title={`Excluir @${u.username}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <span className="text-[10px] text-slate-500 font-bold">⚪ Offline</span>
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
           </div>
         )}
 
@@ -654,6 +1049,99 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
 
             <div className="p-3 bg-purple-950/30 border border-purple-500/40 rounded-2xl text-xs text-purple-200">
               💡 <strong>Dica:</strong> Mensagens de sala chegam instantaneamente no chat lateral e no log da partida dos jogadores daquela mesa. Transmissões globais geram um banner sonoro de aviso no topo da tela de todos os participantes.
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirmation Overlay: Delete User */}
+        {confirmDeleteUser && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="bg-slate-900 border-2 border-rose-500 p-5 rounded-3xl max-w-sm w-full text-center space-y-3 shadow-2xl">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/50 flex items-center justify-center text-2xl mx-auto">
+                🗑️
+              </div>
+              <h4 className="text-base font-black text-white">Excluir Usuário?</h4>
+              <p className="text-xs text-slate-300 font-medium">
+                Tem certeza que deseja excluir permanentemente a conta de <strong className="text-white">@{confirmDeleteUser.username}</strong>? Esta ação não pode ser desfeita.
+              </p>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteUser(null)}
+                  className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => executeDeleteUser(confirmDeleteUser.id, confirmDeleteUser.username)}
+                  className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer shadow-sm"
+                >
+                  Sim, Excluir
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirmation Overlay: Close Room */}
+        {confirmCloseRoomId && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="bg-slate-900 border-2 border-rose-500 p-5 rounded-3xl max-w-sm w-full text-center space-y-3 shadow-2xl">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/50 flex items-center justify-center text-2xl mx-auto">
+                🛑
+              </div>
+              <h4 className="text-base font-black text-white">Encerrar Sala #{confirmCloseRoomId}?</h4>
+              <p className="text-xs text-slate-300 font-medium">
+                Tem certeza que deseja encerrar e fechar a sala <strong className="text-white">#{confirmCloseRoomId}</strong>? Todos os jogadores conectados serão redirecionados de volta ao Lobby.
+              </p>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmCloseRoomId(null)}
+                  className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => executeCloseRoom(confirmCloseRoomId)}
+                  className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer shadow-sm"
+                >
+                  Sim, Encerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirmation Overlay: Kick Player */}
+        {confirmKickPlayer && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="bg-slate-900 border-2 border-amber-500 p-5 rounded-3xl max-w-sm w-full text-center space-y-3 shadow-2xl">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-2xl mx-auto">
+                ⚠️
+              </div>
+              <h4 className="text-base font-black text-white">Expulsar Jogador?</h4>
+              <p className="text-xs text-slate-300 font-medium">
+                Expulsar o jogador <strong className="text-white">{confirmKickPlayer.playerName}</strong> da Sala <strong className="text-white">#{confirmKickPlayer.roomId}</strong>?
+              </p>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmKickPlayer(null)}
+                  className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => executeKickPlayer(confirmKickPlayer.roomId, confirmKickPlayer.playerId, confirmKickPlayer.playerName)}
+                  className="flex-1 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer shadow-sm"
+                >
+                  Sim, Expulsar
+                </button>
+              </div>
             </div>
           </div>
         )}

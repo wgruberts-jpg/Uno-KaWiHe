@@ -67,6 +67,7 @@ export interface RematchVote {
 
 export interface GameState {
   roomId: string;
+  creatorName?: string;
   status: GameStatus;
   players: Player[];
   spectators?: Array<{ id: string; name: string; avatar: string; isConnected: boolean }>;
@@ -297,7 +298,10 @@ export type ClientMessage =
   | { type: 'admin_close_room'; roomId: string; adminSecret?: string; reason?: string }
   | { type: 'admin_force_end_game'; roomId: string; adminSecret?: string }
   | { type: 'admin_global_broadcast'; message: string; sender?: string; adminSecret?: string }
-  | { type: 'get_open_rooms' };
+  | { type: 'get_open_rooms' }
+  | { type: 'register_lobby'; playerId: string; name: string; avatar: string }
+  | { type: 'send_lobby_chat'; playerId: string; name: string; avatar: string; text: string }
+  | { type: 'send_lobby_invite'; playerId: string; name: string; avatar: string; roomId: string };
 
 export type ServerMessage =
   | { type: 'room_joined'; roomId: string; playerId: string }
@@ -315,4 +319,7 @@ export type ServerMessage =
   | { type: 'player_kicked'; reason: string }
   | { type: 'left_room_confirmed'; roomId?: string }
   | { type: 'global_announcement'; message: string; sender: string; timestamp: number }
+  | { type: 'lobby_online_players'; players: Array<{ id: string; name: string; avatar: string; roomId: string | null }> }
+  | { type: 'lobby_chat_message'; message: { id: string; name: string; avatar: string; text: string; timestamp: number } }
+  | { type: 'lobby_invite_received'; invite: { fromName: string; fromAvatar: string; roomId: string; timestamp: number } }
   | { type: 'error'; message: string };

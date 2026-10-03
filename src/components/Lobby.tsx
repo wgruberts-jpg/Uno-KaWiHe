@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar.js';
 import { AvatarSelectModal } from './AvatarSelectModal.js';
 import { OpenRoomsModal } from './OpenRoomsModal.js';
 import { InviteShareModal } from './InviteShareModal.js';
+import { auth } from '../services/auth.js';
 import {
   Users,
   Play,
@@ -35,7 +36,9 @@ import {
   Eye,
   EyeOff,
   Layers,
-  MessageSquare
+  MessageSquare,
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -47,6 +50,8 @@ interface LobbyProps {
   onRemoveBot: (botId: string) => void;
   onKickPlayer?: (targetPlayerId: string) => void;
   onTransferHost?: (targetPlayerId: string) => void;
+  onClaimHost?: () => void;
+  onRefreshRoom?: () => void;
   onStartGame: () => void;
   onResetRoom?: () => void;
   onOpenVmGuide: () => void;
@@ -54,16 +59,21 @@ interface LobbyProps {
   onOpenStats?: () => void;
   onOpenInvites?: () => void;
   onOpenAdminRooms?: () => void;
+  onOpenAdminUsers?: () => void;
   onLeaveRoom: () => void;
   onOpenAuth: () => void;
   currentUser: UserProfile | null;
   onLogout: () => void;
   roomId: string | null;
+  creatorName?: string;
+  spectators?: Array<{ id: string; name: string; avatar: string; isConnected: boolean }>;
   players: Player[];
   myPlayerId: string;
   isHost: boolean;
   errorMessage: string | null;
   sendMessage?: (msg: ClientMessage) => void;
+  onlinePlayers?: Array<{ id: string; name: string; avatar: string; roomId: string | null }>;
+  lobbyChat?: Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>;
 }
 
 export const Lobby: React.FC<LobbyProps> = ({
@@ -75,6 +85,8 @@ export const Lobby: React.FC<LobbyProps> = ({
   onRemoveBot,
   onKickPlayer,
   onTransferHost,
+  onClaimHost,
+  onRefreshRoom,
   onStartGame,
   onResetRoom,
   onOpenVmGuide,
@@ -82,16 +94,21 @@ export const Lobby: React.FC<LobbyProps> = ({
   onOpenStats,
   onOpenInvites,
   onOpenAdminRooms,
+  onOpenAdminUsers,
   onLeaveRoom,
   onOpenAuth,
   currentUser,
   onLogout,
   roomId,
+  creatorName,
+  spectators = [],
   players,
   myPlayerId,
   isHost,
   errorMessage,
   sendMessage,
+  onlinePlayers = [],
+  lobbyChat = [],
 }) => {
   const [playerName, setPlayerName] = useState(() => currentUser?.displayName || localStorage.getItem('uno_nickname') || 'Jogador 1');
   const [selectedAvatar, setSelectedAvatar] = useState(() => currentUser?.avatar || localStorage.getItem('uno_avatar') || '🦸‍♂️');
@@ -127,16 +144,70 @@ export const Lobby: React.FC<LobbyProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [selectedBotCount, setSelectedBotCount] = useState<number>(1);
+  const [chatInputText, setChatInputText] = useState('');
+  const [inviteSentFeedback, setInviteSentFeedback] = useState(false);
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.username?.toLowerCase() === 'edinho';
+
+  const handleSendLobbyChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInputText.trim()) return;
+    sendMessage?.({
+      type: 'send_lobby_chat',
+      playerId: currentUser?.id || myPlayerId,
+      name: playerName,
+      avatar: selectedAvatar,
+      text: chatInputText.trim(),
+    });
+    setChatInputText('');
+  };
+
+  const handleBroadcastLobbyInvite = () => {
+    if (!roomId) return;
+    sendMessage?.({
+      type: 'send_lobby_invite',
+      playerId: currentUser?.id || myPlayerId,
+      name: playerName,
+      avatar: selectedAvatar,
+      roomId: roomId,
+    });
+    setInviteSentFeedback(true);
+    setTimeout(() => setInviteSentFeedback(false), 4000);
+  };
 
   const handleAvatarSelect = (av: string) => {
     setSelectedAvatar(av);
     localStorage.setItem('uno_avatar', av);
+    if (currentUser) {
+      auth.updateProfile(playerName, av);
+    }
+    if (sendMessage && !roomId) {
+      sendMessage({
+        type: 'register_lobby',
+        playerId: currentUser?.id || myPlayerId,
+        name: playerName,
+        avatar: av,
+      });
+    }
   };
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setPlayerName(val);
     localStorage.setItem('uno_nickname', val);
+  };
+
+  const handleNameBlur = () => {
+    if (currentUser && playerName.trim()) {
+      auth.updateProfile(playerName.trim(), selectedAvatar);
+    }
+    if (sendMessage && !roomId && playerName.trim()) {
+      sendMessage({
+        type: 'register_lobby',
+        playerId: currentUser?.id || myPlayerId,
+        name: playerName.trim(),
+        avatar: selectedAvatar,
+      });
+    }
   };
 
   const getSavedSettings = (): Partial<RoomSettings> => ({
@@ -201,6 +272,8 @@ export const Lobby: React.FC<LobbyProps> = ({
         onOpenRules={() => setShowRules(true)}
         onOpenVmGuide={onOpenVmGuide}
         onOpenInvites={onOpenInvites || (() => {})}
+        onOpenAdminRooms={onOpenAdminRooms}
+        onOpenUsers={onOpenAdminUsers}
         onLogout={onLogout}
       />
 
@@ -230,15 +303,29 @@ export const Lobby: React.FC<LobbyProps> = ({
             </h1>
           </div>
 
-          {/* Quick Rooms Explorer button on top */}
-          <button
-            type="button"
-            onClick={() => setIsOpenRoomsModalOpen(true)}
-            className="px-3.5 py-2 rounded-2xl bg-white border-2 border-indigo-400 hover:bg-indigo-50 text-indigo-950 font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
-          >
-            <Layers className="w-4 h-4 text-indigo-600" />
-            <span>Salas Abertas</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Quick Rooms Explorer button on top */}
+            <button
+              type="button"
+              onClick={() => setIsOpenRoomsModalOpen(true)}
+              className="px-3.5 py-2 rounded-2xl bg-white border-2 border-indigo-400 hover:bg-indigo-50 text-indigo-950 font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+            >
+              <Layers className="w-4 h-4 text-indigo-600" />
+              <span>Salas Abertas</span>
+            </button>
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={onOpenAdminUsers}
+                className="px-3.5 py-2 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-yellow-300 text-slate-950 border-2 border-white font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                title="Cadastrar usuários, resetar senhas e moderar contas (Admin Edinho)"
+              >
+                <Users className="w-4 h-4 text-slate-950" />
+                <span>Usuários & Senhas</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Rules Accordion */}
@@ -273,9 +360,12 @@ export const Lobby: React.FC<LobbyProps> = ({
           </div>
         )}
 
-        {/* Main card */}
-        <div className="w-full max-w-2xl bg-white/95 border-4 border-yellow-400 rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-md z-10 text-slate-800">
-          {!roomId ? (
+        {/* Main Grid Layout for Responsive Dual Columns (Lobby & Social) */}
+        <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-3 gap-5 z-10 items-start w-full px-1 sm:px-0">
+          {/* Left Column: Room Setup Card (occupies 2 cols) */}
+          <div className="lg:col-span-2 space-y-4 w-full">
+            <div className="w-full bg-white/95 border-4 border-yellow-400 rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-md text-slate-800">
+              {!roomId ? (
             /* Profile & Room Creation / Join */
             <div className="space-y-4">
               {/* Compact Player Profile Section (Avatar selector moved to modal!) */}
@@ -301,6 +391,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                       type="text"
                       value={playerName}
                       onChange={handleNameChange}
+                      onBlur={handleNameBlur}
                       maxLength={18}
                       placeholder="Ex: Gabriel"
                       className="w-full bg-white border-2 border-amber-300 rounded-xl px-3 py-1.5 text-sm text-slate-900 font-bold focus:outline-none focus:border-amber-500 shadow-inner"
@@ -590,8 +681,13 @@ export const Lobby: React.FC<LobbyProps> = ({
             {/* Room Header & Code */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-gradient-to-r from-sky-400 via-indigo-500 to-purple-500 rounded-3xl border-4 border-white shadow-xl text-white">
               <div>
-                <div className="text-[11px] font-black text-yellow-300 uppercase tracking-wider">
-                  Código da Sala
+                <div className="text-[11px] font-black text-yellow-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>Código da Sala</span>
+                  {creatorName && (
+                    <span className="text-white/80 font-semibold normal-case">
+                      · Criada por <strong>{creatorName}</strong>
+                    </span>
+                  )}
                 </div>
                 <div className="text-3xl font-black font-mono tracking-widest text-white drop-shadow">
                   {roomId}
@@ -599,6 +695,32 @@ export const Lobby: React.FC<LobbyProps> = ({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
+                {/* Sync / Refresh Room Button */}
+                {onRefreshRoom && (
+                  <button
+                    type="button"
+                    onClick={onRefreshRoom}
+                    className="px-3 py-2 rounded-2xl bg-white/20 hover:bg-white/30 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all border border-white/40 shadow active:scale-95"
+                    title="Atualizar dados da sala e lista de jogadores"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Atualizar</span>
+                  </button>
+                )}
+
+                {/* Claim Host Button on Header (if not currently host) */}
+                {!isHost && onClaimHost && (
+                  <button
+                    type="button"
+                    onClick={onClaimHost}
+                    className="px-3.5 py-2 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all border-2 border-white shadow-md active:scale-95 animate-pulse"
+                    title="Reivindicar liderança para gerenciar a mesa e iniciar a partida"
+                  >
+                    <Crown className="w-3.5 h-3.5 text-slate-950" />
+                    <span>Assumir Anfitrião</span>
+                  </button>
+                )}
+
                 {/* Voice Controls in Lobby */}
                 {roomId && sendMessage && (
                   <VoiceControls
@@ -660,6 +782,52 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Special Notification Banner for Returning Creator */}
+            {!isHost && creatorName && (currentUser?.displayName?.toLowerCase() === creatorName.toLowerCase() || playerName.toLowerCase() === creatorName.toLowerCase()) && onClaimHost && (
+              <div className="p-3.5 bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 font-black rounded-3xl border-3 border-white shadow-md flex items-center justify-between gap-3 flex-wrap animate-in fade-in">
+                <div className="flex items-center gap-2.5 text-xs">
+                  <div className="w-8 h-8 rounded-xl bg-slate-950 text-amber-300 flex items-center justify-center text-base shadow-sm shrink-0">
+                    👑
+                  </div>
+                  <div>
+                    <div>Você é o <strong>Criador original</strong> desta sala!</div>
+                    <div className="text-[11px] text-amber-950 font-semibold">Reassuma a liderança da mesa para adicionar robôs ou iniciar a partida.</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onClaimHost}
+                  className="px-4 py-2 bg-slate-950 hover:bg-slate-900 text-amber-300 rounded-2xl text-xs font-black cursor-pointer shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+                >
+                  <Crown className="w-4 h-4 text-amber-400" />
+                  <span>Reassumir Anfitrião</span>
+                </button>
+              </div>
+            )}
+
+            {/* Special Notification Banner when Host is Disconnected */}
+            {!isHost && !players.some((p) => p.isHost && p.isConnected && !p.isBot) && onClaimHost && (
+              <div className="p-3.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold rounded-3xl border-3 border-white shadow-md flex items-center justify-between gap-3 flex-wrap animate-in fade-in">
+                <div className="flex items-center gap-2.5 text-xs">
+                  <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center text-base shrink-0">
+                    ⚠️
+                  </div>
+                  <div>
+                    <div className="font-black">O Anfitrião anterior saiu ou está desconectado.</div>
+                    <div className="text-[11px] text-orange-100 font-medium">Assuma a liderança agora para comandar a sala e começar o jogo!</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onClaimHost}
+                  className="px-4 py-2 bg-white hover:bg-yellow-100 text-orange-950 rounded-2xl text-xs font-black cursor-pointer shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+                >
+                  <Crown className="w-4 h-4 text-orange-600" />
+                  <span>Assumir Liderança da Mesa</span>
+                </button>
+              </div>
+            )}
 
             {/* Broadcast Sharing Card */}
             {showBroadcastShare && (
@@ -776,6 +944,7 @@ export const Lobby: React.FC<LobbyProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {players.map((p) => {
                   const isMe = p.id === myPlayerId;
+                  const isRoomCreator = creatorName && p.name.toLowerCase() === creatorName.toLowerCase();
 
                   return (
                     <div
@@ -783,59 +952,95 @@ export const Lobby: React.FC<LobbyProps> = ({
                       className={`p-3.5 rounded-2xl border-2 flex items-center justify-between transition-all ${
                         isMe
                           ? 'bg-amber-100/90 border-amber-400 shadow-md ring-2 ring-amber-300'
+                          : p.isHost
+                          ? 'bg-yellow-50 border-amber-300 shadow-xs'
                           : 'bg-white border-slate-200'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-300 to-orange-400 border-2 border-white flex items-center justify-center text-2xl shadow-sm">
-                          {p.avatar}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative shrink-0">
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-300 to-orange-400 border-2 border-white flex items-center justify-center text-2xl shadow-sm">
+                            {p.avatar}
+                          </div>
+                          {/* Connection Dot Badge */}
+                          <span
+                            className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${
+                              p.isBot || p.isConnected ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'
+                            }`}
+                            title={p.isBot ? 'Robô ativo' : p.isConnected ? 'Jogador Online' : 'Jogador Desconectado'}
+                          />
                         </div>
-                        <div>
-                          <div className="font-black text-sm text-slate-900 flex items-center gap-1.5">
-                            <span>{p.name}</span>
+
+                        <div className="min-w-0">
+                          <div className="font-black text-sm text-slate-900 flex items-center gap-1.5 truncate">
+                            <span className="truncate">{p.name}</span>
                             {isMe && (
-                              <span className="text-[10px] bg-amber-400 text-slate-950 font-black px-1.5 py-0.2 rounded-md">
+                              <span className="text-[10px] bg-amber-400 text-slate-950 font-black px-1.5 py-0.2 rounded-md shrink-0">
                                 Você
                               </span>
                             )}
                             {p.isHost && (
-                              <span className="text-sm" title="Anfitrião da Sala">
-                                👑
+                              <span className="text-xs bg-amber-400 text-slate-950 font-black px-1.5 py-0.2 rounded-md flex items-center gap-0.5 shrink-0" title="Anfitrião da Sala">
+                                <Crown className="w-3 h-3" /> Anfitrião
                               </span>
                             )}
                           </div>
-                          <div className="text-[11px] text-slate-500 font-bold">
-                            {p.isBot ? '🤖 Robô Inteligente' : p.isHost ? 'Criador da Sala' : 'Jogador Conectado'}
+                          <div className="text-[11px] text-slate-500 font-bold flex items-center gap-1">
+                            {p.isBot ? (
+                              <span>🤖 Robô Inteligente</span>
+                            ) : !p.isConnected ? (
+                              <span className="text-rose-600">🔴 Desconectado</span>
+                            ) : p.isHost ? (
+                              <span className="text-amber-800">👑 Comanda a mesa</span>
+                            ) : isRoomCreator ? (
+                              <span className="text-indigo-600">⭐ Criador da Sala</span>
+                            ) : (
+                              <span className="text-emerald-700">🟢 Conectado e Pronto</span>
+                            )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Host Actions (Kick or Remove Bot) */}
-                      {isHost && !isMe && (
-                        <div className="flex items-center gap-1">
-                          {p.isBot ? (
-                            <button
-                              type="button"
-                              onClick={() => onRemoveBot(p.id)}
-                              className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 cursor-pointer transition-colors"
-                              title="Remover Robô"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          ) : (
-                            onKickPlayer && (
+                      {/* Player Row Actions */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isHost && !isMe && (
+                          <>
+                            {p.isBot ? (
                               <button
                                 type="button"
-                                onClick={() => onKickPlayer(p.id)}
+                                onClick={() => onRemoveBot(p.id)}
                                 className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 cursor-pointer transition-colors"
-                                title="Expulsar Jogador"
+                                title="Remover Robô"
                               >
-                                <UserX className="w-4 h-4" />
+                                <Trash2 className="w-4 h-4" />
                               </button>
-                            )
-                          )}
-                        </div>
-                      )}
+                            ) : (
+                              <>
+                                {onTransferHost && p.isConnected && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onTransferHost(p.id)}
+                                    className="p-2 rounded-xl text-amber-600 hover:bg-amber-50 cursor-pointer transition-colors"
+                                    title="Passar liderança (tornar este jogador o Anfitrião)"
+                                  >
+                                    <Crown className="w-4 h-4" />
+                                  </button>
+                                )}
+                                {onKickPlayer && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onKickPlayer(p.id)}
+                                    className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 cursor-pointer transition-colors"
+                                    title="Expulsar Jogador"
+                                  >
+                                    <UserX className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -852,24 +1057,66 @@ export const Lobby: React.FC<LobbyProps> = ({
               </div>
             </div>
 
-            {/* Start Game Action */}
+            {/* Spectators List (if any) */}
+            {spectators && spectators.length > 0 && (
+              <div className="p-3 bg-sky-50 border-2 border-sky-200 rounded-2xl text-xs flex items-center gap-2 flex-wrap text-sky-950">
+                <span className="font-black flex items-center gap-1">
+                  <Eye className="w-3.5 h-3.5 text-sky-600" />
+                  Espectadores ({spectators.length}):
+                </span>
+                {spectators.map((s) => (
+                  <span key={s.id} className="px-2 py-0.5 bg-white border border-sky-300 rounded-lg font-bold text-[11px] flex items-center gap-1">
+                    <span>{s.avatar}</span>
+                    <span>{s.name}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Start Game Action / Waiting Status */}
             <div className="pt-2">
               {isHost ? (
-                <button
-                  type="button"
-                  onClick={onStartGame}
-                  disabled={players.length < 2}
-                  className="w-full py-4 rounded-2xl bg-gradient-to-b from-amber-400 via-yellow-400 to-orange-500 hover:from-yellow-300 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c] active:translate-y-1 border-3 border-white transition-all ring-4 ring-amber-300/60"
-                >
-                  <Play className="w-5 h-5 fill-slate-950" />
-                  <span>Iniciar Partida ({players.length}/4 Jogadores)</span>
-                </button>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={onStartGame}
+                    disabled={players.length < 2}
+                    className="w-full py-4 rounded-2xl bg-gradient-to-b from-amber-400 via-yellow-400 to-orange-500 hover:from-yellow-300 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c] active:translate-y-1 border-3 border-white transition-all ring-4 ring-amber-300/60"
+                  >
+                    <Play className="w-5 h-5 fill-slate-950" />
+                    <span>Iniciar Partida ({players.length}/4 Jogadores)</span>
+                  </button>
+                  {players.length < 2 && (
+                    <div className="text-[11px] text-amber-900 font-bold text-center">
+                      💡 Mínimo de 2 jogadores para iniciar. Clique em <strong>+1 Robô</strong> acima se quiser jogar agora!
+                    </div>
+                  )}
+                </div>
               ) : (
-                <div className="p-4 bg-amber-100/90 rounded-2xl border-2 border-amber-300 text-center">
-                  <div className="text-xs font-black text-amber-950 flex items-center justify-center gap-1.5">
-                    <Clock className="w-4 h-4 text-amber-600 animate-spin" />
-                    Aguardando o Anfitrião iniciar a partida...
+                <div className="p-4 bg-gradient-to-r from-amber-50 to-yellow-50 rounded-2xl border-2 border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <Clock className="w-5 h-5 text-amber-600 animate-spin shrink-0" />
+                    <div>
+                      <div className="text-xs font-black text-amber-950">
+                        Aguardando o Anfitrião ({players.find((p) => p.isHost)?.name || 'da sala'}) iniciar a partida...
+                      </div>
+                      <div className="text-[10px] text-slate-600 font-medium">
+                        Você está conectado na mesa. Assim que o anfitrião clicar em Iniciar, as cartas serão distribuídas.
+                      </div>
+                    </div>
                   </div>
+
+                  {onClaimHost && (
+                    <button
+                      type="button"
+                      onClick={onClaimHost}
+                      className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs rounded-xl border border-amber-400 shadow-sm transition-all active:scale-95 cursor-pointer whitespace-nowrap flex items-center gap-1.5 self-start sm:self-center"
+                      title="Clique para assumir a liderança e poder iniciar a partida você mesmo"
+                    >
+                      <Crown className="w-3.5 h-3.5 text-slate-950" />
+                      <span>Assumir Anfitrião</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -877,6 +1124,167 @@ export const Lobby: React.FC<LobbyProps> = ({
         )}
       </div>
     </div>
+
+          {/* Right Column: Lobby Social Dashboard (Online Players & Global Chat) */}
+          <div className="w-full flex flex-col gap-4">
+            {/* 1. Global Invite Bell on active room waiting area */}
+            {roomId && (
+              <div className="p-4 bg-gradient-to-br from-indigo-900 to-indigo-950 text-white rounded-3xl border-3 border-amber-400 shadow-lg relative overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl shadow-md shrink-0 animate-bounce">
+                    🔔
+                  </div>
+                  <div>
+                    <h3 className="font-black text-xs uppercase tracking-wider text-amber-400">
+                      Convidar Todo o Lobby!
+                    </h3>
+                    <p className="text-[10px] text-slate-200 mt-0.5 leading-tight">
+                      Clique para chamar todos os jogadores online para sua mesa!
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleBroadcastLobbyInvite}
+                  disabled={inviteSentFeedback}
+                  className="w-full mt-3 py-2 rounded-xl bg-gradient-to-b from-amber-400 to-orange-500 hover:from-yellow-300 hover:to-orange-400 disabled:opacity-75 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95"
+                >
+                  <span>{inviteSentFeedback ? '🔔 Convite Enviado!' : 'Enviar Convite Geral (Chime)'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* 2. Online Players Panel */}
+            <div className="bg-white/95 border-3 border-sky-400 rounded-3xl p-4 shadow-xl backdrop-blur-md text-slate-800 flex flex-col min-h-[180px] max-h-[300px]">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <h3 className="text-xs font-black uppercase tracking-wider text-sky-950 flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-sky-500" />
+                  Jogadores Ativos ({onlinePlayers.length})
+                </h3>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              </div>
+
+              <div className="flex-1 overflow-y-auto mt-2.5 space-y-2.5 pr-1 max-h-[220px]">
+                {onlinePlayers.length <= 1 ? (
+                  <div className="text-[11px] text-slate-400 font-bold text-center py-6">
+                    Apenas você está conectado.
+                  </div>
+                ) : (
+                  onlinePlayers.map((p) => {
+                    const isMe = p.id === currentUser?.id;
+                    const inRoom = p.roomId !== null;
+
+                    // Don't show me in the other players list
+                    if (isMe) return null;
+
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between p-2 rounded-2xl border border-slate-100 bg-slate-50/70 transition-all hover:bg-slate-100/50"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-lg shadow-xs shrink-0">
+                            {p.avatar}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-black text-slate-900 truncate">
+                              {p.name}
+                            </div>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${inRoom ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400'}`} />
+                              <span className="text-[9px] text-slate-500 font-bold">
+                                {inRoom ? `Jogando #${p.roomId}` : 'No Lobby'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Invite Button for active host waiting inside a room */}
+                        {roomId && !inRoom && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sendMessage?.({
+                                type: 'send_lobby_invite',
+                                playerId: currentUser?.id || myPlayerId,
+                                name: playerName,
+                                avatar: selectedAvatar,
+                                roomId: roomId,
+                              });
+                            }}
+                            className="p-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-800 transition-colors cursor-pointer"
+                            title={`Chamar ${p.name} para a partida`}
+                          >
+                            <span className="text-sm">🔔</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* 3. Lobby Chat Panel */}
+            <div className="bg-white/95 border-3 border-indigo-400 rounded-3xl p-4 shadow-xl backdrop-blur-md text-slate-800 flex flex-col h-[320px]">
+              <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 shrink-0">
+                <MessageSquare className="w-4 h-4 text-indigo-500" />
+                <h3 className="text-xs font-black uppercase tracking-wider text-indigo-950">
+                  Papo do Lobby (Global)
+                </h3>
+              </div>
+
+              {/* Chat messages stream */}
+              <div className="flex-1 overflow-y-auto my-2.5 space-y-2 pr-1 text-left">
+                {lobbyChat.length === 0 ? (
+                  <div className="text-[11px] text-slate-400 font-bold text-center py-12">
+                    Nenhuma mensagem enviada ainda.<br />Seja o primeiro a dar um "Oi"! 👋
+                  </div>
+                ) : (
+                  lobbyChat.map((msg) => {
+                    const timeStr = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    return (
+                      <div key={msg.id} className="flex gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-xs shadow-xs shrink-0 self-start">
+                          {msg.avatar}
+                        </div>
+                        <div className="flex-1 bg-slate-100/80 rounded-2xl px-2.5 py-1.5 border border-slate-100 leading-tight">
+                          <div className="flex justify-between items-baseline gap-1.5">
+                            <span className="text-[10px] font-black text-indigo-900">{msg.name}</span>
+                            <span className="text-[8px] text-slate-400 font-bold">{timeStr}</span>
+                          </div>
+                          <p className="text-xs font-medium text-slate-700 mt-0.5 break-words">
+                            {msg.text}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Chat Input form */}
+              <form onSubmit={handleSendLobbyChat} className="flex gap-1.5 pt-2 border-t border-slate-100 shrink-0">
+                <input
+                  type="text"
+                  placeholder="Digite uma mensagem..."
+                  value={chatInputText}
+                  onChange={(e) => setChatInputText(e.target.value)}
+                  maxLength={100}
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-bold focus:outline-none focus:border-indigo-500 shadow-inner"
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInputText.trim()}
+                  className="py-1.5 px-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 text-white font-black text-xs cursor-pointer shadow-sm active:scale-95 transition-all text-center"
+                >
+                  Enviar
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
 
     {/* Avatar Selection Modal */}
     <AvatarSelectModal
