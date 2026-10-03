@@ -39,11 +39,11 @@ docker compose version`,
     },
     {
       id: 'docker-clone-run',
-      title: '2. Baixar o UNO e Subir o Container',
+      title: '2. Baixar o UNO e Subir o Container pela Primeira Vez',
       desc: 'O projeto já inclui o Dockerfile e docker-compose.yml otimizados para produção com WebSocket.',
       command: `# Clonar o repositório do jogo
-git clone <SEU_REPOSITORIO_AQUI> uno-game
-cd uno-game
+git clone <SEU_REPOSITORIO_AQUI> Uno-KaWiHe
+cd Uno-KaWiHe
 
 # Construir a imagem e subir o container em segundo plano
 docker compose up -d --build
@@ -51,6 +51,16 @@ docker compose up -d --build
 # Verificar se o container está rodando e saudável
 docker compose ps
 docker compose logs -f`,
+    },
+    {
+      id: 'docker-update-backup',
+      title: '⚡ ATUALIZAR VERSÃO COM BACKUP SEGURO (SEMPRE USAR ESTE)',
+      desc: 'Salva todas as contas de usuários, senhas e convites em pasta de backup antes de puxar as novidades do Git e reiniciar o Docker.',
+      command: `# Opção 1: Comando direto completo em 1 linha (Cria backup com data/hora + git pull + docker):
+cd ~/Uno-KaWiHe && mkdir -p ~/backups_kawihe && cp -r data ~/backups_kawihe/backup_$(date +%Y%m%d_%H%M%S) 2>/dev/null ; git pull && docker compose up -d --build
+
+# Opção 2: Ou usando o script automático que faz tudo para você:
+cd ~/Uno-KaWiHe && bash scripts/deploy.sh`,
     },
     {
       id: 'docker-firewall',

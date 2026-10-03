@@ -138,6 +138,32 @@ class AuthService {
     }
   }
 
+  public async updateProfile(displayName: string, avatar: string): Promise<boolean> {
+    if (!this.token) return false;
+    try {
+      const res = await fetch('/api/auth/update-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({ displayName, avatar }),
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        this.user = data.user;
+        localStorage.setItem('uno_nickname', data.user.displayName);
+        localStorage.setItem('uno_avatar', data.user.avatar);
+        this.notify();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Failed to update profile:', err);
+      return false;
+    }
+  }
+
   public async verifyAdminPin(pin: string): Promise<boolean> {
     try {
       const res = await fetch('/api/auth/verify-admin-pin', {
@@ -221,6 +247,66 @@ class AuthService {
       return res.ok;
     } catch {
       return false;
+    }
+  }
+
+  public async adminCreateUser(params: {
+    username: string;
+    password: string;
+    displayName?: string;
+    avatar?: string;
+    role?: UserRole;
+  }): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+    try {
+      const res = await fetch('/api/admin/users/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+          'x-admin-pin': '774007',
+        },
+        body: JSON.stringify(params),
+      });
+      return await res.json();
+    } catch {
+      return { success: false, error: 'Erro ao conectar com o servidor.' };
+    }
+  }
+
+  public async adminResetPassword(
+    userId: string,
+    newPassword: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+          'x-admin-pin': '774007',
+        },
+        body: JSON.stringify({ newPassword }),
+      });
+      return await res.json();
+    } catch {
+      return { success: false, error: 'Erro ao conectar com o servidor.' };
+    }
+  }
+
+  public async adminDeleteUser(
+    userId: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'x-admin-pin': '774007',
+        },
+      });
+      return await res.json();
+    } catch {
+      return { success: false, error: 'Erro ao conectar com o servidor.' };
     }
   }
 

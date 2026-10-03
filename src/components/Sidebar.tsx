@@ -29,6 +29,8 @@ interface SidebarProps {
   onOpenRules: () => void;
   onOpenVmGuide: () => void;
   onOpenInvites: () => void;
+  onOpenAdminRooms?: () => void;
+  onOpenUsers?: () => void;
   onLogout: () => void;
   activeTab?: string;
 }
@@ -46,6 +48,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenRules,
   onOpenVmGuide,
   onOpenInvites,
+  onOpenAdminRooms,
+  onOpenUsers,
   onLogout,
   activeTab,
 }) => {
@@ -254,6 +258,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Admin: Users & Passwords */}
+              <button
+                type="button"
+                onClick={onOpenUsers}
+                className={`w-full flex items-center rounded-2xl transition-all cursor-pointer ${
+                  isExpanded ? 'p-2.5 gap-3' : 'p-2.5 justify-center'
+                } text-amber-900 hover:bg-amber-100/70`}
+                title="Usuários & Senhas (Criar contas e resetar senhas)"
+              >
+                <div className="w-5 h-5 flex items-center justify-center text-sm shrink-0">
+                  👥
+                </div>
+                {isExpanded && (
+                  <div className="text-left font-black text-xs">
+                    <div>Usuários & Senhas</div>
+                    <div className="text-[10px] text-amber-700 font-medium">Criar e resetar senha</div>
+                  </div>
+                )}
+              </button>
+
+              {/* Admin: Rooms & Messages */}
+              <button
+                type="button"
+                onClick={onOpenAdminRooms}
+                className={`w-full flex items-center rounded-2xl transition-all cursor-pointer ${
+                  isExpanded ? 'p-2.5 gap-3' : 'p-2.5 justify-center'
+                } text-indigo-900 hover:bg-indigo-50`}
+                title="Salas & Moderação"
+              >
+                <div className="w-5 h-5 flex items-center justify-center text-sm shrink-0">
+                  🛡️
+                </div>
+                {isExpanded && (
+                  <div className="text-left font-black text-xs">
+                    <div>Salas & Moderação</div>
+                    <div className="text-[10px] text-indigo-500 font-medium">Controle de mesas ao vivo</div>
+                  </div>
+                )}
+              </button>
 
               {/* Admin: Invites */}
               <button

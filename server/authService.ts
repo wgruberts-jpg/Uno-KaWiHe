@@ -319,3 +319,103 @@ export async function loginUser(params: { username: string; password: string }):
     user: toPublicProfile(user),
   };
 }
+
+export function updateUserProfile(id: string, displayName: string, avatar: string): UserProfile | null {
+  const users = getAllUsers();
+  const user = users.find((u) => u.id === id);
+  if (!user) return null;
+  user.displayName = displayName.trim();
+  user.avatar = avatar;
+  saveUsers(users);
+  return toPublicProfile(user);
+}
+
+export async function adminCreateUser(params: {
+  username: string;
+  password: string;
+  displayName?: string;
+  avatar?: string;
+  role?: UserRole;
+}): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
+  const { username, password, displayName, avatar, role = 'player' } = params;
+
+  if (!username || username.trim().length < 3) {
+    return { success: false, error: 'O nome de usuário deve ter no mínimo 3 caracteres.' };
+  }
+  if (!password || password.length < 3) {
+    return { success: false, error: 'A senha deve ter no mínimo 3 caracteres.' };
+  }
+
+  const cleanUsername = username.trim().toLowerCase().replace(/\s+/g, '');
+  const users = getAllUsers();
+
+  if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
+    return { success: false, error: `O usuário @${cleanUsername} já existe no sistema.` };
+  }
+
+  const existingTags = new Set(users.map((u) => u.tag));
+  let playerTag = `#${Math.floor(1000 + Math.random() * 9000)}`;
+  while (existingTags.has(playerTag)) {
+    playerTag = `#${Math.floor(1000 + Math.random() * 9000)}`;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const newUser: UserRecord = {
+    id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    username: cleanUsername,
+    passwordHash,
+    displayName: displayName?.trim() || cleanUsername,
+    avatar: avatar || '🦸‍♂️',
+    role: role === 'admin' ? 'admin' : 'player',
+    tag: playerTag,
+    createdAt: new Date().toISOString(),
+  };
+
+  users.push(newUser);
+  saveUsers(users);
+
+  return {
+    success: true,
+    user: toPublicProfile(newUser),
+  };
+}
+
+export async function adminResetPassword(
+  userId: string,
+  newPassword: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  if (!newPassword || newPassword.length < 3) {
+    return { success: false, error: 'A nova senha deve ter no mínimo 3 caracteres.' };
+  }
+
+  const users = getAllUsers();
+  const user = users.find((u) => u.id === userId || u.username.toLowerCase() === userId.toLowerCase());
+
+  if (!user) {
+    return { success: false, error: 'Usuário não encontrado.' };
+  }
+
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  saveUsers(users);
+
+  return { success: true, message: `Senha do usuário @${user.username} redefinida com sucesso!` };
+}
+
+export function adminDeleteUser(userId: string): { success: boolean; message?: string; error?: string } {
+  const users = getAllUsers();
+  const index = users.findIndex((u) => u.id === userId || u.username.toLowerCase() === userId.toLowerCase());
+
+  if (index === -1) {
+    return { success: false, error: 'Usuário não encontrado.' };
+  }
+
+  const user = users[index];
+  if (user.username.toLowerCase() === 'edinho') {
+    return { success: false, error: 'Não é permitido excluir o usuário principal Edinho.' };
+  }
+
+  users.splice(index, 1);
+  saveUsers(users);
+
+  return { success: true, message: `Usuário @${user.username} removido com sucesso.` };
+}

@@ -41,7 +41,11 @@ export default function App() {
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isAdminInvitesOpen, setIsAdminInvitesOpen] = useState(false);
   const [isAdminRoomsOpen, setIsAdminRoomsOpen] = useState(false);
+  const [adminModalTab, setAdminModalTab] = useState<'rooms' | 'users' | 'messages'>('rooms');
   const [globalAnnouncement, setGlobalAnnouncement] = useState<{ message: string; sender: string } | null>(null);
+  const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; avatar: string; roomId: string | null }>>([]);
+  const [lobbyChat, setLobbyChat] = useState<Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>>([]);
+  const [lobbyInvite, setLobbyInvite] = useState<{ fromName: string; fromAvatar: string; roomId: string; timestamp: number } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const lastProcessedWinnerRef = useRef<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => auth.getCurrentUser());
@@ -72,17 +76,28 @@ export default function App() {
         const isWatchOpen = watchParam === 'open' || watchParam === 'reveal' || urlParams.get('reveal') === '1';
         const isWatch = !!watchParam || urlRoom?.startsWith('@') || urlRoom?.startsWith('*') || urlRoom?.startsWith('$');
 
-        if (urlRoom && wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !roomIdRef.current) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: 'join_room',
-              roomId: urlRoom.toUpperCase(),
-              playerName: user.displayName,
-              avatar: user.avatar,
-              asSpectator: isWatch,
-              spectatorRevealCards: isWatchOpen || urlRoom.startsWith('$'),
-            })
-          );
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !roomIdRef.current) {
+          if (urlRoom) {
+            wsRef.current.send(
+              JSON.stringify({
+                type: 'join_room',
+                roomId: urlRoom.toUpperCase(),
+                playerName: user.displayName,
+                avatar: user.avatar,
+                asSpectator: isWatch,
+                spectatorRevealCards: isWatchOpen || urlRoom.startsWith('$'),
+              })
+            );
+          } else {
+            wsRef.current.send(
+              JSON.stringify({
+                type: 'register_lobby',
+                playerId: user.id,
+                name: user.displayName,
+                avatar: user.avatar,
+              })
+            );
+          }
         }
       } else {
         setIsAuthOpen(true);
@@ -132,9 +147,6 @@ export default function App() {
 
     socket.onopen = () => {
       console.log('Connected to UNO Game Server');
-      if (hasLeftRoomRef.current) {
-        return;
-      }
 
       const urlParams = new URLSearchParams(window.location.search);
       const activeRoom = roomIdRef.current || urlParams.get('room');
@@ -150,7 +162,7 @@ export default function App() {
         return;
       }
 
-      if (activeRoom && activePlayer && !isWatch) {
+      if (activeRoom && !hasLeftRoomRef.current && activePlayer && !isWatch) {
         socket.send(
           JSON.stringify({
             type: 'sync_session',
@@ -158,7 +170,7 @@ export default function App() {
             playerId: activePlayer,
           })
         );
-      } else if (activeRoom) {
+      } else if (activeRoom && !hasLeftRoomRef.current) {
         socket.send(
           JSON.stringify({
             type: 'join_room',
@@ -170,6 +182,15 @@ export default function App() {
             spectatorRevealCards: isWatchOpen || activeRoom.startsWith('$'),
           })
         );
+      } else {
+        socket.send(
+          JSON.stringify({
+            type: 'register_lobby',
+            playerId: user.id,
+            name: user.displayName,
+            avatar: user.avatar,
+          })
+        );
       }
     };
 
@@ -179,16 +200,31 @@ export default function App() {
 
         if (msg.type === 'left_room_confirmed') {
           hasLeftRoomRef.current = true;
+          roomIdRef.current = null;
           setRoomId(null);
           setMyPlayerId('');
           setGameState(null);
           setChatMessages([]);
           setGameLogs([]);
+
+          const user = auth.getCurrentUser();
+          if (user && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(
+              JSON.stringify({
+                type: 'register_lobby',
+                playerId: user.id,
+                name: user.displayName,
+                avatar: user.avatar,
+              })
+            );
+          }
           return;
         }
 
         if (msg.type === 'room_joined') {
           hasLeftRoomRef.current = false;
+          roomIdRef.current = msg.roomId;
+          myPlayerIdRef.current = msg.playerId;
           setRoomId(msg.roomId);
           setMyPlayerId(msg.playerId);
           setErrorMessage(null);
@@ -198,18 +234,18 @@ export default function App() {
           newUrl.searchParams.set('room', msg.roomId);
           window.history.replaceState({}, '', newUrl.toString());
         } else if (msg.type === 'game_state') {
-          // If the player has deliberately left the room, ignore any arriving game_state
-          if (hasLeftRoomRef.current || !roomIdRef.current) {
+          if (!msg.state || !msg.state.roomId) {
             return;
           }
-          if (msg.state.roomId && roomIdRef.current !== msg.state.roomId) {
+          // If we are already confirmed in another different room, ignore
+          if (roomIdRef.current && msg.state.roomId !== roomIdRef.current) {
             return;
           }
 
+          hasLeftRoomRef.current = false;
+          roomIdRef.current = msg.state.roomId;
+          setRoomId(msg.state.roomId);
           setGameState(msg.state);
-          if (msg.state.roomId) {
-            setRoomId(msg.state.roomId);
-          }
 
           if (msg.state.status === 'playing') {
             lastProcessedWinnerRef.current = null;
@@ -297,6 +333,17 @@ export default function App() {
           setGlobalAnnouncement({ message: msg.message, sender: msg.sender });
           sound.unoCall();
           setTimeout(() => setGlobalAnnouncement(null), 7000);
+        } else if (msg.type === 'lobby_online_players') {
+          setOnlinePlayers(msg.players);
+        } else if (msg.type === 'lobby_chat_message') {
+          setLobbyChat((prev) => [...prev, msg.message]);
+        } else if (msg.type === 'lobby_invite_received') {
+          setLobbyInvite(msg.invite);
+          sound.chime();
+          // Auto clear after 12s
+          setTimeout(() => {
+            setLobbyInvite((prev) => (prev && prev.timestamp === msg.invite.timestamp ? null : prev));
+          }, 12000);
         } else if (msg.type === 'error') {
           setErrorMessage(msg.message);
           if (
@@ -480,6 +527,23 @@ export default function App() {
     send({ type: 'transfer_host', roomId: rid, targetPlayerId, playerId: myPlayerId });
   };
 
+  const handleClaimHost = () => {
+    const rid = getActiveRoomId();
+    if (!rid) return;
+    send({ type: 'claim_host', roomId: rid, playerId: myPlayerId });
+  };
+
+  const handleRefreshRoom = () => {
+    const rid = getActiveRoomId();
+    if (!rid) return;
+    const user = auth.getCurrentUser();
+    send({
+      type: 'sync_session',
+      roomId: rid,
+      playerId: myPlayerId || user?.id || '',
+    });
+  };
+
   const handleSendEmote = (emoteId: string) => {
     const rid = getActiveRoomId();
     if (!rid) return;
@@ -581,19 +645,32 @@ export default function App() {
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenStats={() => setIsStatsOpen(true)}
             onOpenInvites={() => setIsAdminInvitesOpen(true)}
-            onOpenAdminRooms={() => setIsAdminRoomsOpen(true)}
+            onOpenAdminRooms={() => {
+              setAdminModalTab('rooms');
+              setIsAdminRoomsOpen(true);
+            }}
+            onOpenAdminUsers={() => {
+              setAdminModalTab('users');
+              setIsAdminRoomsOpen(true);
+            }}
             onKickPlayer={handleKickPlayer}
             onTransferHost={handleTransferHost}
+            onClaimHost={handleClaimHost}
+            onRefreshRoom={handleRefreshRoom}
             onLeaveRoom={handleLeaveGame}
             onOpenAuth={() => setIsAuthOpen(true)}
             currentUser={currentUser}
             onLogout={() => auth.logout()}
             roomId={roomId}
+            creatorName={gameState?.creatorName}
+            spectators={gameState?.spectators || []}
             players={gameState?.players || []}
             myPlayerId={myPlayerId}
             isHost={isHost}
             errorMessage={errorMessage}
             sendMessage={send}
+            onlinePlayers={onlinePlayers}
+            lobbyChat={lobbyChat}
           />
         ) : (
           <GameBoard
@@ -693,6 +770,7 @@ export default function App() {
         isOpen={isAdminRoomsOpen}
         onClose={() => setIsAdminRoomsOpen(false)}
         currentUser={currentUser}
+        initialTab={adminModalTab}
         ws={wsRef.current}
         onWatchRoom={(targetRoomId, revealCards) => {
           handleJoinRoom(
@@ -724,6 +802,44 @@ export default function App() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Lobby Invitation Floating Toast */}
+      {lobbyInvite && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-[90%] bg-gradient-to-br from-indigo-900 to-indigo-950 text-white p-4 rounded-3xl shadow-2xl border-3 border-amber-400 animate-in slide-in-from-bottom-4 duration-300 flex flex-col gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-400 border-2 border-white flex items-center justify-center text-3xl shadow-md shrink-0">
+              {lobbyInvite.fromAvatar}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <span className="animate-pulse">🔔</span> CONVITE DE JOGO
+              </div>
+              <p className="text-xs sm:text-sm font-bold text-slate-100 mt-1">
+                <span className="font-black text-white">{lobbyInvite.fromName}</span> convidou você para jogar na sala <span className="font-black text-yellow-300 font-mono tracking-wider">{lobbyInvite.roomId}</span>!
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                handleJoinRoom(lobbyInvite.roomId, currentUser?.displayName || 'Jogador', currentAvatar);
+                setLobbyInvite(null);
+              }}
+              className="flex-1 py-1.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs cursor-pointer shadow-sm active:scale-95 transition-all text-center"
+            >
+              Aceitar e Entrar
+            </button>
+            <button
+              type="button"
+              onClick={() => setLobbyInvite(null)}
+              className="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer shadow-sm active:scale-95 transition-all"
+            >
+              Recusar
+            </button>
+          </div>
         </div>
       )}
     </div>
