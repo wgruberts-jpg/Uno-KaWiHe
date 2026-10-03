@@ -444,7 +444,7 @@ app.post('/api/user/stats', async (req, res) => {
 // Admin Room Management Helper
 function isAdminRequest(req: any): boolean {
   const pinHeader = req.headers['x-admin-pin'];
-  if (pinHeader === '774007' || pinHeader === process.env.ADMIN_PIN || pinHeader === '1234') {
+  if (pinHeader === '774007' || pinHeader === process.env.ADMIN_PIN) {
     return true;
   }
   const authHeader = req.headers.authorization;

@@ -169,7 +169,7 @@ export function toPublicProfile(user: UserRecord): UserProfile {
 export function verifyAdminPin(pin?: string): boolean {
   if (!pin) return false;
   const cleanPin = pin.trim();
-  return cleanPin === ADMIN_PIN || cleanPin === '774007' || cleanPin === '1234';
+  return cleanPin === ADMIN_PIN || cleanPin === '774007';
 }
 
 export function getUserFromToken(token: string): UserProfile | null {
