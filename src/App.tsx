@@ -101,10 +101,14 @@ export default function App() {
 
     socket.onopen = () => {
       console.log('Connected to UNO Game Server');
-      const activeRoom = roomIdRef.current || new URLSearchParams(window.location.search).get('room');
+      const urlParams = new URLSearchParams(window.location.search);
+      const activeRoom = roomIdRef.current || urlParams.get('room');
       const activePlayer = myPlayerIdRef.current;
+      const watchParam = urlParams.get('watch') || urlParams.get('mode');
+      const isWatchOpen = watchParam === 'open' || watchParam === 'reveal' || urlParams.get('reveal') === '1';
+      const isWatch = !!watchParam || activeRoom?.startsWith('@') || activeRoom?.startsWith('*') || activeRoom?.startsWith('$');
 
-      if (activeRoom && activePlayer) {
+      if (activeRoom && activePlayer && !isWatch) {
         socket.send(
           JSON.stringify({
             type: 'sync_session',
@@ -114,7 +118,7 @@ export default function App() {
         );
       } else if (activeRoom) {
         const storedName = localStorage.getItem('uno_nickname') || 'Jogador 1';
-        const storedAvatar = localStorage.getItem('uno_avatar') || '🎮';
+        const storedAvatar = localStorage.getItem('uno_avatar') || (isWatch ? '📺' : '🎮');
         socket.send(
           JSON.stringify({
             type: 'join_room',
@@ -122,6 +126,8 @@ export default function App() {
             playerName: storedName,
             avatar: storedAvatar,
             existingPlayerId: activePlayer || undefined,
+            asSpectator: isWatch,
+            spectatorRevealCards: isWatchOpen || activeRoom.startsWith('$'),
           })
         );
       }
@@ -293,8 +299,22 @@ export default function App() {
     localStorage.setItem('uno_avatar', avatar);
   };
 
-  const handleJoinRoom = (targetRoomId: string, playerName: string, avatar: string) => {
-    send({ type: 'join_room', roomId: targetRoomId, playerName, avatar, existingPlayerId: myPlayerId });
+  const handleJoinRoom = (
+    targetRoomId: string,
+    playerName: string,
+    avatar: string,
+    asSpectator?: boolean,
+    spectatorRevealCards?: boolean
+  ) => {
+    send({
+      type: 'join_room',
+      roomId: targetRoomId,
+      playerName,
+      avatar,
+      existingPlayerId: myPlayerId,
+      asSpectator,
+      spectatorRevealCards,
+    });
   };
 
   const handleAddBot = () => {
@@ -582,6 +602,15 @@ export default function App() {
         onClose={() => setIsAdminRoomsOpen(false)}
         currentUser={currentUser}
         ws={wsRef.current}
+        onWatchRoom={(targetRoomId, revealCards) => {
+          handleJoinRoom(
+            targetRoomId,
+            currentUser?.displayName || 'Admin Edinho',
+            '📺',
+            true,
+            revealCards
+          );
+        }}
       />
 
       {/* Global Server Announcement Banner */}

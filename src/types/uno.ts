@@ -236,7 +236,7 @@ export interface AdminUserSummary {
 // WebSocket message protocols
 export type ClientMessage =
   | { type: 'create_room'; playerName: string; avatar: string; settings?: Partial<RoomSettings> }
-  | { type: 'join_room'; roomId: string; playerName: string; avatar: string; existingPlayerId?: string }
+  | { type: 'join_room'; roomId: string; playerName: string; avatar: string; existingPlayerId?: string; asSpectator?: boolean; spectatorRevealCards?: boolean }
   | { type: 'sync_session'; roomId: string; playerId: string }
   | { type: 'add_bot'; roomId: string; playerId?: string }
   | { type: 'fill_bots'; roomId: string; playerId?: string }

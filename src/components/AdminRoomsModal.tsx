@@ -30,6 +30,7 @@ interface AdminRoomsModalProps {
   onClose: () => void;
   currentUser: UserProfile | null;
   onJoinRoomAsAdmin?: (roomId: string) => void;
+  onWatchRoom?: (roomId: string, revealCards?: boolean) => void;
   ws?: WebSocket | null;
 }
 
@@ -38,6 +39,7 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
   onClose,
   currentUser,
   onJoinRoomAsAdmin,
+  onWatchRoom,
   ws,
 }) => {
   const [activeTab, setActiveTab] = useState<'rooms' | 'users' | 'messages'>('rooms');
@@ -393,20 +395,61 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                       </div>
 
                       {/* Room Level Actions */}
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {/* Watch (Hidden / Clean Tournament Table) */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onWatchRoom?.(room.id, false);
+                          }}
+                          className="px-2.5 py-1 bg-sky-600/40 hover:bg-sky-600 text-sky-200 rounded-lg text-[11px] font-black border border-sky-400/40 transition-all flex items-center gap-1 cursor-pointer"
+                          title="Assistir partida em modo Transmissão Limpa (sem ver mãos dos jogadores)"
+                        >
+                          <span>👁️</span> Assistir (Mesa)
+                        </button>
+
+                        {/* Watch TV (Revealed Hands) */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onWatchRoom?.(room.id, true);
+                          }}
+                          className="px-2.5 py-1 bg-amber-600/40 hover:bg-amber-500 text-amber-200 rounded-lg text-[11px] font-black border border-amber-400/40 transition-all flex items-center gap-1 cursor-pointer"
+                          title="Assistir partida em Modo TV / Juiz (com todas as cartas abertas)"
+                        >
+                          <span>📺</span> Assistir (TV / Cartas Abertas)
+                        </button>
+
+                        {/* Copy Stream Link */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = `${window.location.origin}${window.location.pathname}?room=${room.id}&watch=1`;
+                            navigator.clipboard.writeText(url).then(() => {
+                              setActionFeedback(`Link de Transmissão da Sala #${room.id} copiado!`);
+                            });
+                          }}
+                          className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-[11px] font-bold border border-slate-500 transition-all flex items-center gap-1 cursor-pointer"
+                          title="Copiar Link para Espectadores / Transmissão"
+                        >
+                          <span>🔗</span> Link
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => setQuickMsgRoomId(quickMsgRoomId === room.id ? null : room.id)}
                           className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600 text-purple-200 rounded-lg text-[11px] font-black border border-purple-500/40 transition-all flex items-center gap-1 cursor-pointer"
                         >
-                          <MessageSquare className="w-3 h-3" /> Falar na Mesa
+                          <MessageSquare className="w-3 h-3" /> Falar
                         </button>
 
                         {isPlaying && (
                           <button
                             type="button"
                             onClick={() => handleForceEndGame(room.id)}
-                            className="px-2.5 py-1 bg-amber-600/30 hover:bg-amber-600 text-amber-200 rounded-lg text-[11px] font-black border border-amber-500/40 transition-all flex items-center gap-1 cursor-pointer"
+                            className="px-2 py-1 bg-amber-600/30 hover:bg-amber-600 text-amber-200 rounded-lg text-[11px] font-black border border-amber-500/40 transition-all flex items-center gap-1 cursor-pointer"
                           >
                             <RotateCcw className="w-3 h-3" /> Resetar
                           </button>
@@ -415,7 +458,7 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleCloseRoom(room.id)}
-                          className="px-2.5 py-1 bg-rose-600/30 hover:bg-rose-600 text-rose-200 rounded-lg text-[11px] font-black border border-rose-500/40 transition-all flex items-center gap-1 cursor-pointer"
+                          className="px-2 py-1 bg-rose-600/30 hover:bg-rose-600 text-rose-200 rounded-lg text-[11px] font-black border border-rose-500/40 transition-all flex items-center gap-1 cursor-pointer"
                         >
                           <Trash2 className="w-3 h-3" /> Fechar
                         </button>
