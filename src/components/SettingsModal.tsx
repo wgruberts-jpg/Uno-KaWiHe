@@ -50,6 +50,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [botSpeedMs, setBotSpeedMs] = useState<number>(currentSettings.botSpeedMs ?? 1800);
   const [autoUnoProtection, setAutoUnoProtection] = useState<boolean>(currentSettings.autoUnoProtection ?? false);
   const [highlightHints, setHighlightHints] = useState<boolean>(currentSettings.highlightHints ?? true);
+  const [spectatorMode, setSpectatorMode] = useState<'reveal_cards' | 'hidden_cards'>(currentSettings.spectatorMode ?? 'hidden_cards');
+  const [playAnimationDelay, setPlayAnimationDelay] = useState<number>(currentSettings.playAnimationDelay ?? 2);
   const [avatarCategory, setAvatarCategory] = useState<'heroes' | 'animals' | 'classics'>('heroes');
   const [isMuted, setIsMuted] = useState<boolean>(() => sound.getIsMuted());
   const [savedToast, setSavedToast] = useState(false);
@@ -98,6 +100,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       botSpeedMs,
       autoUnoProtection,
       highlightHints,
+      spectatorMode,
+      playAnimationDelay,
     };
 
     localStorage.setItem('uno_turn_duration', String(turnDuration));
@@ -105,6 +109,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     localStorage.setItem('uno_bot_speed_ms', String(botSpeedMs));
     localStorage.setItem('uno_auto_uno', String(autoUnoProtection));
     localStorage.setItem('uno_highlight_hints', String(highlightHints));
+    localStorage.setItem('uno_spectator_mode', String(spectatorMode));
+    localStorage.setItem('uno_anim_delay', String(playAnimationDelay));
 
     onUpdateSettings(updated);
     setSavedToast(true);
@@ -292,6 +298,82 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     } top-0.5 absolute`}
                   />
                 </button>
+              </div>
+
+              {/* Card Play Elevation / Animation Delay */}
+              <div className="p-3.5 bg-indigo-50 rounded-2xl border-2 border-indigo-200 shadow-sm space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-indigo-600" />
+                    <span className="font-black text-slate-900 text-xs">
+                      Elevação da Carta ao Jogar:
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-black text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full border border-indigo-200">
+                    {playAnimationDelay === 0 ? 'Instantâneo' : `${playAnimationDelay} segundos`}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 font-medium">
+                  Tempo que a carta fica erguida e em destaque no ar antes de ir para o centro da mesa:
+                </p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { sec: 0, label: '0s (Direto)' },
+                    { sec: 1, label: '1s (Rápido)' },
+                    { sec: 2, label: '2s (Padrão)' },
+                    { sec: 3, label: '3s (Dramático)' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.sec}
+                      type="button"
+                      onClick={() => setPlayAnimationDelay(opt.sec)}
+                      className={`py-1.5 px-1 rounded-xl border text-center transition-all cursor-pointer text-[11px] font-black ${
+                        playAnimationDelay === opt.sec
+                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm scale-102'
+                          : 'bg-white text-slate-700 border-indigo-200 hover:bg-indigo-100'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Spectator Visibility Rule */}
+              <div className="p-3.5 bg-sky-50 rounded-2xl border-2 border-sky-200 shadow-sm space-y-2">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-sky-600" />
+                  <span className="font-black text-slate-900 text-xs">
+                    Visão para Espectadores em Espera:
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSpectatorMode('hidden_cards')}
+                    className={`p-2 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                      spectatorMode === 'hidden_cards'
+                        ? 'bg-sky-500 text-white border-sky-600 font-black shadow-sm'
+                        : 'bg-white text-slate-700 border-sky-200 font-bold hover:bg-sky-100'
+                    }`}
+                  >
+                    <div className="text-[11px] font-black">🔒 Apenas Mesa</div>
+                    <div className="text-[9px] opacity-80 mt-0.5">Vê apenas descarte e histórico</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSpectatorMode('reveal_cards')}
+                    className={`p-2 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                      spectatorMode === 'reveal_cards'
+                        ? 'bg-sky-500 text-white border-sky-600 font-black shadow-sm'
+                        : 'bg-white text-slate-700 border-sky-200 font-bold hover:bg-sky-100'
+                    }`}
+                  >
+                    <div className="text-[11px] font-black">👀 Cartas Abertas</div>
+                    <div className="text-[9px] opacity-80 mt-0.5">Espectador pode ver todas as mãos</div>
+                  </button>
+                </div>
               </div>
             </>
           ) : (

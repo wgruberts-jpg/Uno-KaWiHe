@@ -23,6 +23,7 @@ export interface Player {
   isConnected: boolean;
   score: number;
   botHand?: Card[]; // Exibido no Modo Criança (ver cartas dos robôs)
+  isSpectator?: boolean;
 }
 
 export type GameStatus = 'waiting' | 'playing' | 'ended';
@@ -46,10 +47,29 @@ export interface ChatMessage {
   isSystem?: boolean;
 }
 
+export interface StagedCardPlay {
+  card: Card;
+  playerId: string;
+  playerName: string;
+  playerAvatar: string;
+  chosenColor?: CardColor;
+  timestamp: number;
+  delaySeconds: number;
+}
+
+export interface RematchVote {
+  playerId: string;
+  playerName: string;
+  ready: boolean;
+  phrase: string;
+  timestamp: number;
+}
+
 export interface GameState {
   roomId: string;
   status: GameStatus;
   players: Player[];
+  spectators?: Array<{ id: string; name: string; avatar: string; isConnected: boolean }>;
   myHand: Card[];
   discardPileTop: Card | null;
   currentColor: CardColor;
@@ -62,6 +82,10 @@ export interface GameState {
   unoVulnerablePlayerId: string | null; // player with 1 card who forgot to call UNO
   deckCardsCount: number;
   settings?: RoomSettings;
+  isSpectator?: boolean;
+  spectatorCardsRevealed?: boolean;
+  stagedCardPlay?: StagedCardPlay | null;
+  rematchVotes?: Record<string, RematchVote>;
   // Estatísticas da rodada e placar da mesa
   roundDurationSeconds?: number;
   roundTurnCount?: number;
@@ -126,6 +150,8 @@ export interface RoomSettings {
   botSpeedMs?: number; // Tempo que os robôs demoram para largar cartas (ex: 800ms, 1800ms, 3000ms)
   autoUnoProtection?: boolean; // Proteção infantil de UNO (grita automaticamente)
   highlightHints?: boolean; // Destaque visual de cartas jogáveis
+  spectatorMode?: 'reveal_cards' | 'hidden_cards'; // Espectador pode ver as mãos ou apenas a mesa
+  playAnimationDelay?: number; // 0s, 1s, 2s, 3s de elevação da carta antes de ir pro centro
 }
 
 export interface EmoteItem {
@@ -231,6 +257,8 @@ export type ClientMessage =
   | { type: 'reset_room'; roomId: string; playerId?: string }
   | { type: 'send_chat'; roomId: string; text: string; playerId?: string }
   | { type: 'send_emote'; roomId: string; emoteId: string; playerId?: string }
+  | { type: 'vote_rematch'; roomId: string; ready: boolean; phrase: string; playerId?: string }
+  | { type: 'toggle_spectator_reveal'; roomId: string; reveal: boolean; playerId?: string }
   | { type: 'admin_get_rooms'; adminSecret?: string }
   | { type: 'admin_close_room'; roomId: string; adminSecret?: string; reason?: string }
   | { type: 'admin_force_end_game'; roomId: string; adminSecret?: string }
