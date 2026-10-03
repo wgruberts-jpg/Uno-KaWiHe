@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RoomSettings, Player, UserProfile } from '../types/uno.js';
+import { RoomSettings, Player, UserProfile, SpectatorPermission } from '../types/uno.js';
 import { AVATARS_CATALOG, AVATAR_CATEGORIES } from '../utils/avatars.js';
 import {
   Users,
@@ -22,7 +22,15 @@ import {
   KeyRound,
   Trophy,
   UserX,
-  Crown
+  Crown,
+  Menu,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Radio,
+  Eye,
+  EyeOff,
+  Layers
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -87,11 +95,19 @@ export const Lobby: React.FC<LobbyProps> = ({
       setSelectedAvatar(currentUser.avatar);
     }
   }, [currentUser]);
+
   const [avatarCategory, setAvatarCategory] = useState<'heroes' | 'animals' | 'classics'>('heroes');
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [joinMode, setJoinMode] = useState<'play' | 'watch_hidden' | 'watch_open'>('play');
   const [showBroadcastShare, setShowBroadcastShare] = useState(false);
   const [copiedBroadcastType, setCopiedBroadcastType] = useState<string | null>(null);
+
+  // Left Menu Collapsible State (esconder da direita pra esquerda, aumentar da esquerda pra direita)
+  const [isLeftMenuOpen, setIsLeftMenuOpen] = useState(false);
+
+  // Host Spectator Permission for creating room
+  const [creatorSpectatorPermission, setCreatorSpectatorPermission] = useState<SpectatorPermission>('hidden_cards');
+
   const [turnDuration, setTurnDuration] = useState<number>(() => {
     const saved = localStorage.getItem('uno_turn_duration');
     return saved !== null ? Number(saved) : 90; // Padrão: 1 minuto e meio (90s)
@@ -118,6 +134,7 @@ export const Lobby: React.FC<LobbyProps> = ({
     botSpeedMs: Number(localStorage.getItem('uno_bot_speed_ms')) || 1800,
     autoUnoProtection: localStorage.getItem('uno_auto_uno') === 'true',
     highlightHints: localStorage.getItem('uno_highlight_hints') !== 'false',
+    spectatorPermission: creatorSpectatorPermission,
   });
 
   const handleCreate = (e: React.FormEvent) => {
@@ -160,8 +177,8 @@ export const Lobby: React.FC<LobbyProps> = ({
   const filteredAvatars = AVATARS_CATALOG.filter((a) => a.category === avatarCategory);
 
   return (
-    <div className="w-full h-full bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 text-slate-800 flex flex-col items-center justify-start px-3 sm:px-6 py-4 sm:py-6 select-none relative overflow-y-auto overflow-x-hidden">
-      {/* Decorative Cartoon Elements */}
+    <div className="w-full h-full bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 text-slate-800 flex flex-col items-center justify-start px-3 sm:px-6 py-3 sm:py-5 select-none relative overflow-y-auto overflow-x-hidden">
+      {/* Decorative Cartoon Clouds */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
         <div className="absolute top-10 left-10 w-36 h-20 bg-white rounded-full blur-[1px]" />
         <div className="absolute top-6 left-20 w-28 h-28 bg-white rounded-full blur-[1px]" />
@@ -170,140 +187,313 @@ export const Lobby: React.FC<LobbyProps> = ({
         <div className="absolute bottom-16 left-24 w-40 h-20 bg-white rounded-full blur-[1px]" />
       </div>
 
-      {/* Top bar with guide & settings button */}
-      <div className="w-full max-w-4xl flex items-center justify-between py-3 mb-4 border-b-4 border-white/60 z-10">
-        <div className="flex items-center gap-2.5">
-          <div className="w-13 h-11 px-1 rounded-2xl bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-base shadow-lg border-3 border-white tracking-wider">
-            KWH
+      {/* ========================================================================= */}
+      {/* RETRACTABLE LEFT SIDE MENU (MENU LATERAL ESQUERDO COM AUMENTAR/ESCONDER)   */}
+      {/* ========================================================================= */}
+
+      {/* Floating Toggle Button (Always visible on Left Side) */}
+      <div className="fixed top-3 left-3 z-40 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setIsLeftMenuOpen(!isLeftMenuOpen)}
+          className={`py-2 px-3.5 rounded-2xl border-2 flex items-center gap-2 font-black text-xs sm:text-sm shadow-xl cursor-pointer transition-all active:scale-95 ${
+            isLeftMenuOpen
+              ? 'bg-amber-400 border-white text-slate-950 ring-3 ring-amber-300/70'
+              : 'bg-white/95 border-amber-300 text-slate-900 hover:bg-yellow-50 backdrop-blur-md'
+          }`}
+          title="Abrir / Recolher Menu Lateral"
+        >
+          {isLeftMenuOpen ? (
+            <>
+              <ChevronLeft className="w-4 h-4 text-slate-950" />
+              <span>Recolher</span>
+            </>
+          ) : (
+            <>
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-[9px] shadow-sm border border-white">
+                KWH
+              </div>
+              <Menu className="w-4 h-4 text-amber-600" />
+              <span className="hidden xs:inline">Menu</span>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            </>
+          )}
+        </button>
+
+        {/* Quick User Badge next to menu button on wide screens */}
+        {currentUser && !isLeftMenuOpen && (
+          <div className="hidden md:flex items-center gap-1.5 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white shadow-md text-xs font-black">
+            <span>{currentUser.avatar}</span>
+            <span>{currentUser.displayName}</span>
+            {currentUser.role === 'admin' && <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded-md font-bold">Admin</span>}
           </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight flex items-center gap-1.5">
-              <span className="text-rose-600 drop-shadow-sm">Uno</span>
-              <span className="text-amber-500 drop-shadow-sm font-black">KaWiHe</span>
-              <span className="ml-1 text-amber-950 font-black text-[10px] sm:text-xs uppercase px-2.5 py-0.5 rounded-full bg-yellow-300 border-2 border-white shadow-sm">
+        )}
+      </div>
+
+      {/* Backdrop overlay when open on mobile */}
+      {isLeftMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setIsLeftMenuOpen(false)}
+        />
+      )}
+
+      {/* Sliding Drawer from Left to Right */}
+      <aside
+        className={`fixed top-0 left-0 h-full w-72 sm:w-80 bg-white/95 backdrop-blur-md shadow-2xl border-r-4 border-amber-400 z-50 transform transition-transform duration-300 ease-out flex flex-col justify-between text-slate-800 ${
+          isLeftMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {/* Drawer Header */}
+        <div className="p-4 border-b-2 border-yellow-200 bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400 text-slate-950 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-xs shadow-md border-2 border-white">
+              KWH
+            </div>
+            <div>
+              <div className="font-black text-sm tracking-tight flex items-center gap-1">
+                <span className="text-rose-600">Uno</span>
+                <span className="text-slate-950">KaWiHe</span>
+              </div>
+              <span className="text-[9px] font-black uppercase bg-white/70 text-slate-900 px-2 py-0.2 rounded-full border border-white">
                 Kids & Família
               </span>
-            </h1>
+            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setIsLeftMenuOpen(false)}
+            className="p-1.5 rounded-full hover:bg-black/10 text-slate-950 cursor-pointer transition-colors"
+            title="Recolher para a esquerda"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* User Account / Login Button */}
+        {/* Drawer Menu Items List */}
+        <div className="p-3 space-y-2 overflow-y-auto flex-1">
+          {/* User Account / Profile Card */}
           {currentUser ? (
-            <div className="flex items-center gap-1.5 bg-white/95 px-2.5 py-1 rounded-2xl border-2 border-amber-300 shadow-sm">
-              <span className="text-base">{currentUser.avatar}</span>
-              <div className="hidden xs:flex flex-col text-left leading-none">
-                <div className="flex items-center gap-1">
-                  <span className="font-black text-xs text-slate-900 max-w-[80px] sm:max-w-[110px] truncate">
-                    {currentUser.displayName}
-                  </span>
-                  {currentUser.tag && (
-                    <span className="font-mono text-[9px] font-black text-amber-700 bg-amber-100 px-1 rounded border border-amber-200">
-                      {currentUser.tag}
-                    </span>
-                  )}
+            <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 shadow-sm flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-200 flex items-center justify-center text-2xl shadow-inner border border-amber-400">
+                  {currentUser.avatar}
                 </div>
-                <span className="text-[9px] font-bold text-amber-700">
-                  {currentUser.role === 'admin' ? '👑 Administrador' : '🎮 Jogador'}
-                </span>
+                <div>
+                  <div className="font-black text-xs text-slate-900 flex items-center gap-1">
+                    <span>{currentUser.displayName}</span>
+                    {currentUser.tag && (
+                      <span className="font-mono text-[9px] text-amber-700 bg-amber-100 px-1 rounded border border-amber-300">
+                        {currentUser.tag}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-amber-800 font-bold">
+                    {currentUser.role === 'admin' ? '👑 Administrador' : '🎮 Jogador'}
+                  </div>
+                </div>
               </div>
+
               <button
                 type="button"
                 onClick={onLogout}
-                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors ml-0.5"
+                className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
                 title="Sair da Conta"
               >
-                <LogOut className="w-3.5 h-3.5" />
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
           ) : (
             <button
               type="button"
-              onClick={onOpenAuth}
-              className="px-3 py-1.5 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 border-2 border-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95"
-              title="Entrar ou Criar Conta Central"
+              onClick={() => {
+                setIsLeftMenuOpen(false);
+                onOpenAuth();
+              }}
+              className="w-full p-3 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs flex items-center justify-between cursor-pointer shadow-md active:scale-98 border-2 border-white"
             >
-              <KeyRound className="w-3.5 h-3.5 text-slate-900" />
-              <span>Entrar</span>
+              <div className="flex items-center gap-2.5">
+                <KeyRound className="w-5 h-5 text-slate-950" />
+                <span>Entrar / Criar Conta</span>
+              </div>
+              <span className="text-[10px] bg-white/70 px-2 py-0.5 rounded-full">Login</span>
             </button>
           )}
 
-          {/* Admin Invites Management Button (Visible to Edinho and Admins) */}
+          {/* Admin: Invites Management Button */}
           {currentUser?.role === 'admin' && onOpenInvites && (
             <button
               type="button"
-              onClick={onOpenInvites}
-              className="px-2.5 sm:px-3 py-1.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border-2 border-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95"
-              title="Gerenciador de Convites (@XXXX)"
+              onClick={() => {
+                setIsLeftMenuOpen(false);
+                onOpenInvites();
+              }}
+              className="w-full p-3 rounded-2xl bg-purple-50 hover:bg-purple-100 border-2 border-purple-200 text-purple-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
             >
-              <span>🎟️</span>
-              <span className="hidden sm:inline">Convites</span>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-purple-200 flex items-center justify-center text-purple-800">
+                  <span>🎟️</span>
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Gerenciar Convites</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Criar códigos @K9W2</div>
+                </div>
+              </div>
+              <span className="text-[9px] bg-purple-100 text-purple-800 font-black px-2 py-0.5 rounded-full">Admin</span>
             </button>
           )}
 
-          {/* Admin Rooms Management Button (Visible to Edinho and Admins) */}
+          {/* Admin: Rooms Monitor Button */}
           {currentUser?.role === 'admin' && onOpenAdminRooms && (
             <button
               type="button"
-              onClick={onOpenAdminRooms}
-              className="px-2.5 sm:px-3 py-1.5 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white border-2 border-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95"
-              title="Painel de Moderação e Gestão de Salas"
+              onClick={() => {
+                setIsLeftMenuOpen(false);
+                onOpenAdminRooms();
+              }}
+              className="w-full p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 border-2 border-rose-200 text-rose-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
             >
-              <span>🛡️</span>
-              <span className="hidden sm:inline">Salas</span>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-rose-200 flex items-center justify-center text-rose-800">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Salas & Mesas</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Monitorar e moderar</div>
+                </div>
+              </div>
+              <span className="text-[9px] bg-rose-100 text-rose-800 font-black px-2 py-0.5 rounded-full">Admin</span>
             </button>
           )}
 
-          {/* Player Career Stats & Trophies Button */}
+          {/* Player Career Stats & Trophies */}
           {onOpenStats && (
             <button
               type="button"
-              onClick={onOpenStats}
-              className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 border-2 border-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95"
-              title="Ver Estatísticas, Recordes e Troféus"
+              onClick={() => {
+                setIsLeftMenuOpen(false);
+                onOpenStats();
+              }}
+              className="w-full p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 border-2 border-amber-200 text-amber-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
             >
-              <Trophy className="w-4 h-4 text-amber-900 fill-amber-700" />
-              <span className="hidden sm:inline">Estatísticas</span>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-amber-200 flex items-center justify-center text-amber-800">
+                  <Trophy className="w-4 h-4 fill-amber-500" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Troféus & Estatísticas</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Recordes e vitórias</div>
+                </div>
+              </div>
             </button>
           )}
 
           {/* Settings Gear Button */}
           <button
             type="button"
-            onClick={onOpenSettings}
-            className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl bg-white hover:bg-yellow-100 text-amber-900 border-2 border-amber-300 text-xs font-black flex items-center gap-1 cursor-pointer transition-colors shadow-sm"
-            title="Configurações & Modo Criança"
+            onClick={() => {
+              setIsLeftMenuOpen(false);
+              onOpenSettings();
+            }}
+            className="w-full p-3 rounded-2xl bg-yellow-50 hover:bg-yellow-100 border-2 border-yellow-300 text-amber-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
           >
-            <Settings className="w-4 h-4 text-amber-500" />
-            <span className="hidden sm:inline">Configurações</span>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-yellow-200 flex items-center justify-center text-amber-700">
+                <Settings className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Configurações & Kids</div>
+                <div className="text-[10px] text-slate-500 font-medium">Regras e proteções</div>
+              </div>
+            </div>
           </button>
 
+          {/* Rules Button */}
           <button
             type="button"
-            onClick={() => setShowRules(!showRules)}
-            className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl bg-white hover:bg-yellow-100 text-amber-900 text-xs font-black flex items-center gap-1 cursor-pointer border-2 border-amber-300 shadow-sm transition-all"
+            onClick={() => {
+              setIsLeftMenuOpen(false);
+              setShowRules(!showRules);
+            }}
+            className="w-full p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 text-slate-800 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
           >
-            <HelpCircle className="w-4 h-4 text-amber-500" />
-            <span className="hidden sm:inline">Regras</span>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center text-slate-700">
+                <HelpCircle className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Regras Rápidas</div>
+                <div className="text-[10px] text-slate-500 font-medium">Como jogar UNO</div>
+              </div>
+            </div>
           </button>
 
+          {/* Deploy VM Guide */}
           <button
             type="button"
-            onClick={onOpenVmGuide}
-            className="px-2.5 sm:px-3.5 py-1.5 rounded-2xl bg-white hover:bg-sky-50 text-sky-900 border-2 border-sky-300 text-xs font-black flex items-center gap-1 cursor-pointer transition-colors shadow-sm"
+            onClick={() => {
+              setIsLeftMenuOpen(false);
+              onOpenVmGuide();
+            }}
+            className="w-full p-3 rounded-2xl bg-sky-50 hover:bg-sky-100 border-2 border-sky-200 text-sky-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
           >
-            <Server className="w-4 h-4 text-sky-600" />
-            <span className="hidden sm:inline">Deploy VM</span>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-sky-200 flex items-center justify-center text-sky-700">
+                <Server className="w-4 h-4" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Deploy & Servidor VM</div>
+                <div className="text-[10px] text-slate-500 font-medium">Docker e backups</div>
+              </div>
+            </div>
           </button>
+        </div>
+
+        {/* Drawer Footer Collapse */}
+        <div className="p-3 border-t-2 border-slate-200 bg-slate-50">
+          <button
+            type="button"
+            onClick={() => setIsLeftMenuOpen(false)}
+            className="w-full py-2 px-3 rounded-xl text-center text-slate-600 hover:text-slate-900 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer bg-slate-200/80 hover:bg-slate-300"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span>Recolher Menu para a Esquerda</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Title Banner in Center */}
+      <div className="w-full max-w-4xl flex items-center justify-center py-2 mb-2 z-10 mt-1">
+        <div className="flex items-center gap-2">
+          <div className="w-11 h-10 rounded-2xl bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-sm shadow-lg border-2 border-white tracking-wider">
+            KWH
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight flex items-center gap-1.5">
+            <span className="text-rose-600 drop-shadow-sm">Uno</span>
+            <span className="text-amber-500 drop-shadow-sm font-black">KaWiHe</span>
+            <span className="ml-1 text-amber-950 font-black text-[10px] sm:text-xs uppercase px-2.5 py-0.5 rounded-full bg-yellow-300 border-2 border-white shadow-sm">
+              Kids & Família
+            </span>
+          </h1>
         </div>
       </div>
 
       {/* Rules Accordion */}
       {showRules && (
         <div className="w-full max-w-4xl mb-4 bg-white/95 border-3 border-amber-400 rounded-3xl p-5 text-xs text-slate-700 space-y-2 shadow-2xl backdrop-blur-md z-10">
-          <h3 className="font-black text-amber-900 flex items-center gap-2 text-sm uppercase tracking-wide">
-            <Sparkles className="w-4 h-4 text-amber-500" /> Regras Rápidas do UNO:
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-black text-amber-900 flex items-center gap-2 text-sm uppercase tracking-wide">
+              <Sparkles className="w-4 h-4 text-amber-500" /> Regras Rápidas do UNO:
+            </h3>
+            <button
+              type="button"
+              onClick={() => setShowRules(false)}
+              className="text-slate-400 hover:text-slate-700 text-xs font-black cursor-pointer"
+            >
+              ✕ Fechar
+            </button>
+          </div>
           <ul className="list-disc pl-5 space-y-1 text-slate-700 font-medium">
             <li><strong>Correspondência:</strong> Jogue cartas com a mesma cor ou mesmo número/símbolo da carta descartada.</li>
             <li><strong>Coringa / +4:</strong> Podem ser jogados sobre qualquer carta. Ao jogar, você escolhe a nova cor.</li>
@@ -322,13 +512,13 @@ export const Lobby: React.FC<LobbyProps> = ({
       )}
 
       {/* Main card */}
-      <div className="w-full max-w-2xl bg-white/95 border-4 border-yellow-400 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-md z-10 text-slate-800">
+      <div className="w-full max-w-2xl bg-white/95 border-4 border-yellow-400 rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-md z-10 text-slate-800">
         {!roomId ? (
           /* Profile & Room Creation / Join */
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Player Profile Section */}
             <div>
-              <label className="block text-xs font-black uppercase tracking-wider text-amber-900 mb-2">
+              <label className="block text-xs font-black uppercase tracking-wider text-amber-900 mb-1.5">
                 Seu Nome de Jogador
               </label>
               <div className="flex gap-2">
@@ -338,13 +528,13 @@ export const Lobby: React.FC<LobbyProps> = ({
                   onChange={handleNameChange}
                   maxLength={18}
                   placeholder="Ex: Gabriel"
-                  className="flex-1 bg-amber-50/70 border-3 border-amber-300 rounded-2xl px-4 py-2.5 text-base text-slate-900 font-bold focus:outline-none focus:border-amber-500 shadow-inner"
+                  className="flex-1 bg-amber-50/70 border-3 border-amber-300 rounded-2xl px-4 py-2 text-base text-slate-900 font-bold focus:outline-none focus:border-amber-500 shadow-inner"
                 />
               </div>
 
               {/* Categorized Avatar Selector (Heroes, Animals, Classics) */}
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-2">
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-black text-slate-700">
                     Escolha seu Avatar:
                   </label>
@@ -354,7 +544,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                         key={cat.id}
                         type="button"
                         onClick={() => setAvatarCategory(cat.id)}
-                        className={`py-1 px-2 rounded-xl text-[11px] font-black cursor-pointer transition-all border ${
+                        className={`py-0.5 px-2 rounded-xl text-[11px] font-black cursor-pointer transition-all border ${
                           avatarCategory === cat.id
                             ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-sm'
                             : 'bg-white text-slate-600 border-slate-200 hover:bg-yellow-50'
@@ -366,77 +556,45 @@ export const Lobby: React.FC<LobbyProps> = ({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1.5 bg-amber-50/60 rounded-2xl border-2 border-amber-200">
-                  {filteredAvatars.map((item) => (
+                <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 bg-amber-50/50 p-2.5 rounded-2xl border-2 border-amber-200 shadow-inner max-h-32 overflow-y-auto">
+                  {filteredAvatars.map((av) => (
                     <button
-                      key={item.name + item.emoji}
+                      key={av.emoji}
                       type="button"
-                      onClick={() => handleAvatarSelect(item.emoji)}
-                      title={item.name}
-                      className={`w-11 h-11 rounded-2xl text-xl flex items-center justify-center cursor-pointer transition-all ${
-                        selectedAvatar === item.emoji
-                          ? 'bg-gradient-to-br from-yellow-300 via-amber-400 to-orange-400 border-3 border-white scale-110 shadow-lg ring-4 ring-yellow-400/50'
-                          : 'bg-white border-2 border-amber-100 hover:bg-yellow-100 hover:scale-105'
+                      onClick={() => handleAvatarSelect(av.emoji)}
+                      className={`h-11 sm:h-12 rounded-xl sm:rounded-2xl text-xl sm:text-2xl flex items-center justify-center transition-all cursor-pointer ${
+                        selectedAvatar === av.emoji
+                          ? 'bg-gradient-to-br from-yellow-300 to-amber-400 border-3 border-white shadow-lg scale-110 ring-2 ring-amber-400 z-10'
+                          : 'bg-white hover:bg-amber-100 border border-amber-200 hover:scale-105'
                       }`}
+                      title={av.name}
                     >
-                      {item.emoji}
+                      {av.emoji}
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Dynamic Bot Solo Match Option */}
-            <div className="bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 border-3 border-emerald-300 rounded-3xl p-5 shadow-lg space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="bg-gradient-to-r from-yellow-300 to-amber-400 text-slate-950 font-black text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow border border-white">
-                      Jogo Rápido
-                    </span>
-                    <h3 className="font-black text-base text-emerald-950">
-                      Jogar Contra Robôs Divertidos
+            {/* Quick Practice Solo Mode */}
+            <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 rounded-3xl border-3 border-emerald-300 shadow-sm space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md font-black text-sm">
+                    🤖
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm text-emerald-950">
+                      Modo Treino Rápido (Jogar contra Robôs)
                     </h3>
+                    <p className="text-[11px] text-emerald-800 font-semibold">
+                      Inicie na hora sem precisar criar sala ou esperar amigos
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-600 font-bold">
-                    Escolha a quantidade de robôs para a mesa:
-                  </p>
-                </div>
-
-                {/* Counter Selector with - / + buttons */}
-                <div className="flex items-center gap-2 bg-white border-2 border-emerald-300 p-1.5 rounded-2xl shrink-0 self-start sm:self-auto shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBotCount((prev) => Math.max(1, prev - 1))}
-                    disabled={selectedBotCount <= 1}
-                    className="w-8 h-8 rounded-xl bg-emerald-100 hover:bg-emerald-200 disabled:opacity-30 text-emerald-900 font-black text-sm flex items-center justify-center cursor-pointer transition-colors"
-                    title="Remover um robô"
-                  >
-                    -
-                  </button>
-
-                  <div className="px-3 text-center">
-                    <span className="text-lg font-black text-emerald-800 font-mono">
-                      {selectedBotCount}
-                    </span>
-                    <span className="text-[10px] text-slate-500 block font-bold">
-                      {selectedBotCount === 1 ? 'robô' : 'robôs'}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBotCount((prev) => Math.min(3, prev + 1))}
-                    disabled={selectedBotCount >= 3}
-                    className="w-8 h-8 rounded-xl bg-emerald-100 hover:bg-emerald-200 disabled:opacity-30 text-emerald-900 font-black text-sm flex items-center justify-center cursor-pointer transition-colors"
-                    title="Adicionar mais um robô"
-                  >
-                    +
-                  </button>
                 </div>
               </div>
 
-              {/* Bot preset buttons */}
+              {/* Bot Quantity Selector */}
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { count: 1, label: '1 Robô', desc: '1 contra 1' },
@@ -447,88 +605,90 @@ export const Lobby: React.FC<LobbyProps> = ({
                     key={item.count}
                     type="button"
                     onClick={() => setSelectedBotCount(item.count)}
-                    className={`py-2 px-3 rounded-2xl border-2 text-center transition-all cursor-pointer ${
+                    className={`py-1.5 px-2 rounded-2xl border-2 text-center transition-all cursor-pointer ${
                       selectedBotCount === item.count
-                        ? 'bg-gradient-to-r from-yellow-300 to-amber-400 border-white text-slate-950 font-black shadow-md scale-105'
+                        ? 'bg-gradient-to-r from-yellow-300 to-amber-400 border-white text-slate-950 font-black shadow-md scale-102'
                         : 'bg-white border-emerald-200 text-slate-700 hover:bg-emerald-100 font-bold'
                     }`}
                   >
                     <div className="text-xs">{item.label}</div>
-                    <div className="text-[10px] opacity-80">{item.desc}</div>
+                    <div className="text-[9px] opacity-80">{item.desc}</div>
                   </button>
                 ))}
               </div>
 
-              {/* Live Preview of players on table */}
-              <div className="p-3.5 bg-white rounded-2xl border-2 border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-slate-600 font-bold">Mesa:</span>
-                  <span className="bg-amber-100 px-2.5 py-1 rounded-xl text-amber-950 font-black flex items-center gap-1 border border-amber-300">
-                    <span>{selectedAvatar}</span> {playerName || 'Você'}
-                  </span>
-                  <span className="text-rose-500 font-black">vs</span>
-                  {selectedBotCount >= 1 && (
-                    <span className="bg-sky-100 border-2 border-sky-300 px-2.5 py-1 rounded-xl text-sky-900 font-bold flex items-center gap-1">
-                      <span>🤖</span> Bot Luna
-                    </span>
-                  )}
-                  {selectedBotCount >= 2 && (
-                    <span className="bg-pink-100 border-2 border-pink-300 px-2.5 py-1 rounded-xl text-pink-900 font-bold flex items-center gap-1">
-                      <span>🦊</span> Bot Thor
-                    </span>
-                  )}
-                  {selectedBotCount >= 3 && (
-                    <span className="bg-emerald-100 border-2 border-emerald-300 px-2.5 py-1 rounded-xl text-emerald-900 font-bold flex items-center gap-1">
-                      <span>🐼</span> Bot Maya
-                    </span>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleStartSoloClick}
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-2xl bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#15803d] active:shadow-[0_1px_0_#15803d] active:translate-y-1 border-2 border-white transition-all shrink-0"
-                >
-                  <Play className="w-4 h-4 fill-white" /> Iniciar com {selectedBotCount} {selectedBotCount === 1 ? 'Robô' : 'Robôs'}
-                </button>
-              </div>
+              {/* Action Button */}
+              <button
+                type="button"
+                onClick={handleStartSoloClick}
+                className="w-full py-2.5 rounded-2xl bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#15803d] active:shadow-[0_1px_0_#15803d] active:translate-y-0.5 border-2 border-white transition-all"
+              >
+                <Play className="w-4 h-4 fill-white" /> Iniciar Treino com {selectedBotCount} {selectedBotCount === 1 ? 'Robô' : 'Robôs'}
+              </button>
             </div>
 
-            {/* Split options: Create or Join */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t-2 border-slate-100">
+            {/* Split options: Create Room or Join Room */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1 border-t-2 border-slate-100">
               {/* Option 1: Create Room */}
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-3xl border-3 border-blue-200 flex flex-col justify-between shadow-sm">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 sm:p-5 rounded-3xl border-3 border-blue-200 flex flex-col justify-between shadow-sm">
                 <div>
-                  <h3 className="font-black text-base text-blue-950 mb-1 flex items-center gap-1.5">
+                  <h3 className="font-black text-sm sm:text-base text-blue-950 mb-1 flex items-center gap-1.5">
                     <Users className="w-4 h-4 text-blue-600" /> Criar Sala com Amigos
                   </h3>
-                  <p className="text-xs text-slate-600 mb-4 font-semibold">
+                  <p className="text-xs text-slate-600 mb-3 font-semibold">
                     Gere uma sala privada para jogar com amigos ou bots.
                   </p>
 
-                  <div className="space-y-3 mb-4 text-xs">
+                  <div className="space-y-3 mb-3 text-xs">
+                    {/* Turn duration */}
                     <div>
                       <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
-                        <Clock className="w-3.5 h-3.5 text-amber-500" /> Tempo de Turno (vs Humanos):
+                        <Clock className="w-3.5 h-3.5 text-amber-500" /> Tempo de Turno:
                       </span>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      <div className="grid grid-cols-2 gap-1">
                         {[
                           { sec: 30, label: '30s (Rápido)' },
-                          { sec: 60, label: '1 Min (60s)' },
                           { sec: 90, label: '1m30s (Padrão ⭐)' },
-                          { sec: 120, label: '2 Min (120s)' },
                         ].map((item) => (
                           <button
                             key={item.sec}
                             type="button"
                             onClick={() => setTurnDuration(item.sec)}
-                            className={`py-2 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
+                            className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
                               turnDuration === item.sec
-                                ? 'bg-gradient-to-r from-yellow-300 to-amber-400 text-amber-950 border-white shadow-md scale-102 ring-2 ring-amber-400'
+                                ? 'bg-gradient-to-r from-yellow-300 to-amber-400 text-amber-950 border-white shadow-sm ring-1 ring-amber-400'
                                 : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
                             }`}
                           >
                             {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Creator Spectator Permission Rule */}
+                    <div className="pt-1">
+                      <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
+                        <Radio className="w-3.5 h-3.5 text-indigo-600" /> Permitir Espectadores?
+                      </span>
+                      <div className="grid grid-cols-3 gap-1">
+                        {[
+                          { id: 'disabled', label: '🚫 Não', desc: 'Privada' },
+                          { id: 'hidden_cards', label: '🔒 Só Mesa', desc: 'Torneio' },
+                          { id: 'reveal_cards', label: '👀 Aberto', desc: 'Modo TV' },
+                        ].map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setCreatorSpectatorPermission(opt.id as SpectatorPermission)}
+                            className={`py-1 px-1 rounded-xl text-[10px] font-black cursor-pointer transition-all border-2 text-center ${
+                              creatorSpectatorPermission === opt.id
+                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
+                            }`}
+                          >
+                            <div>{opt.label}</div>
+                            <div className="text-[8px] opacity-80">{opt.desc}</div>
                           </button>
                         ))}
                       </div>
@@ -539,7 +699,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                 <button
                   type="button"
                   onClick={handleCreate}
-                  className="w-full py-3 rounded-2xl bg-gradient-to-b from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#3730a3] active:shadow-[0_1px_0_#3730a3] active:translate-y-0.5 border-2 border-white transition-all"
+                  className="w-full py-2.5 rounded-2xl bg-gradient-to-b from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#3730a3] active:shadow-[0_1px_0_#3730a3] active:translate-y-0.5 border-2 border-white transition-all"
                 >
                   <Plus className="w-4 h-4" /> Criar Sala
                 </button>
@@ -548,22 +708,22 @@ export const Lobby: React.FC<LobbyProps> = ({
               {/* Option 2: Join Room */}
               <form
                 onSubmit={handleJoin}
-                className="bg-gradient-to-br from-amber-50 to-yellow-50 p-5 rounded-3xl border-3 border-amber-200 flex flex-col justify-between shadow-sm"
+                className="bg-gradient-to-br from-amber-50 to-yellow-50 p-4 sm:p-5 rounded-3xl border-3 border-amber-200 flex flex-col justify-between shadow-sm"
               >
                 <div>
-                  <h3 className="font-black text-base text-amber-950 mb-1 flex items-center gap-1.5">
+                  <h3 className="font-black text-sm sm:text-base text-amber-950 mb-1 flex items-center gap-1.5">
                     <Play className="w-4 h-4 text-amber-600" /> Entrar em Sala
                   </h3>
-                  <p className="text-xs text-slate-600 mb-3 font-semibold">
-                    Digite o código da sala para jogar ou assistir a partida.
+                  <p className="text-xs text-slate-600 mb-2.5 font-semibold">
+                    Digite o código da sala para jogar ou assistir.
                   </p>
 
                   {/* Mode Selector: Play vs Watch */}
-                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-amber-200/60 rounded-2xl border border-amber-300 mb-3">
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-amber-200/60 rounded-2xl border border-amber-300 mb-2.5">
                     <button
                       type="button"
                       onClick={() => setJoinMode('play')}
-                      className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                      className={`py-1 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
                         joinMode === 'play'
                           ? 'bg-amber-400 text-slate-950 shadow-sm border border-white'
                           : 'text-amber-950 hover:bg-white/50'
@@ -574,7 +734,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                     <button
                       type="button"
                       onClick={() => setJoinMode('watch_hidden')}
-                      className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                      className={`py-1 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
                         joinMode !== 'play'
                           ? 'bg-sky-500 text-white shadow-sm border border-white'
                           : 'text-amber-950 hover:bg-white/50'
@@ -586,63 +746,59 @@ export const Lobby: React.FC<LobbyProps> = ({
 
                   {/* Spectator Sub-options */}
                   {joinMode !== 'play' && (
-                    <div className="p-2.5 bg-sky-50 rounded-2xl border-2 border-sky-200 mb-3 space-y-1.5 animate-in fade-in">
-                      <div className="text-[10px] font-black text-sky-900 uppercase">
-                        Modo de Visualização para Transmissão:
+                    <div className="p-2 bg-sky-50 rounded-2xl border-2 border-sky-200 mb-2 space-y-1 animate-in fade-in">
+                      <div className="text-[9px] font-black text-sky-900 uppercase">
+                        Transmissão de Espectador:
                       </div>
-                      <div className="grid grid-cols-2 gap-1.5">
+                      <div className="grid grid-cols-2 gap-1">
                         <button
                           type="button"
                           onClick={() => setJoinMode('watch_hidden')}
-                          className={`p-1.5 rounded-xl border text-left text-[11px] font-black cursor-pointer transition-all ${
+                          className={`p-1 rounded-xl border text-left text-[10px] font-black cursor-pointer transition-all ${
                             joinMode === 'watch_hidden'
                               ? 'bg-sky-500 text-white border-sky-600 shadow-sm'
                               : 'bg-white text-slate-700 border-sky-200 hover:bg-sky-100'
                           }`}
                         >
                           <div>🔒 Só a Mesa</div>
-                          <div className="text-[9px] opacity-80">Mãos ocultas</div>
+                          <div className="text-[8px] opacity-80">Mãos ocultas</div>
                         </button>
                         <button
                           type="button"
                           onClick={() => setJoinMode('watch_open')}
-                          className={`p-1.5 rounded-xl border text-left text-[11px] font-black cursor-pointer transition-all ${
+                          className={`p-1 rounded-xl border text-left text-[10px] font-black cursor-pointer transition-all ${
                             joinMode === 'watch_open'
                               ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm font-black'
                               : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100 font-bold'
                           }`}
                         >
                           <div>👀 Cartas Abertas</div>
-                          <div className="text-[9px] opacity-80">Modo Juiz / TV</div>
+                          <div className="text-[8px] opacity-80">Modo Juiz / TV</div>
                         </button>
                       </div>
                     </div>
                   )}
 
                   <div className="mb-2">
-                    <label className="block text-xs font-black text-slate-700 mb-1">
-                      Código da Sala:
-                    </label>
                     <input
                       type="text"
                       placeholder="Ex: K89X ou @K89X"
                       value={joinCodeInput}
                       onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
                       maxLength={6}
-                      className="w-full uppercase font-mono tracking-widest text-center text-2xl font-black bg-white border-3 border-amber-300 rounded-2xl py-2 text-amber-900 focus:outline-none focus:border-amber-500 shadow-inner"
+                      className="w-full uppercase font-mono tracking-widest text-center text-xl font-black bg-white border-3 border-amber-300 rounded-2xl py-1.5 text-amber-900 focus:outline-none focus:border-amber-500 shadow-inner"
                     />
                   </div>
 
-                  {/* Prefix hints */}
-                  <div className="text-[10px] text-slate-500 font-bold mb-3 bg-amber-100/70 p-2 rounded-xl border border-amber-200 leading-tight">
-                    💡 <strong>Atalhos Rápidos:</strong> Digite <code>@CÓDIGO</code> ou <code>*CÓDIGO</code> para assistir a mesa, ou <code>$CÓDIGO</code> para assistir com cartas abertas!
+                  <div className="text-[9px] text-slate-500 font-bold mb-2 bg-amber-100/70 p-1.5 rounded-xl border border-amber-200 leading-tight">
+                    💡 <strong>Prefixos:</strong> <code>@CÓDIGO</code> ou <code>*CÓDIGO</code> (Mesa), ou <code>$CÓDIGO</code> (Cartas Abertas).
                   </div>
                 </div>
 
                 <button
                   type="submit"
                   disabled={!joinCodeInput.trim()}
-                  className={`w-full py-3 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer border-2 border-white transition-all ${
+                  className={`w-full py-2.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer border-2 border-white transition-all ${
                     joinMode === 'play'
                       ? 'bg-gradient-to-b from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c]'
                       : 'bg-gradient-to-b from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-[0_4px_0_#1e40af] active:shadow-[0_1px_0_#1e40af]'
@@ -663,7 +819,7 @@ export const Lobby: React.FC<LobbyProps> = ({
           </div>
         ) : (
           /* Waiting in Room Screen */
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Room Header & Code */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-gradient-to-r from-sky-400 via-indigo-500 to-purple-500 rounded-3xl border-4 border-white shadow-xl text-white">
               <div>
@@ -805,151 +961,127 @@ export const Lobby: React.FC<LobbyProps> = ({
                   </span>
                 </div>
 
-                {isHost && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {players.length < 4 && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={onAddBot}
-                          className="px-3 py-1.5 rounded-2xl bg-gradient-to-r from-yellow-300 to-amber-400 hover:from-yellow-200 hover:to-amber-300 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer shadow transition-all active:scale-95 border-2 border-white"
-                          title="Adiciona mais um robô na vaga disponível"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>+ Robô</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={onFillBots}
-                          className="px-3 py-1.5 rounded-2xl bg-sky-100 hover:bg-sky-200 text-sky-900 border-2 border-sky-300 text-xs font-black cursor-pointer transition-colors"
-                          title="Preenche todas as vagas restantes de uma vez"
-                        >
-                          Completar
-                        </button>
-                      </>
-                    )}
-
-                    {onResetRoom && (
-                      <button
-                        type="button"
-                        onClick={onResetRoom}
-                        className="px-2.5 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 border-2 border-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                        title="Limpa o estado da mesa e redefine para nova partida"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Resetar</span>
-                      </button>
-                    )}
+                {/* Host Bot Controls */}
+                {isHost && players.length < 4 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={onAddBot}
+                      className="py-1.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs flex items-center gap-1 cursor-pointer transition-all shadow-sm active:scale-95 border border-white"
+                      title="Adicionar 1 Robô à mesa"
+                    >
+                      <span>🤖</span> +1 Robô
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onFillBots}
+                      className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white font-black text-xs flex items-center gap-1 cursor-pointer transition-all shadow-sm active:scale-95 border border-white"
+                      title="Preencher todas as vagas restantes com Robôs"
+                    >
+                      <span>👥</span> Completar c/ Robôs
+                    </button>
                   </div>
                 )}
               </div>
 
+              {/* Player Cards Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {players.map((p) => {
                   const isMe = p.id === myPlayerId;
+
                   return (
                     <div
                       key={p.id}
-                      className={`p-3 rounded-2xl border-3 flex items-center justify-between shadow-sm ${
+                      className={`p-3.5 rounded-2xl border-2 flex items-center justify-between transition-all ${
                         isMe
-                          ? 'bg-amber-100/90 border-amber-400 ring-2 ring-yellow-400/40'
-                          : 'bg-slate-50 border-sky-200'
+                          ? 'bg-amber-100/90 border-amber-400 shadow-md ring-2 ring-amber-300'
+                          : 'bg-white border-slate-200'
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <span className="text-3xl">{p.avatar}</span>
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-300 to-orange-400 border-2 border-white flex items-center justify-center text-2xl shadow-sm">
+                          {p.avatar}
+                        </div>
                         <div>
-                          <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                            <span className="truncate max-w-[120px]">{p.name}</span>
+                          <div className="font-black text-sm text-slate-900 flex items-center gap-1.5">
+                            <span>{p.name}</span>
                             {isMe && (
-                              <span className="text-[10px] text-amber-700 font-black">(Você)</span>
+                              <span className="text-[10px] bg-amber-400 text-slate-950 font-black px-1.5 py-0.2 rounded-md">
+                                Você
+                              </span>
+                            )}
+                            {p.isHost && (
+                              <span className="text-sm" title="Anfitrião da Sala">
+                                👑
+                              </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] text-slate-500 font-bold">
-                            {p.isHost && (
-                              <span className="text-amber-600 font-black">👑 Anfitrião</span>
-                            )}
-                            {p.isBot && (
-                              <span className="text-sky-600 font-black">🤖 Robô IA</span>
-                            )}
-                            {!p.isBot && !p.isHost && (
-                              <span className="text-emerald-600 font-black">● Conectado</span>
-                            )}
+                          <div className="text-[11px] text-slate-500 font-bold">
+                            {p.isBot ? '🤖 Robô Inteligente' : p.isHost ? 'Criador da Sala' : 'Jogador Conectado'}
                           </div>
                         </div>
                       </div>
 
-                      {/* Host Moderation Controls */}
-                      {(isHost || currentUser?.role === 'admin') && (
-                        <div className="flex items-center gap-1 shrink-0">
+                      {/* Host Actions (Kick or Remove Bot) */}
+                      {isHost && !isMe && (
+                        <div className="flex items-center gap-1">
                           {p.isBot ? (
                             <button
                               type="button"
                               onClick={() => onRemoveBot(p.id)}
-                              className="p-1.5 rounded-xl text-rose-500 hover:text-white hover:bg-rose-500 cursor-pointer transition-colors"
+                              className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 cursor-pointer transition-colors"
                               title="Remover Robô"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
-                          ) : !isMe ? (
-                            <>
-                              {onTransferHost && (
-                                <button
-                                  type="button"
-                                  onClick={() => onTransferHost(p.id)}
-                                  className="p-1.5 rounded-xl text-amber-500 hover:text-slate-900 hover:bg-amber-400 cursor-pointer transition-colors"
-                                  title="Passar Liderança da Sala para este jogador"
-                                >
-                                  <Crown className="w-4 h-4" />
-                                </button>
-                              )}
-                              {onKickPlayer && (
-                                <button
-                                  type="button"
-                                  onClick={() => onKickPlayer(p.id)}
-                                  className="p-1.5 rounded-xl text-rose-500 hover:text-white hover:bg-rose-500 cursor-pointer transition-colors"
-                                  title="Expulsar Jogador da Sala"
-                                >
-                                  <UserX className="w-4 h-4" />
-                                </button>
-                              )}
-                            </>
-                          ) : null}
+                          ) : (
+                            onKickPlayer && (
+                              <button
+                                type="button"
+                                onClick={() => onKickPlayer(p.id)}
+                                className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 cursor-pointer transition-colors"
+                                title="Expulsar Jogador"
+                              >
+                                <UserX className="w-4 h-4" />
+                              </button>
+                            )
+                          )}
                         </div>
                       )}
                     </div>
                   );
                 })}
 
-                {/* Empty slot cues */}
-                {Array.from({ length: 4 - players.length }).map((_, i) => (
+                {/* Empty Slots */}
+                {Array.from({ length: Math.max(0, 4 - players.length) }).map((_, idx) => (
                   <div
-                    key={`empty-${i}`}
-                    className="p-3 rounded-2xl border-3 border-dashed border-sky-300 flex items-center justify-center text-xs text-sky-600 font-bold bg-sky-50/50"
+                    key={idx}
+                    className="p-3.5 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/50 flex items-center justify-center gap-2 text-slate-400 font-bold text-xs"
                   >
-                    Vaga Aberta
+                    <span>Vaga Disponível</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Action Bar */}
-            <div className="pt-4 border-t-2 border-slate-100 flex flex-col sm:flex-row items-center gap-3">
+            {/* Start Game Action */}
+            <div className="pt-2">
               {isHost ? (
                 <button
                   type="button"
                   onClick={onStartGame}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-white font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_5px_0_#15803d] active:shadow-[0_1px_0_#15803d] active:translate-y-1 border-3 border-white transition-all"
+                  disabled={players.length < 2}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-b from-amber-400 via-yellow-400 to-orange-500 hover:from-yellow-300 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c] active:translate-y-1 border-3 border-white transition-all ring-4 ring-amber-300/60"
                 >
-                  <Play className="w-5 h-5 fill-white" />
-                  {players.length < 2
-                    ? 'Iniciar Partida (+1 Robô Automático)'
-                    : `Iniciar Partida (${players.length} Jogadores)`}
+                  <Play className="w-5 h-5 fill-slate-950" />
+                  <span>Iniciar Partida ({players.length}/4 Jogadores)</span>
                 </button>
               ) : (
-                <div className="w-full text-center py-3 text-xs text-amber-800 font-black animate-pulse bg-yellow-100 rounded-2xl border-2 border-yellow-300 shadow-sm">
-                  Aguardando o anfitrião iniciar a partida...
+                <div className="p-4 bg-amber-100/90 rounded-2xl border-2 border-amber-300 text-center">
+                  <div className="text-xs font-black text-amber-950 flex items-center justify-center gap-1.5">
+                    <Clock className="w-4 h-4 text-amber-600 animate-spin" />
+                    Aguardando o Anfitrião iniciar a partida...
+                  </div>
                 </div>
               )}
             </div>

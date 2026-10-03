@@ -1335,6 +1335,7 @@ wss.on('connection', (ws: WebSocket) => {
             botSpeedMs: msg.settings?.botSpeedMs ?? 1800,
             autoUnoProtection: msg.settings?.autoUnoProtection ?? false,
             highlightHints: msg.settings?.highlightHints ?? true,
+            spectatorPermission: msg.settings?.spectatorPermission ?? 'hidden_cards',
           },
           status: 'waiting',
           players: [hostPlayer],
@@ -1427,16 +1428,27 @@ wss.on('connection', (ws: WebSocket) => {
 
         // If explicitly joining as Spectator / Tournament Broadcast
         if (wantsSpectator) {
+          const permission = room.settings.spectatorPermission ?? 'hidden_cards';
+          if (permission === 'disabled') {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'O criador desta sala bloqueou o modo espectador / transmissão externa.'
+            }));
+            return;
+          }
+
+          const canRevealCards = permission === 'reveal_cards' && wantsRevealHands;
+
           if (!room.spectators) room.spectators = [];
           const spectatorId = `spectator-${Math.random().toString(36).substring(2, 9)}`;
           const spectatorObj = {
             id: spectatorId,
             name: msg.playerName?.trim() ? `[TV] ${msg.playerName.trim()}` : `Espectador ${room.spectators.length + 1}`,
-            avatar: msg.avatar || (wantsRevealHands ? '📺' : '👁️'),
+            avatar: msg.avatar || (canRevealCards ? '📺' : '👁️'),
             isConnected: true,
           };
 
-          if (wantsRevealHands) {
+          if (canRevealCards) {
             room.spectatorCardsRevealed = true;
           }
 
@@ -1446,7 +1458,7 @@ wss.on('connection', (ws: WebSocket) => {
           ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: spectatorId }));
           broadcastLog(
             room,
-            `📺 ${spectatorObj.name} conectou na transmissão (${wantsRevealHands ? 'Cartas Abertas' : 'Apenas Mesa'})!`,
+            `📺 ${spectatorObj.name} conectou na transmissão (${canRevealCards ? 'Cartas Abertas' : 'Apenas Mesa'})!`,
             'system'
           );
           syncRoomState(room);
