@@ -1271,8 +1271,24 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'leave_room') {
+        const cleanRoomId = (msg.roomId || '').replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
+
+        // 1. Remove this connection and any other socket registered to this player in this room
         clientConnections.delete(ws);
-        const room = rooms.get(msg.roomId.toUpperCase());
+        clientConnections.forEach((meta, clientWs) => {
+          if (meta.playerId === msg.playerId && meta.roomId === cleanRoomId) {
+            clientConnections.delete(clientWs);
+          }
+        });
+
+        // 2. Send acknowledgment to the client
+        try {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'left_room_confirmed', roomId: cleanRoomId }));
+          }
+        } catch (e) {}
+
+        const room = rooms.get(cleanRoomId);
         if (room) {
           const idx = room.players.findIndex((p) => p.id === msg.playerId);
           if (idx !== -1) {
@@ -1284,6 +1300,17 @@ wss.on('connection', (ws: WebSocket) => {
             }
 
             broadcastLog(room, `${leaving.name} saiu da sala.`, 'system');
+
+            // 3. Immediately notify other peers in room about voice leave
+            broadcastToRoom(room.id, {
+              type: 'rtc_voice_state',
+              roomId: room.id,
+              playerId: leaving.id,
+              isMuted: true,
+              isDeafened: true,
+              isSpeaking: false,
+              joined: false,
+            });
 
             if (leaving.isHost) {
               leaving.isHost = false;
@@ -1629,8 +1656,11 @@ wss.on('connection', (ws: WebSocket) => {
 
       let meta = clientConnections.get(ws);
       if (!meta && 'roomId' in msg && 'playerId' in msg && msg.roomId && msg.playerId) {
-        meta = { roomId: msg.roomId, playerId: msg.playerId };
-        clientConnections.set(ws, meta);
+        const room = rooms.get(String(msg.roomId).trim().toUpperCase());
+        if (room && room.players.some((p) => p.id === msg.playerId && p.isConnected)) {
+          meta = { roomId: room.id, playerId: String(msg.playerId) };
+          clientConnections.set(ws, meta);
+        }
       }
       if (!meta) return;
 

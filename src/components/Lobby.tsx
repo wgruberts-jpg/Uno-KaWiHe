@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { RoomSettings, Player, UserProfile, SpectatorPermission } from '../types/uno.js';
+import { RoomSettings, Player, UserProfile, SpectatorPermission, ClientMessage } from '../types/uno.js';
 import { AVATARS_CATALOG, AVATAR_CATEGORIES } from '../utils/avatars.js';
+import { VoiceControls } from './VoiceControls.js';
 import {
   Users,
   Play,
@@ -58,6 +59,7 @@ interface LobbyProps {
   myPlayerId: string;
   isHost: boolean;
   errorMessage: string | null;
+  sendMessage?: (msg: ClientMessage) => void;
 }
 
 export const Lobby: React.FC<LobbyProps> = ({
@@ -85,6 +87,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   myPlayerId,
   isHost,
   errorMessage,
+  sendMessage,
 }) => {
   const [playerName, setPlayerName] = useState(() => currentUser?.displayName || localStorage.getItem('uno_nickname') || 'Jogador 1');
   const [selectedAvatar, setSelectedAvatar] = useState(() => currentUser?.avatar || localStorage.getItem('uno_avatar') || '🦸‍♂️');
@@ -888,6 +891,16 @@ export const Lobby: React.FC<LobbyProps> = ({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
+                {/* Voice Controls in Lobby */}
+                {roomId && sendMessage && (
+                  <VoiceControls
+                    roomId={roomId}
+                    myPlayerId={myPlayerId}
+                    players={players}
+                    sendMessage={sendMessage}
+                  />
+                )}
+
                 <button
                   type="button"
                   onClick={copyRoomCode}

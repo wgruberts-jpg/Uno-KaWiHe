@@ -104,7 +104,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [localVoiceSpeaking, setLocalVoiceSpeaking] = useState(false);
 
   useEffect(() => {
-    voiceChat.setEvents({
+    const unsubscribe = voiceChat.subscribe({
       onPeersChange: (peers) => setPeerVoiceStates(peers),
       onLocalStateChange: (state) => setLocalVoiceSpeaking(state.isSpeaking),
       onError: (msg) => {
@@ -112,6 +112,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         setTimeout(() => setFeedbackToast(null), 4000);
       },
     });
+
+    return () => {
+      unsubscribe();
+      // Ensure microphone and audio connections are released if navigating away
+      voiceChat.leaveVoice();
+    };
   }, []);
 
   useEffect(() => {
