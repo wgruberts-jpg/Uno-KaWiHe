@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { RoomSettings, Player, UserProfile, SpectatorPermission, ClientMessage } from '../types/uno.js';
 import { VoiceControls } from './VoiceControls.js';
 import { Sidebar } from './Sidebar.js';
@@ -32,6 +32,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Radio,
   Eye,
   EyeOff,
@@ -146,7 +147,60 @@ export const Lobby: React.FC<LobbyProps> = ({
   const [selectedBotCount, setSelectedBotCount] = useState<number>(1);
   const [chatInputText, setChatInputText] = useState('');
   const [inviteSentFeedback, setInviteSentFeedback] = useState(false);
+  const [showLobbyScrollBottomBtn, setShowLobbyScrollBottomBtn] = useState(false);
   const isAdmin = currentUser?.role === 'admin' || currentUser?.username?.toLowerCase() === 'edinho';
+
+  const lobbyChatContainerRef = useRef<HTMLDivElement>(null);
+  const isLobbyNearBottomRef = useRef(true);
+  const lastLobbyChatCountRef = useRef(lobbyChat.length);
+
+  const scrollToLobbyBottom = useCallback((smooth = true) => {
+    if (!lobbyChatContainerRef.current) return;
+    const container = lobbyChatContainerRef.current;
+    if (smooth) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, []);
+
+  const handleLobbyChatScroll = () => {
+    if (!lobbyChatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = lobbyChatContainerRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const isNearBottom = distanceFromBottom < 70;
+    isLobbyNearBottomRef.current = isNearBottom;
+    setShowLobbyScrollBottomBtn(!isNearBottom);
+  };
+
+  // Auto-scroll lobby chat on new messages
+  useEffect(() => {
+    const isNewMessage = lobbyChat.length > lastLobbyChatCountRef.current;
+    const latestMessage = lobbyChat[lobbyChat.length - 1];
+    const isMyMessage = latestMessage?.name === playerName;
+
+    if (isNewMessage) {
+      if (isMyMessage || isLobbyNearBottomRef.current) {
+        requestAnimationFrame(() => {
+          scrollToLobbyBottom(true);
+        });
+      }
+    }
+    lastLobbyChatCountRef.current = lobbyChat.length;
+  }, [lobbyChat, playerName, scrollToLobbyBottom]);
+
+  // Initial scroll on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      scrollToLobbyBottom(false);
+      isLobbyNearBottomRef.current = true;
+      setShowLobbyScrollBottomBtn(false);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [scrollToLobbyBottom]);
 
   const handleSendLobbyChat = (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,6 +213,11 @@ export const Lobby: React.FC<LobbyProps> = ({
       text: chatInputText.trim(),
     });
     setChatInputText('');
+    setTimeout(() => {
+      scrollToLobbyBottom(true);
+      isLobbyNearBottomRef.current = true;
+      setShowLobbyScrollBottomBtn(false);
+    }, 30);
   };
 
   const handleBroadcastLobbyInvite = () => {
@@ -1226,7 +1285,7 @@ export const Lobby: React.FC<LobbyProps> = ({
             </div>
 
             {/* 3. Lobby Chat Panel */}
-            <div className="bg-white/95 border-3 border-indigo-400 rounded-3xl p-4 shadow-xl backdrop-blur-md text-slate-800 flex flex-col h-[320px]">
+            <div className="bg-white/95 border-3 border-indigo-400 rounded-3xl p-4 shadow-xl backdrop-blur-md text-slate-800 flex flex-col h-[320px] relative">
               <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 shrink-0">
                 <MessageSquare className="w-4 h-4 text-indigo-500" />
                 <h3 className="text-xs font-black uppercase tracking-wider text-indigo-950">
@@ -1235,10 +1294,15 @@ export const Lobby: React.FC<LobbyProps> = ({
               </div>
 
               {/* Chat messages stream */}
-              <div className="flex-1 overflow-y-auto my-2.5 space-y-2 pr-1 text-left">
+              <div
+                ref={lobbyChatContainerRef}
+                onScroll={handleLobbyChatScroll}
+                className="flex-1 overflow-y-auto my-2.5 space-y-2 pr-1 text-left scroll-smooth"
+              >
                 {lobbyChat.length === 0 ? (
-                  <div className="text-[11px] text-slate-400 font-bold text-center py-12">
-                    Nenhuma mensagem enviada ainda.<br />Seja o primeiro a dar um "Oi"! 👋
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400 font-bold text-center py-8">
+                    <p className="text-xs">Nenhuma mensagem enviada ainda.</p>
+                    <p className="text-[10px] text-slate-400 mt-1 font-normal">Seja o primeiro a dar um "Oi"! 👋</p>
                   </div>
                 ) : (
                   lobbyChat.map((msg) => {
@@ -1262,6 +1326,22 @@ export const Lobby: React.FC<LobbyProps> = ({
                   })
                 )}
               </div>
+
+              {/* Floating "Scroll to Bottom" button when user scrolled up */}
+              {showLobbyScrollBottomBtn && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    scrollToLobbyBottom(true);
+                    isLobbyNearBottomRef.current = true;
+                    setShowLobbyScrollBottomBtn(false);
+                  }}
+                  className="absolute bottom-16 right-6 z-10 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg border border-white flex items-center gap-1 animate-bounce cursor-pointer transition-all"
+                >
+                  <span>Recentes</span>
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+              )}
 
               {/* Chat Input form */}
               <form onSubmit={handleSendLobbyChat} className="flex gap-1.5 pt-2 border-t border-slate-100 shrink-0">
