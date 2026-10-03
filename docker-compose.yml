@@ -10,12 +10,12 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      - auth-data:/app/data
+      - ./data:/app/data
     environment:
       - NODE_ENV=production
       - PORT=4000
       - JWT_SECRET=kawihe_jwt_super_secret_key_2026
-      - ADMIN_PIN=1234
+      - ADMIN_PIN=774007
     networks:
       - kawihe-net
     deploy:
@@ -40,7 +40,7 @@ services:
       - PORT=3000
       - AUTH_SERVICE_URL=http://kawihe-auth:4000
       - JWT_SECRET=kawihe_jwt_super_secret_key_2026
-      - ADMIN_PIN=1234
+      - ADMIN_PIN=774007
     depends_on:
       - kawihe-auth
     networks:

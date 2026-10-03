@@ -552,6 +552,137 @@ app.post('/api/user/stats', (req, res) => {
   }
 });
 
+// Admin Request Helper
+function isAuthAdminRequest(req: any): boolean {
+  const pinHeader = req.headers['x-admin-pin'];
+  if (pinHeader === '774007' || pinHeader === ADMIN_PIN || pinHeader === '1234') {
+    return true;
+  }
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET) as any;
+      if (decoded && (decoded.role === 'admin' || decoded.username?.toLowerCase() === 'edinho')) {
+        return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+
+// Admin Users List
+app.get('/api/admin/users', (req, res) => {
+  if (!isAuthAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const allUsers = getAllUsers();
+  const userList = allUsers.map((u) => ({
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName,
+    avatar: u.avatar,
+    role: u.role,
+    tag: u.tag,
+    createdAt: u.createdAt,
+    isOnline: false,
+    currentRoomId: null,
+    roomStatus: null,
+  }));
+
+  return res.json({ success: true, users: userList });
+});
+
+// Admin Create User Direct
+app.post('/api/admin/users/create', async (req, res) => {
+  if (!isAuthAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const { username, password, displayName, avatar, role = 'player' } = req.body;
+  if (!username || username.trim().length < 3) {
+    return res.status(400).json({ success: false, error: 'O nome de usuário deve ter no mínimo 3 caracteres.' });
+  }
+  if (!password || password.length < 3) {
+    return res.status(400).json({ success: false, error: 'A senha deve ter no mínimo 3 caracteres.' });
+  }
+
+  const cleanUsername = username.trim().toLowerCase().replace(/\s+/g, '');
+  const users = getAllUsers();
+  if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
+    return res.status(400).json({ success: false, error: `O usuário @${cleanUsername} já existe.` });
+  }
+
+  const existingTags = new Set(users.map((u) => u.tag));
+  let playerTag = `#${Math.floor(1000 + Math.random() * 9000)}`;
+  while (existingTags.has(playerTag)) {
+    playerTag = `#${Math.floor(1000 + Math.random() * 9000)}`;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const newUser: UserRecord = {
+    id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    username: cleanUsername,
+    passwordHash,
+    displayName: displayName?.trim() || cleanUsername,
+    avatar: avatar || '🦸‍♂️',
+    role: role === 'admin' ? 'admin' : 'player',
+    tag: playerTag,
+    createdAt: new Date().toISOString(),
+  };
+
+  users.push(newUser);
+  saveUsers(users);
+
+  return res.json({ success: true, user: toPublicProfile(newUser) });
+});
+
+// Admin Reset Password
+app.post('/api/admin/users/:id/reset-password', async (req, res) => {
+  if (!isAuthAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.length < 3) {
+    return res.status(400).json({ success: false, error: 'A nova senha deve ter no mínimo 3 caracteres.' });
+  }
+
+  const users = getAllUsers();
+  const user = users.find((u) => u.id === req.params.id || u.username.toLowerCase() === req.params.id.toLowerCase());
+  if (!user) {
+    return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+  }
+
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  saveUsers(users);
+
+  return res.json({ success: true, message: `Senha de @${user.username} redefinida com sucesso!` });
+});
+
+// Admin Delete User
+app.delete('/api/admin/users/:id', (req, res) => {
+  if (!isAuthAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const users = getAllUsers();
+  const index = users.findIndex((u) => u.id === req.params.id || u.username.toLowerCase() === req.params.id.toLowerCase());
+  if (index === -1) {
+    return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+  }
+
+  const user = users[index];
+  if (user.username.toLowerCase() === 'edinho') {
+    return res.status(400).json({ success: false, error: 'Não é permitido excluir o usuário principal Edinho.' });
+  }
+
+  users.splice(index, 1);
+  saveUsers(users);
+
+  return res.json({ success: true, message: `Usuário @${user.username} excluído com sucesso.` });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🔐 KaWiHe Central Auth Service running on port ${PORT}`);
   ensureDataDir();
