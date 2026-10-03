@@ -1970,6 +1970,68 @@ wss.on('connection', (ws: WebSocket) => {
         });
         return;
       }
+
+      // WebRTC Peer-to-Peer Voice Signaling (Zero server audio processing)
+      if (msg.type === 'rtc_offer') {
+        const targetPlayerId = msg.toPlayerId;
+        for (const [clientWs, clientMeta] of clientConnections.entries()) {
+          if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(JSON.stringify({
+              type: 'rtc_offer',
+              fromPlayerId: msg.fromPlayerId || player.id,
+              toPlayerId: targetPlayerId,
+              offer: msg.offer,
+            }));
+            break;
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'rtc_answer') {
+        const targetPlayerId = msg.toPlayerId;
+        for (const [clientWs, clientMeta] of clientConnections.entries()) {
+          if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(JSON.stringify({
+              type: 'rtc_answer',
+              fromPlayerId: msg.fromPlayerId || player.id,
+              toPlayerId: targetPlayerId,
+              answer: msg.answer,
+            }));
+            break;
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'rtc_ice_candidate') {
+        const targetPlayerId = msg.toPlayerId;
+        for (const [clientWs, clientMeta] of clientConnections.entries()) {
+          if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(JSON.stringify({
+              type: 'rtc_ice_candidate',
+              fromPlayerId: msg.fromPlayerId || player.id,
+              toPlayerId: targetPlayerId,
+              candidate: msg.candidate,
+            }));
+            break;
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'rtc_voice_state') {
+        broadcastToRoom(room.id, {
+          type: 'rtc_voice_state',
+          roomId: room.id,
+          playerId: msg.playerId || player.id,
+          isMuted: msg.isMuted,
+          isDeafened: msg.isDeafened,
+          isSpeaking: msg.isSpeaking,
+          joined: msg.joined,
+        });
+        return;
+      }
     } catch (e) {
       console.error('Error handling WebSocket message:', e);
     }
