@@ -28,7 +28,7 @@ import {
 interface LobbyProps {
   onCreateRoom: (playerName: string, avatar: string, settings: RoomSettings) => void;
   onStartSolo: (playerName: string, avatar: string, botCount: number, settings?: Partial<RoomSettings>) => void;
-  onJoinRoom: (roomId: string, playerName: string, avatar: string) => void;
+  onJoinRoom: (roomId: string, playerName: string, avatar: string, asSpectator?: boolean, spectatorRevealCards?: boolean) => void;
   onAddBot: () => void;
   onFillBots: () => void;
   onRemoveBot: (botId: string) => void;
@@ -89,6 +89,9 @@ export const Lobby: React.FC<LobbyProps> = ({
   }, [currentUser]);
   const [avatarCategory, setAvatarCategory] = useState<'heroes' | 'animals' | 'classics'>('heroes');
   const [joinCodeInput, setJoinCodeInput] = useState('');
+  const [joinMode, setJoinMode] = useState<'play' | 'watch_hidden' | 'watch_open'>('play');
+  const [showBroadcastShare, setShowBroadcastShare] = useState(false);
+  const [copiedBroadcastType, setCopiedBroadcastType] = useState<string | null>(null);
   const [turnDuration, setTurnDuration] = useState<number>(() => {
     const saved = localStorage.getItem('uno_turn_duration');
     return saved !== null ? Number(saved) : 90; // Padrão: 1 minuto e meio (90s)
@@ -133,9 +136,18 @@ export const Lobby: React.FC<LobbyProps> = ({
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = joinCodeInput.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
+    const raw = joinCodeInput.trim();
+    if (!raw) return;
+
+    const startsWithDollar = raw.startsWith('$');
+    const startsWithAtOrStar = raw.startsWith('@') || raw.startsWith('*') || raw.startsWith('#');
+    const clean = raw.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
     if (!clean) return;
-    onJoinRoom(clean, playerName, selectedAvatar);
+
+    const isSpectator = joinMode !== 'play' || startsWithDollar || startsWithAtOrStar;
+    const isReveal = joinMode === 'watch_open' || startsWithDollar;
+
+    onJoinRoom(clean, playerName, selectedAvatar, isSpectator, isReveal);
   };
 
   const copyRoomCode = () => {
@@ -542,31 +554,109 @@ export const Lobby: React.FC<LobbyProps> = ({
                   <h3 className="font-black text-base text-amber-950 mb-1 flex items-center gap-1.5">
                     <Play className="w-4 h-4 text-amber-600" /> Entrar em Sala
                   </h3>
-                  <p className="text-xs text-slate-600 mb-4 font-semibold">
-                    Digite o código de 4 dígitos da sala de um amigo.
+                  <p className="text-xs text-slate-600 mb-3 font-semibold">
+                    Digite o código da sala para jogar ou assistir a partida.
                   </p>
 
-                  <div className="mb-4">
-                    <label className="block text-xs font-black text-slate-700 mb-1.5">
+                  {/* Mode Selector: Play vs Watch */}
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-amber-200/60 rounded-2xl border border-amber-300 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setJoinMode('play')}
+                      className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                        joinMode === 'play'
+                          ? 'bg-amber-400 text-slate-950 shadow-sm border border-white'
+                          : 'text-amber-950 hover:bg-white/50'
+                      }`}
+                    >
+                      <span>🎮</span> Jogador
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setJoinMode('watch_hidden')}
+                      className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                        joinMode !== 'play'
+                          ? 'bg-sky-500 text-white shadow-sm border border-white'
+                          : 'text-amber-950 hover:bg-white/50'
+                      }`}
+                    >
+                      <span>👁️</span> Assistir (TV)
+                    </button>
+                  </div>
+
+                  {/* Spectator Sub-options */}
+                  {joinMode !== 'play' && (
+                    <div className="p-2.5 bg-sky-50 rounded-2xl border-2 border-sky-200 mb-3 space-y-1.5 animate-in fade-in">
+                      <div className="text-[10px] font-black text-sky-900 uppercase">
+                        Modo de Visualização para Transmissão:
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setJoinMode('watch_hidden')}
+                          className={`p-1.5 rounded-xl border text-left text-[11px] font-black cursor-pointer transition-all ${
+                            joinMode === 'watch_hidden'
+                              ? 'bg-sky-500 text-white border-sky-600 shadow-sm'
+                              : 'bg-white text-slate-700 border-sky-200 hover:bg-sky-100'
+                          }`}
+                        >
+                          <div>🔒 Só a Mesa</div>
+                          <div className="text-[9px] opacity-80">Mãos ocultas</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setJoinMode('watch_open')}
+                          className={`p-1.5 rounded-xl border text-left text-[11px] font-black cursor-pointer transition-all ${
+                            joinMode === 'watch_open'
+                              ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm font-black'
+                              : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100 font-bold'
+                          }`}
+                        >
+                          <div>👀 Cartas Abertas</div>
+                          <div className="text-[9px] opacity-80">Modo Juiz / TV</div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mb-2">
+                    <label className="block text-xs font-black text-slate-700 mb-1">
                       Código da Sala:
                     </label>
                     <input
                       type="text"
-                      placeholder="Ex: K89X"
+                      placeholder="Ex: K89X ou @K89X"
                       value={joinCodeInput}
                       onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                      maxLength={4}
+                      maxLength={6}
                       className="w-full uppercase font-mono tracking-widest text-center text-2xl font-black bg-white border-3 border-amber-300 rounded-2xl py-2 text-amber-900 focus:outline-none focus:border-amber-500 shadow-inner"
                     />
+                  </div>
+
+                  {/* Prefix hints */}
+                  <div className="text-[10px] text-slate-500 font-bold mb-3 bg-amber-100/70 p-2 rounded-xl border border-amber-200 leading-tight">
+                    💡 <strong>Atalhos Rápidos:</strong> Digite <code>@CÓDIGO</code> ou <code>*CÓDIGO</code> para assistir a mesa, ou <code>$CÓDIGO</code> para assistir com cartas abertas!
                   </div>
                 </div>
 
                 <button
                   type="submit"
                   disabled={!joinCodeInput.trim()}
-                  className="w-full py-3 rounded-2xl bg-gradient-to-b from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c] active:translate-y-0.5 border-2 border-white transition-all"
+                  className={`w-full py-3 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer border-2 border-white transition-all ${
+                    joinMode === 'play'
+                      ? 'bg-gradient-to-b from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c]'
+                      : 'bg-gradient-to-b from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-[0_4px_0_#1e40af] active:shadow-[0_1px_0_#1e40af]'
+                  } disabled:opacity-40 active:translate-y-0.5`}
                 >
-                  <ArrowRight className="w-4 h-4" /> Entrar na Sala
+                  {joinMode === 'play' ? (
+                    <>
+                      <ArrowRight className="w-4 h-4" /> Entrar para Jogar
+                    </>
+                  ) : (
+                    <>
+                      <span>👁️</span> Assistir Transmissão
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -585,11 +675,11 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={copyRoomCode}
-                  className="px-4 py-2 rounded-2xl bg-white text-slate-900 text-xs font-black flex items-center gap-2 cursor-pointer transition-all border-2 border-yellow-300 shadow active:scale-95"
+                  className="px-3.5 py-2 rounded-2xl bg-white text-slate-900 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all border-2 border-yellow-300 shadow active:scale-95"
                 >
                   {copiedLink ? (
                     <>
@@ -604,6 +694,17 @@ export const Lobby: React.FC<LobbyProps> = ({
                   )}
                 </button>
 
+                {/* Tournament / Stream Link Sharing Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowBroadcastShare(!showBroadcastShare)}
+                  className="px-3.5 py-2 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all border-2 border-white shadow active:scale-95"
+                  title="Compartilhar Link de Transmissão / Espectador"
+                >
+                  <span>📺</span>
+                  <span>Transmissão</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={onLeaveRoom}
@@ -615,6 +716,81 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Broadcast Sharing Card */}
+            {showBroadcastShare && (
+              <div className="p-4 bg-sky-50 border-3 border-sky-300 rounded-3xl text-slate-800 space-y-3 shadow-md animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <div className="font-black text-xs text-sky-950 flex items-center gap-1.5 uppercase tracking-wide">
+                    <span>📡</span> Links de Transmissão & Espectador
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBroadcastShare(false)}
+                    className="text-slate-400 hover:text-slate-700 text-xs font-black cursor-pointer"
+                  >
+                    ✕ Fechar
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-600 font-medium">
+                  Copie o link para comentaristas, telão do torneio ou amigos assistirem sem ocupar vaga de jogador:
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {/* Clean Stream (Hidden Hands) */}
+                  <div className="p-3 bg-white rounded-2xl border-2 border-sky-200 flex flex-col justify-between gap-2 shadow-xs">
+                    <div>
+                      <div className="text-xs font-black text-slate-900 flex items-center gap-1">
+                        <span>🔒</span> Transmissão de Torneio (Mesa)
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                        Mostra apenas a mesa e descarte (sem ver cartas dos jogadores).
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}${window.location.pathname}?room=${roomId}&watch=1`;
+                        navigator.clipboard.writeText(url).then(() => {
+                          setCopiedBroadcastType('clean');
+                          setTimeout(() => setCopiedBroadcastType(null), 2500);
+                        });
+                      }}
+                      className="w-full py-1.5 px-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      {copiedBroadcastType === 'clean' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedBroadcastType === 'clean' ? 'Link Copiado!' : 'Copiar Link (Mesa)'}</span>
+                    </button>
+                  </div>
+
+                  {/* Open Hands (TV / Judge Mode) */}
+                  <div className="p-3 bg-white rounded-2xl border-2 border-amber-200 flex flex-col justify-between gap-2 shadow-xs">
+                    <div>
+                      <div className="text-xs font-black text-amber-950 flex items-center gap-1">
+                        <span>👀</span> Transmissão Aberta (Modo TV / Juiz)
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                        Exibe todas as mãos abertas para narradores e telão.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}${window.location.pathname}?room=${roomId}&watch=open`;
+                        navigator.clipboard.writeText(url).then(() => {
+                          setCopiedBroadcastType('open');
+                          setTimeout(() => setCopiedBroadcastType(null), 2500);
+                        });
+                      }}
+                      className="w-full py-1.5 px-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      {copiedBroadcastType === 'open' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedBroadcastType === 'open' ? 'Link Copiado!' : 'Copiar Link (TV Aberta)'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Players in Room */}
             <div>

@@ -1409,13 +1409,47 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'join_room') {
-        const cleanRoomId = (msg.roomId || '').replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
+        const rawRoomInput = (msg.roomId || '').trim();
+        const startsWithDollar = rawRoomInput.startsWith('$');
+        const startsWithAtOrStar = rawRoomInput.startsWith('@') || rawRoomInput.startsWith('*') || rawRoomInput.startsWith('#');
+        const wantsSpectator = msg.asSpectator === true || startsWithDollar || startsWithAtOrStar;
+        const wantsRevealHands = msg.spectatorRevealCards === true || startsWithDollar;
+
+        const cleanRoomId = rawRoomInput.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
         const room = rooms.get(cleanRoomId);
         if (!room) {
           ws.send(JSON.stringify({
             type: 'error',
             message: `Sala #${cleanRoomId} não encontrada. Verifique se o código está correto ou se a sala já expirou.`
           }));
+          return;
+        }
+
+        // If explicitly joining as Spectator / Tournament Broadcast
+        if (wantsSpectator) {
+          if (!room.spectators) room.spectators = [];
+          const spectatorId = `spectator-${Math.random().toString(36).substring(2, 9)}`;
+          const spectatorObj = {
+            id: spectatorId,
+            name: msg.playerName?.trim() ? `[TV] ${msg.playerName.trim()}` : `Espectador ${room.spectators.length + 1}`,
+            avatar: msg.avatar || (wantsRevealHands ? '📺' : '👁️'),
+            isConnected: true,
+          };
+
+          if (wantsRevealHands) {
+            room.spectatorCardsRevealed = true;
+          }
+
+          room.spectators.push(spectatorObj);
+          clientConnections.set(ws, { roomId: room.id, playerId: spectatorId });
+
+          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: spectatorId }));
+          broadcastLog(
+            room,
+            `📺 ${spectatorObj.name} conectou na transmissão (${wantsRevealHands ? 'Cartas Abertas' : 'Apenas Mesa'})!`,
+            'system'
+          );
+          syncRoomState(room);
           return;
         }
 

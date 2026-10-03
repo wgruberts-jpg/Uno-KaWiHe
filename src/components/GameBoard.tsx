@@ -817,6 +817,60 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </button>
           )}
 
+          {/* Broadcast / Stream Sharing Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const url = `${window.location.origin}${window.location.pathname}?room=${state.roomId}&watch=1`;
+              navigator.clipboard.writeText(url).then(() => {
+                setFeedbackToast('Link de Transmissão da Mesa copiado para a área de transferência!');
+                setTimeout(() => setFeedbackToast(null), 3000);
+              });
+            }}
+            className="w-full p-3 rounded-2xl bg-cyan-50 hover:bg-cyan-100 border-2 border-cyan-200 text-cyan-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-cyan-200 flex items-center justify-center text-cyan-800">
+                <Radio className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Link de Transmissão</div>
+                <div className="text-[10px] text-slate-500 font-medium">Copiar link para telão/espectadores</div>
+              </div>
+            </div>
+            <span className="text-[10px] font-black text-cyan-700 bg-cyan-100 px-2 py-0.5 rounded-full">
+              Copiar
+            </span>
+          </button>
+
+          {/* Spectator Hand Visibility Toggle (when spectator) */}
+          {isSpectator && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = !localSpectatorShowCards;
+                setLocalSpectatorShowCards(next);
+                onToggleSpectatorReveal?.(next);
+              }}
+              className="w-full p-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-200 text-emerald-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-200 flex items-center justify-center text-emerald-800">
+                  {localSpectatorShowCards ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Visão das Mãos</div>
+                  <div className="text-[10px] text-slate-500 font-medium">
+                    {localSpectatorShowCards ? 'Cartas Abertas (Modo TV)' : 'Cartas Ocultas (Só Mesa)'}
+                  </div>
+                </div>
+              </div>
+              <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                {localSpectatorShowCards ? 'ABERTAS' : 'OCULTAS'}
+              </span>
+            </button>
+          )}
+
           {/* Sound Toggle */}
           <button
             type="button"
