@@ -143,15 +143,36 @@ export const TROPHIES: TrophyDefinition[] = [
 
 class StatsService {
   private stats: PlayerCareerStats;
+  private currentUserId: string | null = null;
+  private currentUsername: string | null = null;
   private listeners: Array<(stats: PlayerCareerStats) => void> = [];
 
   constructor() {
     this.stats = this.loadFromStorage();
   }
 
+  public initForUser(userId: string, username?: string) {
+    this.currentUserId = userId;
+    this.currentUsername = username || null;
+    this.stats = this.loadFromStorage();
+    this.notifyListeners();
+    this.fetchFromServer();
+  }
+
+  private getUserStorageKey(): string {
+    if (this.currentUserId) {
+      return `uno_career_stats_${this.currentUserId}`;
+    }
+    if (this.currentUsername) {
+      return `uno_career_stats_${this.currentUsername.toLowerCase()}`;
+    }
+    return STATS_STORAGE_KEY;
+  }
+
   private loadFromStorage(): PlayerCareerStats {
     try {
-      const saved = localStorage.getItem(STATS_STORAGE_KEY);
+      const userKey = this.getUserStorageKey();
+      const saved = localStorage.getItem(userKey) || localStorage.getItem(STATS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
@@ -172,7 +193,9 @@ class StatsService {
 
   private saveToStorage() {
     try {
-      localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(this.stats));
+      const dataStr = JSON.stringify(this.stats);
+      localStorage.setItem(this.getUserStorageKey(), dataStr);
+      localStorage.setItem(STATS_STORAGE_KEY, dataStr);
       this.notifyListeners();
       this.syncWithBackend();
     } catch {
@@ -343,6 +366,7 @@ class StatsService {
             bestStreak: Math.max(this.stats.bestStreak, data.stats.bestStreak || 0),
             achievements: Array.from(new Set([...this.stats.achievements, ...(data.stats.achievements || [])])),
           };
+          localStorage.setItem(this.getUserStorageKey(), JSON.stringify(this.stats));
           localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(this.stats));
           this.notifyListeners();
         }

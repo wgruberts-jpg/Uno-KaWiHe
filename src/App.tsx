@@ -55,6 +55,7 @@ export default function App() {
       setCurrentUser(user);
       if (user) {
         setCurrentAvatar(user.avatar);
+        statsManager.initForUser(user.id, user.username);
       }
     });
     return unsub;

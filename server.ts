@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import fs from 'fs';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
@@ -290,8 +291,36 @@ app.delete('/api/invites/:code', async (req, res) => {
   return res.json({ success: true, message: 'Convite revogado com sucesso.' });
 });
 
-// User Career Stats storage
-const userStatsMemory = new Map<string, any>();
+// User Career Stats storage with persistent disk file
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+const STATS_FILE = path.join(DATA_DIR, 'stats.json');
+
+function ensureDataDir(): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+  } catch {}
+}
+
+function getAllStats(): Record<string, any> {
+  ensureDataDir();
+  try {
+    if (fs.existsSync(STATS_FILE)) {
+      return JSON.parse(fs.readFileSync(STATS_FILE, 'utf-8'));
+    }
+  } catch {}
+  return {};
+}
+
+function saveStats(statsMap: Record<string, any>): void {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(STATS_FILE, JSON.stringify(statsMap, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Erro ao salvar stats.json:', e);
+  }
+}
 
 app.get('/api/user/stats', async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -316,7 +345,8 @@ app.get('/api/user/stats', async (req, res) => {
     }
   }
 
-  const stats = userStatsMemory.get(user.id) || null;
+  const statsMap = getAllStats();
+  const stats = statsMap[user.id] || statsMap[user.username.toLowerCase()] || null;
   return res.json({ success: true, stats });
 });
 
@@ -349,7 +379,11 @@ app.post('/api/user/stats', async (req, res) => {
     }
   }
 
-  userStatsMemory.set(user.id, stats);
+  const statsMap = getAllStats();
+  statsMap[user.id] = stats;
+  statsMap[user.username.toLowerCase()] = stats;
+  saveStats(statsMap);
+
   return res.json({ success: true, message: 'Estatísticas salvas com sucesso' });
 });
 
