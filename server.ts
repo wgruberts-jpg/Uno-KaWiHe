@@ -1327,6 +1327,7 @@ wss.on('connection', (ws: WebSocket) => {
         const duration = msg.settings?.turnDuration !== undefined ? msg.settings.turnDuration : 90;
         const room: RoomData = {
           id: roomId,
+          creatorName: hostPlayer.name,
           settings: {
             maxPlayers: msg.settings?.maxPlayers || 4,
             turnDuration: duration,
@@ -1862,6 +1863,23 @@ wss.on('connection', (ws: WebSocket) => {
           room.spectatorCardsRevealed = msg.reveal;
           broadcastLog(room, `👁️ O Anfitrião ${msg.reveal ? 'liberou a visão das cartas para os Espectadores' : 'ocultou as cartas dos Espectadores'}.`, 'system');
           syncRoomState(room);
+        }
+        return;
+      }
+
+      if (msg.type === 'claim_host') {
+        if (!player) return;
+        const isCreator = room.creatorName && player.name.toLowerCase() === room.creatorName.toLowerCase();
+        const hasActiveHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);
+
+        if (isCreator || !hasActiveHost || room.players.filter((p) => !p.isBot && p.isConnected).length === 1) {
+          room.players.forEach((p) => {
+            p.isHost = (p.id === player.id);
+          });
+          broadcastLog(room, `👑 ${player.name} reivindicou e assumiu o cargo de Anfitrião da sala!`, 'system');
+          syncRoomState(room);
+        } else {
+          ws.send(JSON.stringify({ type: 'error', message: 'Já existe um Anfitrião ativo na sala.' }));
         }
         return;
       }

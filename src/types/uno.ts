@@ -270,6 +270,7 @@ export type ClientMessage =
   | { type: 'send_emote'; roomId: string; emoteId: string; playerId?: string }
   | { type: 'vote_rematch'; roomId: string; ready: boolean; phrase: string; playerId?: string }
   | { type: 'toggle_spectator_reveal'; roomId: string; reveal: boolean; playerId?: string }
+  | { type: 'claim_host'; roomId: string; playerId?: string }
   | { type: 'rtc_offer'; roomId: string; fromPlayerId: string; toPlayerId: string; offer: any }
   | { type: 'rtc_answer'; roomId: string; fromPlayerId: string; toPlayerId: string; answer: any }
   | { type: 'rtc_ice_candidate'; roomId: string; fromPlayerId: string; toPlayerId: string; candidate: any }

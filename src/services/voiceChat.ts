@@ -69,6 +69,12 @@ export class VoiceChatService {
     this.myPlayerId = myPlayerId;
     this.sendSocketMessage = sendMessage;
 
+    if (!window.isSecureContext || !navigator?.mediaDevices?.getUserMedia) {
+      const msg = 'Navegadores exigem conexão segura (HTTPS) para liberar o microfone. Em HTTP (IP direto), o microfone é bloqueado pelo próprio navegador.';
+      this.events?.onError(msg);
+      return false;
+    }
+
     try {
       // Request microphone stream
       const stream = await navigator.mediaDevices.getUserMedia({
