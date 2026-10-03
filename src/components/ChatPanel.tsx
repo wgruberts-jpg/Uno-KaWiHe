@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatMessage, GameLog } from '../types/uno.js';
-import { Send, MessageSquare, History, X } from 'lucide-react';
+import { Send, MessageSquare, History, X, ChevronDown } from 'lucide-react';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -24,35 +24,118 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [activeTab, setActiveTab] = useState<'chat' | 'logs'>('chat');
   const [inputVal, setInputVal] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const logsEndRef = useRef<HTMLDivElement>(null);
-  const lastSeenCountRef = useRef(messages.length);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const lastSeenCountRef = useRef(messages.length);
+  const isUserNearBottomRef = useRef(true);
+
+  // Scroll chat to bottom helper
+  const scrollToChatBottom = useCallback((smooth = true) => {
+    if (!chatContainerRef.current) return;
+    const container = chatContainerRef.current;
+    if (smooth) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, []);
+
+  // Scroll logs to bottom helper
+  const scrollToLogsBottom = useCallback((smooth = true) => {
+    if (!logsContainerRef.current) return;
+    const container = logsContainerRef.current;
+    if (smooth) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, []);
+
+  // Track scroll position to know if user is reading older messages
+  const handleChatScroll = () => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const isNearBottom = distanceFromBottom < 80;
+    isUserNearBottomRef.current = isNearBottom;
+    setShowScrollBottomBtn(!isNearBottom);
+  };
+
+  // When messages update
   useEffect(() => {
+    const isNewMessage = messages.length > lastSeenCountRef.current;
+    const latestMessage = messages[messages.length - 1];
+    const isMyMessage = latestMessage?.playerId === myPlayerId;
+
     if (!isOpen || activeTab !== 'chat') {
-      if (messages.length > lastSeenCountRef.current) {
+      if (isNewMessage) {
         setUnreadCount((prev) => prev + (messages.length - lastSeenCountRef.current));
       }
     } else {
       setUnreadCount(0);
+      // Auto-scroll if user is near bottom or user just sent the message
+      if (isMyMessage || isUserNearBottomRef.current) {
+        requestAnimationFrame(() => {
+          scrollToChatBottom(true);
+        });
+      }
     }
     lastSeenCountRef.current = messages.length;
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isOpen, activeTab]);
+  }, [messages, isOpen, activeTab, myPlayerId, scrollToChatBottom]);
 
+  // When opening panel or switching tabs, instant snap to bottom
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        if (activeTab === 'chat') {
+          scrollToChatBottom(false);
+          isUserNearBottomRef.current = true;
+          setShowScrollBottomBtn(false);
+        } else {
+          scrollToLogsBottom(false);
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, activeTab, scrollToChatBottom, scrollToLogsBottom]);
+
+  // Auto-scroll logs
+  useEffect(() => {
+    if (activeTab === 'logs' && isOpen) {
+      requestAnimationFrame(() => {
+        scrollToLogsBottom(true);
+      });
+    }
+  }, [logs, activeTab, isOpen, scrollToLogsBottom]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputVal.trim()) return;
     onSendMessage(inputVal);
     setInputVal('');
+    // Snap to bottom immediately after user sends message
+    setTimeout(() => {
+      scrollToChatBottom(true);
+      isUserNearBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+    }, 30);
   };
 
   const handleEmojiClick = (emoji: string) => {
     onSendMessage(emoji);
+    setTimeout(() => {
+      scrollToChatBottom(true);
+      isUserNearBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+    }, 30);
   };
 
   return (
@@ -81,7 +164,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         }`}
       >
         {/* Header with Tabs */}
-        <div className="flex items-center justify-between px-3 py-2 border-b-2 border-sky-100 bg-sky-50">
+        <div className="flex items-center justify-between px-3 py-2 border-b-2 border-sky-100 bg-sky-50 shrink-0">
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -127,8 +210,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
         {/* Tab 1: Chat Content */}
         {activeTab === 'chat' && (
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex-1 p-3 overflow-y-auto space-y-2.5 text-xs">
+          <div className="flex-1 flex flex-col min-h-0 relative">
+            <div
+              ref={chatContainerRef}
+              onScroll={handleChatScroll}
+              className="flex-1 p-3 overflow-y-auto space-y-2.5 text-xs scroll-smooth"
+            >
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center px-4">
                   <MessageSquare className="w-8 h-8 mb-2 opacity-40 text-amber-500" />
@@ -162,11 +249,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   );
                 })
               )}
-              <div ref={messagesEndRef} />
             </div>
 
+            {/* Floating "Scroll to Bottom" button when user scrolled up */}
+            {showScrollBottomBtn && (
+              <button
+                type="button"
+                onClick={() => {
+                  scrollToChatBottom(true);
+                  isUserNearBottomRef.current = true;
+                  setShowScrollBottomBtn(false);
+                }}
+                className="absolute bottom-16 right-4 z-10 bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-black px-3 py-1.5 rounded-full shadow-lg border border-white flex items-center gap-1 animate-bounce cursor-pointer transition-all"
+              >
+                <span>Recentes</span>
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             {/* Quick Emoji Bar */}
-            <div className="px-2 py-1.5 bg-sky-50 border-t border-sky-100 flex items-center justify-between gap-1 overflow-x-auto">
+            <div className="px-2 py-1.5 bg-sky-50 border-t border-sky-100 flex items-center justify-between gap-1 overflow-x-auto shrink-0">
               {QUICK_EMOJIS.map((emoji) => (
                 <button
                   key={emoji}
@@ -180,7 +282,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             </div>
 
             {/* Chat Input */}
-            <form onSubmit={handleSend} className="p-2 border-t-2 border-sky-100 bg-white flex items-center gap-2">
+            <form onSubmit={handleSend} className="p-2 border-t-2 border-sky-100 bg-white flex items-center gap-2 shrink-0">
               <input
                 type="text"
                 placeholder="Enviar mensagem..."
@@ -202,7 +304,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
         {/* Tab 2: Logs Content */}
         {activeTab === 'logs' && (
-          <div className="flex-1 p-3 overflow-y-auto space-y-2 text-xs">
+          <div
+            ref={logsContainerRef}
+            className="flex-1 p-3 overflow-y-auto space-y-2 text-xs scroll-smooth"
+          >
             {logs.length === 0 ? (
               <div className="h-full flex items-center justify-center text-slate-400 font-bold">
                 Aguardando início da partida...
@@ -227,7 +332,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 );
               })
             )}
-            <div ref={logsEndRef} />
           </div>
         )}
       </div>
