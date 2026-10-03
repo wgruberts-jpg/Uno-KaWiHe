@@ -223,6 +223,24 @@ export interface AdminRoomSummary {
   roundTurnCount?: number;
 }
 
+export interface OpenRoomSummary {
+  id: string;
+  status: 'waiting' | 'playing' | 'ended';
+  playersCount: number;
+  maxPlayers: number;
+  hostName: string;
+  hostAvatar: string;
+  turnDuration: number;
+  spectatorsCount: number;
+  hasPassword?: boolean;
+  players: Array<{
+    name: string;
+    avatar: string;
+    isHost: boolean;
+    isBot: boolean;
+  }>;
+}
+
 export interface AdminUserSummary {
   id: string;
   username: string;
@@ -278,7 +296,8 @@ export type ClientMessage =
   | { type: 'admin_get_rooms'; adminSecret?: string }
   | { type: 'admin_close_room'; roomId: string; adminSecret?: string; reason?: string }
   | { type: 'admin_force_end_game'; roomId: string; adminSecret?: string }
-  | { type: 'admin_global_broadcast'; message: string; sender?: string; adminSecret?: string };
+  | { type: 'admin_global_broadcast'; message: string; sender?: string; adminSecret?: string }
+  | { type: 'get_open_rooms' };
 
 export type ServerMessage =
   | { type: 'room_joined'; roomId: string; playerId: string }
@@ -292,6 +311,7 @@ export type ServerMessage =
   | { type: 'rtc_ice_candidate'; fromPlayerId: string; toPlayerId: string; candidate: any }
   | { type: 'rtc_voice_state'; roomId: string; playerId: string; isMuted: boolean; isDeafened: boolean; isSpeaking: boolean; joined: boolean }
   | { type: 'admin_rooms_list'; rooms: AdminRoomSummary[] }
+  | { type: 'open_rooms_list'; rooms: OpenRoomSummary[] }
   | { type: 'player_kicked'; reason: string }
   | { type: 'left_room_confirmed'; roomId?: string }
   | { type: 'global_announcement'; message: string; sender: string; timestamp: number }

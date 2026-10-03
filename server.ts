@@ -11,7 +11,8 @@ import {
   GameLog,
   GameState,
   Player,
-  ServerMessage
+  ServerMessage,
+  OpenRoomSummary
 } from './src/types/uno.js';
 import {
   createDeck,
@@ -289,6 +290,32 @@ app.delete('/api/invites/:code', async (req, res) => {
   invite.status = 'revoked';
   saveInvites(invites);
   return res.json({ success: true, message: 'Convite revogado com sucesso.' });
+});
+
+// Public Open Rooms API
+app.get('/api/rooms/open', (_req, res) => {
+  const openRooms: OpenRoomSummary[] = Array.from(rooms.values())
+    .filter((r) => r.players.some((p) => !p.isBot && p.isConnected))
+    .map((r) => {
+      const host = r.players.find((p) => p.isHost && !p.isBot) || r.players.find((p) => !p.isBot) || r.players[0];
+      return {
+        id: r.id,
+        status: r.status,
+        playersCount: r.players.length,
+        maxPlayers: r.settings.maxPlayers,
+        hostName: host ? host.name : 'Anfitrião',
+        hostAvatar: host ? host.avatar : '🎲',
+        turnDuration: r.settings.turnDuration,
+        spectatorsCount: r.spectators?.length || 0,
+        players: r.players.map((p) => ({
+          name: p.name,
+          avatar: p.avatar,
+          isHost: p.isHost,
+          isBot: p.isBot,
+        })),
+      };
+    });
+  return res.json({ success: true, rooms: openRooms });
 });
 
 // User Career Stats storage with persistent disk file
@@ -1548,10 +1575,23 @@ wss.on('connection', (ws: WebSocket) => {
         }
 
         const hasOnlineHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);
+        const requestedName = msg.playerName.trim() || `Jogador ${room.players.length + 1}`;
+
+        // Verify if name is already taken in this room
+        const isNameTakenInRoom = room.players.some(
+          (p) => p.isConnected && p.name.trim().toLowerCase() === requestedName.toLowerCase()
+        );
+        if (isNameTakenInRoom) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: `O nome "${requestedName}" já está em uso por outro jogador nesta sala! Quem escolheu primeiro escolheu. Escolha outro apelido para entrar.`
+          }));
+          return;
+        }
 
         const newPlayer: InternalPlayer = {
           id: `player-${Math.random().toString(36).substring(2, 9)}`,
-          name: msg.playerName.trim() || `Jogador ${room.players.length + 1}`,
+          name: requestedName,
           avatar: msg.avatar || '🎲',
           isHost: !hasOnlineHost && room.players.filter((p) => !p.isBot).length === 0,
           isBot: false,
@@ -1569,6 +1609,33 @@ wss.on('connection', (ws: WebSocket) => {
         ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: newPlayer.id }));
         broadcastLog(room, `${newPlayer.name} entrou na sala!`, 'system');
         syncRoomState(room);
+        return;
+      }
+
+      // Public Open Rooms WebSocket Message
+      if (msg.type === 'get_open_rooms') {
+        const openRooms: OpenRoomSummary[] = Array.from(rooms.values())
+          .filter((r) => r.players.some((p) => !p.isBot && p.isConnected))
+          .map((r) => {
+            const host = r.players.find((p) => p.isHost && !p.isBot) || r.players.find((p) => !p.isBot) || r.players[0];
+            return {
+              id: r.id,
+              status: r.status,
+              playersCount: r.players.length,
+              maxPlayers: r.settings.maxPlayers,
+              hostName: host ? host.name : 'Anfitrião',
+              hostAvatar: host ? host.avatar : '🎲',
+              turnDuration: r.settings.turnDuration,
+              spectatorsCount: r.spectators?.length || 0,
+              players: r.players.map((p) => ({
+                name: p.name,
+                avatar: p.avatar,
+                isHost: p.isHost,
+                isBot: p.isBot,
+              })),
+            };
+          });
+        ws.send(JSON.stringify({ type: 'open_rooms_list', rooms: openRooms }));
         return;
       }
 

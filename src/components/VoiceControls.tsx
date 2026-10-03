@@ -160,38 +160,65 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
             <span className="hidden sm:inline">Microfone</span>
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={handleToggleMute}
-            className={`p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl border-2 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 font-black text-xs ${
-              isMuted
-                ? 'bg-rose-50 border-rose-400 text-rose-700 hover:bg-rose-100 ring-2 ring-rose-400/40'
-                : 'bg-white border-emerald-400 text-emerald-800 hover:bg-emerald-50'
-            }`}
-            title={isMuted ? 'Microfone Mutado (Clique para Falar)' : 'Microfone Aberto (Clique para Mutar)'}
-          >
-            {/* Speaking Pulse Dot */}
-            <span
-              className={`w-2.5 h-2.5 rounded-full transition-all ${
+          <>
+            {/* Microphone Mute Toggle */}
+            <button
+              type="button"
+              onClick={handleToggleMute}
+              className={`p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl border-2 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 font-black text-xs ${
                 isMuted
-                  ? 'bg-rose-500'
-                  : isSpeaking
-                  ? 'bg-emerald-500 ring-4 ring-emerald-400/40 animate-pulse scale-110'
-                  : 'bg-emerald-500'
+                  ? 'bg-rose-50 border-rose-500 text-rose-700 hover:bg-rose-100 ring-2 ring-rose-400/40'
+                  : 'bg-white border-emerald-400 text-emerald-800 hover:bg-emerald-50'
               }`}
-            />
-            {isMuted ? (
-              <>
-                <MicOff className="w-4 h-4 text-rose-600" />
-                <span>Mutado</span>
-              </>
-            ) : (
-              <>
-                <Mic className="w-4 h-4 text-emerald-600" />
-                <span>Mutar</span>
-              </>
-            )}
-          </button>
+              title={isMuted ? 'Microfone Mutado (Clique para Falar)' : 'Microfone Aberto (Clique para Mutar)'}
+            >
+              {/* Speaking Pulse Dot */}
+              <span
+                className={`w-2.5 h-2.5 rounded-full transition-all ${
+                  isMuted
+                    ? 'bg-rose-500'
+                    : isSpeaking
+                    ? 'bg-emerald-500 ring-4 ring-emerald-400/40 animate-pulse scale-110'
+                    : 'bg-emerald-500'
+                }`}
+              />
+              {isMuted ? (
+                <>
+                  <MicOff className="w-4 h-4 text-rose-600" />
+                  <span>Mic Mutado</span>
+                </>
+              ) : (
+                <>
+                  <Mic className="w-4 h-4 text-emerald-600" />
+                  <span>Mutar Mic</span>
+                </>
+              )}
+            </button>
+
+            {/* Speaker / Room Audio Mute Toggle (Deafen) */}
+            <button
+              type="button"
+              onClick={handleToggleDeafen}
+              className={`p-1.5 sm:p-2 px-2 sm:px-2.5 rounded-xl sm:rounded-2xl border-2 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1 font-black text-xs ${
+                isDeafened
+                  ? 'bg-amber-50 border-amber-500 text-amber-800 hover:bg-amber-100 ring-2 ring-amber-400/40'
+                  : 'bg-white border-sky-300 text-sky-900 hover:bg-sky-50'
+              }`}
+              title={isDeafened ? 'Som da Sala Mutado (Clique para Ouvir)' : 'Ouvindo a Sala (Clique para Mutar o Som)'}
+            >
+              {isDeafened ? (
+                <>
+                  <VolumeX className="w-4 h-4 text-amber-600" />
+                  <span className="hidden sm:inline">Som Mutado</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 className="w-4 h-4 text-sky-600" />
+                  <span className="hidden sm:inline">Som</span>
+                </>
+              )}
+            </button>
+          </>
         )}
 
         {/* 3. Disconnect button when joined */}
