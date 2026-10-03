@@ -200,10 +200,15 @@ export async function registerUser(params: {
   }
 
   const cleanUsername = username.trim().toLowerCase();
+  const cleanDisplayName = (displayName || username).trim();
   const users = getAllUsers();
 
   if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
     return { success: false, error: 'Este nome de usuário já está cadastrado. Escolha outro!' };
+  }
+
+  if (users.some((u) => u.displayName.trim().toLowerCase() === cleanDisplayName.toLowerCase())) {
+    return { success: false, error: `O nome de jogador "${cleanDisplayName}" já foi escolhido por outro usuário! Quem escolheu primeiro escolheu. Escolha outro nome.` };
   }
 
   // Validate Invite Code (MANDATORY)

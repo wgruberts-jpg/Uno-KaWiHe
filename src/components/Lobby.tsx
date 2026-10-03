@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { RoomSettings, Player, UserProfile, SpectatorPermission, ClientMessage } from '../types/uno.js';
-import { AVATARS_CATALOG, AVATAR_CATEGORIES } from '../utils/avatars.js';
 import { VoiceControls } from './VoiceControls.js';
+import { Sidebar } from './Sidebar.js';
+import { AvatarSelectModal } from './AvatarSelectModal.js';
+import { OpenRoomsModal } from './OpenRoomsModal.js';
+import { InviteShareModal } from './InviteShareModal.js';
 import {
   Users,
   Play,
@@ -31,7 +34,8 @@ import {
   Radio,
   Eye,
   EyeOff,
-  Layers
+  Layers,
+  MessageSquare
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -99,14 +103,18 @@ export const Lobby: React.FC<LobbyProps> = ({
     }
   }, [currentUser]);
 
-  const [avatarCategory, setAvatarCategory] = useState<'heroes' | 'animals' | 'classics'>('heroes');
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [joinMode, setJoinMode] = useState<'play' | 'watch_hidden' | 'watch_open'>('play');
   const [showBroadcastShare, setShowBroadcastShare] = useState(false);
   const [copiedBroadcastType, setCopiedBroadcastType] = useState<string | null>(null);
 
-  // Left Menu Collapsible State (esconder da direita pra esquerda, aumentar da esquerda pra direita)
-  const [isLeftMenuOpen, setIsLeftMenuOpen] = useState(false);
+  // New Collapsible Sidebar state (matching docked icon rail reference)
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+
+  // Modal dialog states
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  const [isOpenRoomsModalOpen, setIsOpenRoomsModalOpen] = useState(false);
+  const [isInviteShareModalOpen, setIsInviteShareModalOpen] = useState(false);
 
   // Host Spectator Permission for creating room
   const [creatorSpectatorPermission, setCreatorSpectatorPermission] = useState<SpectatorPermission>('hidden_cards');
@@ -177,463 +185,163 @@ export const Lobby: React.FC<LobbyProps> = ({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const filteredAvatars = AVATARS_CATALOG.filter((a) => a.category === avatarCategory);
-
   return (
-    <div className="w-full h-full bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 text-slate-800 flex flex-col items-center justify-start px-3 sm:px-6 py-3 sm:py-5 select-none relative overflow-y-auto overflow-x-hidden">
-      {/* Decorative Cartoon Clouds */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
-        <div className="absolute top-10 left-10 w-36 h-20 bg-white rounded-full blur-[1px]" />
-        <div className="absolute top-6 left-20 w-28 h-28 bg-white rounded-full blur-[1px]" />
-        <div className="absolute top-20 right-16 w-48 h-24 bg-white rounded-full blur-[1px]" />
-        <div className="absolute top-12 right-28 w-32 h-32 bg-white rounded-full blur-[1px]" />
-        <div className="absolute bottom-16 left-24 w-40 h-20 bg-white rounded-full blur-[1px]" />
-      </div>
+    <div className="w-full h-full flex overflow-hidden">
+      {/* Permanent Docked Left Sidebar (collapses to narrow icon rail, expands with labels) */}
+      <Sidebar
+        isExpanded={isSidebarExpanded}
+        onToggle={() => setIsSidebarExpanded(!isSidebarExpanded)}
+        currentUser={currentUser}
+        currentAvatar={selectedAvatar}
+        onOpenAuth={onOpenAuth}
+        onOpenAvatarSelect={() => setIsAvatarModalOpen(true)}
+        onOpenRooms={() => setIsOpenRoomsModalOpen(true)}
+        onOpenStats={onOpenStats || (() => {})}
+        onOpenSettings={onOpenSettings}
+        onOpenRules={() => setShowRules(true)}
+        onOpenVmGuide={onOpenVmGuide}
+        onOpenInvites={onOpenInvites || (() => {})}
+        onLogout={onLogout}
+      />
 
-      {/* ========================================================================= */}
-      {/* RETRACTABLE LEFT SIDE MENU (MENU LATERAL ESQUERDO COM AUMENTAR/ESCONDER)   */}
-      {/* ========================================================================= */}
+      {/* Main Lobby View Container */}
+      <div className="flex-1 h-full bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 text-slate-800 flex flex-col items-center justify-start px-3 sm:px-6 py-3 sm:py-5 select-none relative overflow-y-auto overflow-x-hidden">
+        {/* Decorative Cartoon Clouds */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
+          <div className="absolute top-10 left-10 w-36 h-20 bg-white rounded-full blur-[1px]" />
+          <div className="absolute top-6 left-20 w-28 h-28 bg-white rounded-full blur-[1px]" />
+          <div className="absolute top-20 right-16 w-48 h-24 bg-white rounded-full blur-[1px]" />
+          <div className="absolute top-12 right-28 w-32 h-32 bg-white rounded-full blur-[1px]" />
+          <div className="absolute bottom-16 left-24 w-40 h-20 bg-white rounded-full blur-[1px]" />
+        </div>
 
-      {/* Floating Toggle Button (Always visible on Left Side) */}
-      <div className="fixed top-3 left-3 z-40 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setIsLeftMenuOpen(!isLeftMenuOpen)}
-          className={`py-2 px-3.5 rounded-2xl border-2 flex items-center gap-2 font-black text-xs sm:text-sm shadow-xl cursor-pointer transition-all active:scale-95 ${
-            isLeftMenuOpen
-              ? 'bg-amber-400 border-white text-slate-950 ring-3 ring-amber-300/70'
-              : 'bg-white/95 border-amber-300 text-slate-900 hover:bg-yellow-50 backdrop-blur-md'
-          }`}
-          title="Abrir / Recolher Menu Lateral"
-        >
-          {isLeftMenuOpen ? (
-            <>
-              <ChevronLeft className="w-4 h-4 text-slate-950" />
-              <span>Recolher</span>
-            </>
-          ) : (
-            <>
-              <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-[9px] shadow-sm border border-white">
-                KWH
-              </div>
-              <Menu className="w-4 h-4 text-amber-600" />
-              <span className="hidden xs:inline">Menu</span>
-              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-            </>
-          )}
-        </button>
-
-        {/* Quick User Badge next to menu button on wide screens */}
-        {currentUser && !isLeftMenuOpen && (
-          <div className="hidden md:flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border-2 border-amber-300 shadow-md text-xs font-black">
-            <span>{currentUser.avatar}</span>
-            <span>{currentUser.displayName}</span>
-            {currentUser.role === 'admin' && (
-              <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded-md font-bold">
-                Admin
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={onLogout}
-              className="ml-1 p-1 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[11px] font-black flex items-center gap-1 cursor-pointer transition-colors"
-              title="Deslogar da conta"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Sair</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Backdrop overlay when open on mobile */}
-      {isLeftMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200"
-          onClick={() => setIsLeftMenuOpen(false)}
-        />
-      )}
-
-      {/* Sliding Drawer from Left to Right */}
-      <aside
-        className={`fixed top-0 left-0 h-full w-72 sm:w-80 bg-white/95 backdrop-blur-md shadow-2xl border-r-4 border-amber-400 z-50 transform transition-transform duration-300 ease-out flex flex-col justify-between text-slate-800 ${
-          isLeftMenuOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        {/* Drawer Header */}
-        <div className="p-4 border-b-2 border-yellow-200 bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400 text-slate-950 flex items-center justify-between">
+        {/* Main Title Banner in Center */}
+        <div className="w-full max-w-4xl flex items-center justify-between py-2 mb-2 z-10 mt-1 flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-xs shadow-md border-2 border-white">
+            <div className="w-11 h-10 rounded-2xl bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-sm shadow-lg border-2 border-white tracking-wider">
               KWH
             </div>
-            <div>
-              <div className="font-black text-sm tracking-tight flex items-center gap-1">
-                <span className="text-rose-600">Uno</span>
-                <span className="text-slate-950">KaWiHe</span>
-              </div>
-              <span className="text-[9px] font-black uppercase bg-white/70 text-slate-900 px-2 py-0.2 rounded-full border border-white">
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight flex items-center gap-1.5">
+              <span className="text-rose-600 drop-shadow-sm">Uno</span>
+              <span className="text-amber-500 drop-shadow-sm font-black">KaWiHe</span>
+              <span className="ml-1 text-amber-950 font-black text-[10px] sm:text-xs uppercase px-2.5 py-0.5 rounded-full bg-yellow-300 border-2 border-white shadow-sm">
                 Kids & Família
               </span>
-            </div>
+            </h1>
           </div>
 
+          {/* Quick Rooms Explorer button on top */}
           <button
             type="button"
-            onClick={() => setIsLeftMenuOpen(false)}
-            className="p-1.5 rounded-full hover:bg-black/10 text-slate-950 cursor-pointer transition-colors"
-            title="Recolher para a esquerda"
+            onClick={() => setIsOpenRoomsModalOpen(true)}
+            className="px-3.5 py-2 rounded-2xl bg-white border-2 border-indigo-400 hover:bg-indigo-50 text-indigo-950 font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <Layers className="w-4 h-4 text-indigo-600" />
+            <span>Salas Abertas</span>
           </button>
         </div>
 
-        {/* Drawer Menu Items List */}
-        <div className="p-3 space-y-2 overflow-y-auto flex-1">
-          {/* User Account / Profile Card */}
-          {currentUser ? (
-            <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 shadow-sm flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-amber-200 flex items-center justify-center text-2xl shadow-inner border border-amber-400">
-                  {currentUser.avatar}
-                </div>
-                <div>
-                  <div className="font-black text-xs text-slate-900 flex items-center gap-1">
-                    <span>{currentUser.displayName}</span>
-                    {currentUser.tag && (
-                      <span className="font-mono text-[9px] text-amber-700 bg-amber-100 px-1 rounded border border-amber-300">
-                        {currentUser.tag}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-amber-800 font-bold">
-                    {currentUser.role === 'admin' ? '👑 Administrador' : '🎮 Jogador'}
-                  </div>
-                </div>
-              </div>
-
+        {/* Rules Accordion */}
+        {showRules && (
+          <div className="w-full max-w-4xl mb-4 bg-white/95 border-3 border-amber-400 rounded-3xl p-5 text-xs text-slate-700 space-y-2 shadow-2xl backdrop-blur-md z-10">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-amber-900 flex items-center gap-2 text-sm uppercase tracking-wide">
+                <Sparkles className="w-4 h-4 text-amber-500" /> Regras Rápidas do UNO:
+              </h3>
               <button
                 type="button"
-                onClick={() => {
-                  setIsLeftMenuOpen(false);
-                  onLogout();
-                }}
-                className="px-2.5 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 border border-rose-300 text-xs font-black flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
-                title="Deslogar e sair da conta"
+                onClick={() => setShowRules(false)}
+                className="text-slate-400 hover:text-slate-700 text-xs font-black cursor-pointer"
               >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Sair</span>
+                ✕ Fechar
               </button>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setIsLeftMenuOpen(false);
-                onOpenAuth();
-              }}
-              className="w-full p-3 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs flex items-center justify-between cursor-pointer shadow-md active:scale-98 border-2 border-white"
-            >
-              <div className="flex items-center gap-2.5">
-                <KeyRound className="w-5 h-5 text-slate-950" />
-                <span>Entrar / Criar Conta</span>
-              </div>
-              <span className="text-[10px] bg-white/70 px-2 py-0.5 rounded-full">Login</span>
-            </button>
-          )}
-
-          {/* Admin: Invites Management Button */}
-          {currentUser?.role === 'admin' && onOpenInvites && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsLeftMenuOpen(false);
-                onOpenInvites();
-              }}
-              className="w-full p-3 rounded-2xl bg-purple-50 hover:bg-purple-100 border-2 border-purple-200 text-purple-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-purple-200 flex items-center justify-center text-purple-800">
-                  <span>🎟️</span>
-                </div>
-                <div className="text-left">
-                  <div className="text-xs font-black text-slate-900">Gerenciar Convites</div>
-                  <div className="text-[10px] text-slate-500 font-medium">Criar códigos @K9W2</div>
-                </div>
-              </div>
-              <span className="text-[9px] bg-purple-100 text-purple-800 font-black px-2 py-0.5 rounded-full">Admin</span>
-            </button>
-          )}
-
-          {/* Admin: Rooms Monitor Button */}
-          {currentUser?.role === 'admin' && onOpenAdminRooms && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsLeftMenuOpen(false);
-                onOpenAdminRooms();
-              }}
-              className="w-full p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 border-2 border-rose-200 text-rose-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-rose-200 flex items-center justify-center text-rose-800">
-                  <Layers className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <div className="text-xs font-black text-slate-900">Salas & Mesas</div>
-                  <div className="text-[10px] text-slate-500 font-medium">Monitorar e moderar</div>
-                </div>
-              </div>
-              <span className="text-[9px] bg-rose-100 text-rose-800 font-black px-2 py-0.5 rounded-full">Admin</span>
-            </button>
-          )}
-
-          {/* Player Career Stats & Trophies */}
-          {onOpenStats && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsLeftMenuOpen(false);
-                onOpenStats();
-              }}
-              className="w-full p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 border-2 border-amber-200 text-amber-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-amber-200 flex items-center justify-center text-amber-800">
-                  <Trophy className="w-4 h-4 fill-amber-500" />
-                </div>
-                <div className="text-left">
-                  <div className="text-xs font-black text-slate-900">Troféus & Estatísticas</div>
-                  <div className="text-[10px] text-slate-500 font-medium">Recordes e vitórias</div>
-                </div>
-              </div>
-            </button>
-          )}
-
-          {/* Settings Gear Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsLeftMenuOpen(false);
-              onOpenSettings();
-            }}
-            className="w-full p-3 rounded-2xl bg-yellow-50 hover:bg-yellow-100 border-2 border-yellow-300 text-amber-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-yellow-200 flex items-center justify-center text-amber-700">
-                <Settings className="w-4 h-4" />
-              </div>
-              <div className="text-left">
-                <div className="text-xs font-black text-slate-900">Configurações & Kids</div>
-                <div className="text-[10px] text-slate-500 font-medium">Regras e proteções</div>
-              </div>
-            </div>
-          </button>
-
-          {/* Rules Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsLeftMenuOpen(false);
-              setShowRules(!showRules);
-            }}
-            className="w-full p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 text-slate-800 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center text-slate-700">
-                <HelpCircle className="w-4 h-4" />
-              </div>
-              <div className="text-left">
-                <div className="text-xs font-black text-slate-900">Regras Rápidas</div>
-                <div className="text-[10px] text-slate-500 font-medium">Como jogar UNO</div>
-              </div>
-            </div>
-          </button>
-
-          {/* Deploy VM Guide */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsLeftMenuOpen(false);
-              onOpenVmGuide();
-            }}
-            className="w-full p-3 rounded-2xl bg-sky-50 hover:bg-sky-100 border-2 border-sky-200 text-sky-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-sky-200 flex items-center justify-center text-sky-700">
-                <Server className="w-4 h-4" />
-              </div>
-              <div className="text-left">
-                <div className="text-xs font-black text-slate-900">Deploy & Servidor VM</div>
-                <div className="text-[10px] text-slate-500 font-medium">Docker e backups</div>
-              </div>
-            </div>
-          </button>
-
-          {/* Sair da Conta (Logout) Button in list when logged in */}
-          {currentUser && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsLeftMenuOpen(false);
-                onLogout();
-              }}
-              className="w-full p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 border-2 border-rose-300 text-rose-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-rose-200 flex items-center justify-center text-rose-700">
-                  <LogOut className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <div className="text-xs font-black text-rose-900">Sair da Conta</div>
-                  <div className="text-[10px] text-rose-600 font-medium">Deslogar do perfil ({currentUser.displayName})</div>
-                </div>
-              </div>
-              <span className="text-[9px] bg-rose-200 text-rose-800 font-black px-2 py-0.5 rounded-full">
-                Deslogar
-              </span>
-            </button>
-          )}
-        </div>
-
-        {/* Drawer Footer Collapse */}
-        <div className="p-3 border-t-2 border-slate-200 bg-slate-50 space-y-2">
-          {currentUser && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsLeftMenuOpen(false);
-                onLogout();
-              }}
-              className="w-full py-2.5 px-3 rounded-xl text-center text-white bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98 border border-white"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Sair da Conta (Deslogar)</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setIsLeftMenuOpen(false)}
-            className="w-full py-2 px-3 rounded-xl text-center text-slate-600 hover:text-slate-900 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer bg-slate-200/80 hover:bg-slate-300"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>Recolher Menu para a Esquerda</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Title Banner in Center */}
-      <div className="w-full max-w-4xl flex items-center justify-center py-2 mb-2 z-10 mt-1">
-        <div className="flex items-center gap-2">
-          <div className="w-11 h-10 rounded-2xl bg-gradient-to-tr from-rose-500 via-yellow-400 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-sm shadow-lg border-2 border-white tracking-wider">
-            KWH
+            <ul className="list-disc pl-5 space-y-1 text-slate-700 font-medium">
+              <li><strong>Correspondência:</strong> Jogue cartas com a mesma cor ou mesmo número/símbolo da carta descartada.</li>
+              <li><strong>Coringa / +4:</strong> Podem ser jogados sobre qualquer carta. Ao jogar, você escolhe a nova cor.</li>
+              <li><strong>+2 e +4:</strong> Fazem o próximo jogador comprar cartas e perder a vez.</li>
+              <li><strong>Reverso:</strong> Inverte o sentido do jogo (com 2 jogadores, age como pular).</li>
+              <li><strong>Gritar UNO:</strong> Quando ficar com 1 carta, clique no botão <strong>GRITAR UNO</strong> antes de passar! (Ou ative a Proteção Infantil nas configurações ⚙️).</li>
+            </ul>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight flex items-center gap-1.5">
-            <span className="text-rose-600 drop-shadow-sm">Uno</span>
-            <span className="text-amber-500 drop-shadow-sm font-black">KaWiHe</span>
-            <span className="ml-1 text-amber-950 font-black text-[10px] sm:text-xs uppercase px-2.5 py-0.5 rounded-full bg-yellow-300 border-2 border-white shadow-sm">
-              Kids & Família
-            </span>
-          </h1>
-        </div>
-      </div>
+        )}
 
-      {/* Rules Accordion */}
-      {showRules && (
-        <div className="w-full max-w-4xl mb-4 bg-white/95 border-3 border-amber-400 rounded-3xl p-5 text-xs text-slate-700 space-y-2 shadow-2xl backdrop-blur-md z-10">
-          <div className="flex items-center justify-between">
-            <h3 className="font-black text-amber-900 flex items-center gap-2 text-sm uppercase tracking-wide">
-              <Sparkles className="w-4 h-4 text-amber-500" /> Regras Rápidas do UNO:
-            </h3>
-            <button
-              type="button"
-              onClick={() => setShowRules(false)}
-              className="text-slate-400 hover:text-slate-700 text-xs font-black cursor-pointer"
-            >
-              ✕ Fechar
-            </button>
+        {/* Error notification */}
+        {errorMessage && (
+          <div className="w-full max-w-md mb-4 p-3.5 bg-rose-500 border-3 border-white text-white font-black text-xs rounded-2xl text-center shadow-xl animate-in fade-in z-10">
+            ⚠️ {errorMessage}
           </div>
-          <ul className="list-disc pl-5 space-y-1 text-slate-700 font-medium">
-            <li><strong>Correspondência:</strong> Jogue cartas com a mesma cor ou mesmo número/símbolo da carta descartada.</li>
-            <li><strong>Coringa / +4:</strong> Podem ser jogados sobre qualquer carta. Ao jogar, você escolhe a nova cor.</li>
-            <li><strong>+2 e +4:</strong> Fazem o próximo jogador comprar cartas e perder a vez.</li>
-            <li><strong>Reverso:</strong> Inverte o sentido do jogo (com 2 jogadores, age como pular).</li>
-            <li><strong>Gritar UNO:</strong> Quando ficar com 1 carta, clique no botão <strong>GRITAR UNO</strong> antes de passar! (Ou ative a Proteção Infantil nas configurações ⚙️).</li>
-          </ul>
-        </div>
-      )}
+        )}
 
-      {/* Error notification */}
-      {errorMessage && (
-        <div className="w-full max-w-md mb-4 p-3.5 bg-rose-500 border-3 border-white text-white font-black text-xs rounded-2xl text-center shadow-xl animate-in fade-in z-10">
-          ⚠️ {errorMessage}
-        </div>
-      )}
+        {/* Main card */}
+        <div className="w-full max-w-2xl bg-white/95 border-4 border-yellow-400 rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-md z-10 text-slate-800">
+          {!roomId ? (
+            /* Profile & Room Creation / Join */
+            <div className="space-y-4">
+              {/* Compact Player Profile Section (Avatar selector moved to modal!) */}
+              <div className="p-3.5 sm:p-4 bg-gradient-to-r from-amber-50 to-yellow-50 rounded-2xl border-2 border-amber-300 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsAvatarModalOpen(true)}
+                    className="w-14 h-14 rounded-2xl bg-white border-3 border-amber-400 shadow-md flex items-center justify-center text-3xl hover:scale-105 active:scale-95 transition-all cursor-pointer relative group shrink-0"
+                    title="Clique para trocar de avatar"
+                  >
+                    <span>{selectedAvatar}</span>
+                    <span className="absolute -bottom-1 -right-1 bg-amber-500 text-white rounded-full p-1 shadow-sm border border-white">
+                      <Sparkles className="w-3 h-3" />
+                    </span>
+                  </button>
 
-      {/* Main card */}
-      <div className="w-full max-w-2xl bg-white/95 border-4 border-yellow-400 rounded-3xl p-5 sm:p-7 shadow-2xl backdrop-blur-md z-10 text-slate-800">
-        {!roomId ? (
-          /* Profile & Room Creation / Join */
-          <div className="space-y-5">
-            {/* Player Profile Section */}
-            <div>
-              <label className="block text-xs font-black uppercase tracking-wider text-amber-900 mb-1.5">
-                Seu Nome de Jogador
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={playerName}
-                  onChange={handleNameChange}
-                  maxLength={18}
-                  placeholder="Ex: Gabriel"
-                  className="flex-1 bg-amber-50/70 border-3 border-amber-300 rounded-2xl px-4 py-2 text-base text-slate-900 font-bold focus:outline-none focus:border-amber-500 shadow-inner"
-                />
-              </div>
-
-              {/* Categorized Avatar Selector (Heroes, Animals, Classics) */}
-              <div className="mt-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-black text-slate-700">
-                    Escolha seu Avatar:
-                  </label>
-                  <div className="flex gap-1">
-                    {AVATAR_CATEGORIES.map((cat) => (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => setAvatarCategory(cat.id)}
-                        className={`py-0.5 px-2 rounded-xl text-[11px] font-black cursor-pointer transition-all border ${
-                          avatarCategory === cat.id
-                            ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-sm'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-yellow-50'
-                        }`}
-                      >
-                        {cat.label}
-                      </button>
-                    ))}
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-amber-900 mb-1">
+                      Seu Nome de Jogador
+                    </label>
+                    <input
+                      type="text"
+                      value={playerName}
+                      onChange={handleNameChange}
+                      maxLength={18}
+                      placeholder="Ex: Gabriel"
+                      className="w-full bg-white border-2 border-amber-300 rounded-xl px-3 py-1.5 text-sm text-slate-900 font-bold focus:outline-none focus:border-amber-500 shadow-inner"
+                    />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 bg-amber-50/50 p-2.5 rounded-2xl border-2 border-amber-200 shadow-inner max-h-32 overflow-y-auto">
-                  {filteredAvatars.map((av) => (
-                    <button
-                      key={av.emoji}
-                      type="button"
-                      onClick={() => handleAvatarSelect(av.emoji)}
-                      className={`h-11 sm:h-12 rounded-xl sm:rounded-2xl text-xl sm:text-2xl flex items-center justify-center transition-all cursor-pointer ${
-                        selectedAvatar === av.emoji
-                          ? 'bg-gradient-to-br from-yellow-300 to-amber-400 border-3 border-white shadow-lg scale-110 ring-2 ring-amber-400 z-10'
-                          : 'bg-white hover:bg-amber-100 border border-amber-200 hover:scale-105'
-                      }`}
-                      title={av.name}
-                    >
-                      {av.emoji}
-                    </button>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAvatarModalOpen(true)}
+                  className="px-3.5 py-2 rounded-xl bg-white hover:bg-amber-100 border-2 border-amber-300 text-amber-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition-all self-start sm:self-center shrink-0"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span>Trocar Avatar</span>
+                </button>
               </div>
-            </div>
+
+              {/* Open Rooms Explorer Banner */}
+              <button
+                type="button"
+                onClick={() => setIsOpenRoomsModalOpen(true)}
+                className="w-full p-3.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-sky-500 hover:from-indigo-600 hover:to-sky-600 text-white rounded-2xl border-2 border-white shadow-md flex items-center justify-between cursor-pointer transition-all active:scale-98 group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/20 border border-white/30 flex items-center justify-center text-lg shadow-sm">
+                    <span>🌐</span>
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-black tracking-wide flex items-center gap-1.5">
+                      <span>Explorar Salas Abertas (Mesas Disponíveis)</span>
+                      <span className="text-[10px] bg-yellow-300 text-slate-950 font-black px-2 py-0.2 rounded-full">
+                        Ao Vivo
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-indigo-100 font-medium">
+                      Veja mesas de outros jogadores e entre na partida com 1 clique
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-white/80 group-hover:translate-x-1 transition-transform" />
+              </button>
 
             {/* Quick Practice Solo Mode */}
             <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 rounded-3xl border-3 border-emerald-300 shadow-sm space-y-2.5">
@@ -901,6 +609,17 @@ export const Lobby: React.FC<LobbyProps> = ({
                   />
                 )}
 
+                {/* Invite Friends Modal Trigger */}
+                <button
+                  type="button"
+                  onClick={() => setIsInviteShareModalOpen(true)}
+                  className="px-3.5 py-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all border-2 border-white shadow active:scale-95"
+                  title="Convidar amigos via WhatsApp ou Link"
+                >
+                  <span>💌</span>
+                  <span>Convidar</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={copyRoomCode}
@@ -1158,5 +877,34 @@ export const Lobby: React.FC<LobbyProps> = ({
         )}
       </div>
     </div>
+
+    {/* Avatar Selection Modal */}
+    <AvatarSelectModal
+      isOpen={isAvatarModalOpen}
+      onClose={() => setIsAvatarModalOpen(false)}
+      currentAvatar={selectedAvatar}
+      onSelectAvatar={handleAvatarSelect}
+    />
+
+    {/* Public Open Rooms Explorer Modal */}
+    <OpenRoomsModal
+      isOpen={isOpenRoomsModalOpen}
+      onClose={() => setIsOpenRoomsModalOpen(false)}
+      onJoinRoom={(targetRoomId, asSpectator) => {
+        onJoinRoom(targetRoomId, playerName, selectedAvatar, asSpectator);
+      }}
+      currentRoomId={roomId}
+    />
+
+    {/* Share / Invite Modal */}
+    {roomId && (
+      <InviteShareModal
+        isOpen={isInviteShareModalOpen}
+        onClose={() => setIsInviteShareModalOpen(false)}
+        roomId={roomId}
+        hostName={playerName}
+      />
+    )}
+  </div>
   );
 };

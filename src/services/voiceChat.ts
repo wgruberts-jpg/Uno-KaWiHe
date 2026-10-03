@@ -220,14 +220,42 @@ export class VoiceChatService {
 
   public setMuted(muted: boolean): boolean {
     this.isMuted = muted;
+
+    // 1. Mute local audio tracks directly
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((track) => {
         track.enabled = !muted;
       });
     }
+
+    // 2. Hardware WebRTC RTP Sender cutoff:
+    // When muted, replace outgoing track with null so the browser completely stops sending RTP packets
+    // When unmuted, restore the live audio track
+    const audioTrack = this.localStream?.getAudioTracks().find((t) => t.readyState === 'live');
+    for (const pc of this.peerConnections.values()) {
+      try {
+        pc.getSenders().forEach((sender) => {
+          if (sender.track?.kind === 'audio' || (!sender.track && !muted)) {
+            if (muted) {
+              if (sender.track) {
+                sender.track.enabled = false;
+              }
+              sender.replaceTrack(null).catch(() => {});
+            } else if (audioTrack) {
+              audioTrack.enabled = true;
+              sender.replaceTrack(audioTrack).catch(() => {});
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('Error updating RTP sender tracks:', e);
+      }
+    }
+
     if (muted) {
       this.isSpeaking = false;
     }
+
     this.broadcastLocalState();
     this.notifyLocalState();
     return this.isMuted;
@@ -239,15 +267,13 @@ export class VoiceChatService {
 
   public setDeafened(deafened: boolean): boolean {
     this.isDeafened = deafened;
-    
-    // When deafened, mute own mic too
-    if (deafened && !this.isMuted) {
-      this.setMuted(true);
-    }
 
-    // Mute all remote audio elements
-    for (const audio of this.remoteAudioElements.values()) {
-      audio.muted = deafened;
+    // Mute all remote audio elements directly (cuts playback volume to zero)
+    for (const [peerId, audio] of this.remoteAudioElements.entries()) {
+      const peerState = this.peerStates[peerId];
+      const shouldMute = deafened || (peerState && peerState.isMuted);
+      audio.muted = !!shouldMute;
+      audio.volume = shouldMute ? 0 : 1;
     }
 
     this.broadcastLocalState();
@@ -270,6 +296,14 @@ export class VoiceChatService {
         isSpeaking,
         joined,
       };
+
+      // IMMEDIATELY enforce mute and zero volume on the remote audio playback element!
+      const audio = this.remoteAudioElements.get(playerId);
+      if (audio) {
+        const shouldMute = isMuted || this.isDeafened;
+        audio.muted = shouldMute;
+        audio.volume = shouldMute ? 0 : 1;
+      }
 
       // If we are in voice and don't have a peer connection yet, connect!
       if (this.isJoined && this.myPlayerId && playerId !== this.myPlayerId && !this.peerConnections.has(playerId)) {
@@ -302,10 +336,14 @@ export class VoiceChatService {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     this.peerConnections.set(targetPlayerId, pc);
 
-    // Add local mic tracks
+    // Add local mic tracks (respecting current mute state)
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, this.localStream!);
+        track.enabled = !this.isMuted;
+        const sender = pc.addTrack(track, this.localStream!);
+        if (this.isMuted) {
+          sender.replaceTrack(null).catch(() => {});
+        }
       });
     }
 
@@ -328,12 +366,17 @@ export class VoiceChatService {
       if (!remoteStream) return;
 
       let audio = this.remoteAudioElements.get(targetPlayerId);
+      const peerState = this.peerStates[targetPlayerId];
+      const shouldMute = this.isDeafened || (peerState && peerState.isMuted);
+
       if (!audio) {
         audio = new Audio();
         audio.autoplay = true;
-        audio.muted = this.isDeafened;
         this.remoteAudioElements.set(targetPlayerId, audio);
       }
+
+      audio.muted = !!shouldMute;
+      audio.volume = shouldMute ? 0 : 1;
       audio.srcObject = remoteStream;
       audio.play().catch((e) => console.warn('Autoplay audio interaction needed:', e));
     };
