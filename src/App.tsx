@@ -392,6 +392,18 @@ export default function App() {
     send({ type: 'send_chat', roomId: rid, text, playerId: myPlayerId });
   };
 
+  const handleVoteRematch = (ready: boolean, phrase: string) => {
+    const rid = getActiveRoomId();
+    if (!rid) return;
+    send({ type: 'vote_rematch', roomId: rid, ready, phrase, playerId: myPlayerId });
+  };
+
+  const handleToggleSpectatorReveal = (reveal: boolean) => {
+    const rid = getActiveRoomId();
+    if (!rid) return;
+    send({ type: 'toggle_spectator_reveal', roomId: rid, reveal, playerId: myPlayerId });
+  };
+
   const handleLeaveGame = () => {
     const rid = getActiveRoomId();
     if (rid && myPlayerId) {
@@ -487,6 +499,7 @@ export default function App() {
             onSendEmote={handleSendEmote}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenStats={() => setIsStatsOpen(true)}
+            onToggleSpectatorReveal={handleToggleSpectatorReveal}
           />
         )}
       </div>
@@ -519,6 +532,8 @@ export default function App() {
           isFastestWin={gameState.isFastestWin}
           tableScores={gameState.tableScores}
           onOpenStats={() => setIsStatsOpen(true)}
+          rematchVotes={gameState.rematchVotes}
+          onVoteRematch={handleVoteRematch}
         />
       )}
 

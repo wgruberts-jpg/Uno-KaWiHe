@@ -1,4 +1,4 @@
-import { Card, CardColor, CardValue, GameState, Player, RoomSettings, TurnDirection } from '../src/types/uno.js';
+import { Card, CardColor, CardValue, GameState, Player, RematchVote, RoomSettings, StagedCardPlay, TurnDirection } from '../src/types/uno.js';
 
 export function createDeck(): Card[] {
   const deck: Card[] = [];
@@ -94,6 +94,11 @@ export interface RoomData {
   turnTimerInterval: NodeJS.Timeout | null;
   botTimerTimeout: NodeJS.Timeout | null;
   emptyRoomTimeout?: NodeJS.Timeout | null;
+  spectators?: Array<{ id: string; name: string; avatar: string; isConnected: boolean }>;
+  stagedCardPlay?: StagedCardPlay | null;
+  stagedCardTimeout?: NodeJS.Timeout | null;
+  rematchVotes?: Record<string, RematchVote>;
+  spectatorCardsRevealed?: boolean;
   // Session & Round statistics
   roundStartTime?: number;
   roundTurnCount?: number;

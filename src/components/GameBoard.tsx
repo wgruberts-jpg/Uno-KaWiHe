@@ -24,7 +24,11 @@ import {
   Maximize2,
   Minimize2,
   Trophy,
-  BarChart2
+  BarChart2,
+  Eye,
+  EyeOff,
+  Radio,
+  Zap
 } from 'lucide-react';
 import { sound } from '../services/sound.js';
 
@@ -43,7 +47,24 @@ interface GameBoardProps {
   onSendEmote?: (emoteId: string) => void;
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
+  onToggleSpectatorReveal?: (reveal: boolean) => void;
 }
+
+const currentColorBg: Record<CardColor, string> = {
+  red: 'bg-rose-500 text-white border-rose-600',
+  blue: 'bg-sky-500 text-white border-sky-600',
+  green: 'bg-emerald-500 text-white border-emerald-600',
+  yellow: 'bg-amber-400 text-slate-950 border-amber-500',
+  wild: 'bg-gradient-to-r from-rose-500 via-yellow-400 via-emerald-500 to-sky-500 text-white border-white',
+};
+
+const currentColorNames: Record<CardColor, string> = {
+  red: 'Vermelho',
+  blue: 'Azul',
+  green: 'Verde',
+  yellow: 'Amarelo',
+  wild: 'Coringa',
+};
 
 export const GameBoard: React.FC<GameBoardProps> = ({
   state,
@@ -60,6 +81,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   onSendEmote,
   onOpenSettings,
   onOpenStats,
+  onToggleSpectatorReveal,
 }) => {
   const [isMuted, setIsMuted] = useState(() => sound.getIsMuted());
   const [selectedWildCard, setSelectedWildCard] = useState<Card | null>(null);
@@ -67,6 +89,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [flyingCardId, setFlyingCardId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTableScoreboardOpen, setIsTableScoreboardOpen] = useState(false);
+  const [localSpectatorShowCards, setLocalSpectatorShowCards] = useState(true);
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -85,8 +108,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   };
 
   const me = state.players.find((p) => p.id === myPlayerId);
-  const isMyTurn = state.currentTurnPlayerId === myPlayerId;
+  const isSpectator = state.isSpectator || !me;
+  const isMyTurn = !isSpectator && state.currentTurnPlayerId === myPlayerId;
+  const activeTurnPlayer = state.players.find((p) => p.id === state.currentTurnPlayerId);
   const opponents = state.players.filter((p) => p.id !== myPlayerId);
+
+  // Check if someone is on their last card (UNO Climax Suspense)
+  const isUnoClimax = activeTurnPlayer && activeTurnPlayer.cardsCount === 1;
 
   const handleToggleMute = () => {
     const muted = sound.toggleMute();
@@ -106,6 +134,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const hasPlayableCard = state.myHand.some(isPlayable);
 
   const handleCardClick = (card: Card) => {
+    if (isSpectator) return;
     if (!isMyTurn) {
       setFeedbackToast('Aguarde a sua vez de jogar!');
       setTimeout(() => setFeedbackToast(null), 2500);
@@ -142,6 +171,23 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     setTimeout(() => setFlyingCardId(null), 400);
   };
 
+  const handleDrawCard = () => {
+    if (isSpectator || !isMyTurn) return;
+    statsManager.recordCardDrawn();
+    onDrawCard();
+  };
+
+  const handleCallUno = () => {
+    if (isSpectator) return;
+    statsManager.recordUnoCalled();
+    onCallUno();
+  };
+
+  const handleCatchUno = (targetPlayerId: string) => {
+    statsManager.recordCaughtUno();
+    onCatchUno(targetPlayerId);
+  };
+
   const handleDropOnCenter = (e: React.DragEvent) => {
     e.preventDefault();
     const cardId = e.dataTransfer.getData('text/plain');
@@ -152,50 +198,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   };
 
-  const handleDrawCard = () => {
-    statsManager.recordCardDrawn(1);
-    onDrawCard();
-  };
-
-  const handleCallUno = () => {
-    statsManager.recordUnoCalled();
-    onCallUno();
-  };
-
-  const handleCatchUno = (targetPlayerId: string) => {
-    statsManager.recordCaughtUno();
-    onCatchUno(targetPlayerId);
-  };
-
-  // Turn time percentage
-  const timerPercent = Math.max(0, Math.min(100, (state.turnTimeLeft / state.turnDuration) * 100));
-
-  const currentColorBg: Record<CardColor, string> = {
-    red: 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-rose-500/40',
-    blue: 'bg-gradient-to-r from-cyan-400 to-blue-600 text-white shadow-sky-500/40',
-    green: 'bg-gradient-to-r from-lime-400 to-emerald-500 text-slate-950 shadow-emerald-500/40',
-    yellow: 'bg-gradient-to-r from-yellow-300 to-amber-400 text-amber-950 shadow-amber-400/40',
-    wild: 'bg-gradient-to-r from-fuchsia-500 to-purple-600 text-white shadow-purple-500/40',
-  };
-
-  const currentColorNames: Record<CardColor, string> = {
-    red: 'Vermelho',
-    blue: 'Azul',
-    green: 'Verde',
-    yellow: 'Amarelo',
-    wild: 'Coringa',
-  };
+  const timerPercent =
+    state.turnDuration > 0 ? Math.max(0, Math.min(100, (state.turnTimeLeft / state.turnDuration) * 100)) : 100;
 
   return (
-    <div className="relative w-full h-[100dvh] max-h-[100dvh] bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 overflow-hidden flex flex-col select-none text-slate-800 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-      {/* Decorative Cartoon Elements (clouds & soft stars) */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
-        <div className="absolute top-10 left-12 w-32 h-16 bg-white rounded-full blur-[1px]" />
-        <div className="absolute top-8 left-20 w-24 h-24 bg-white rounded-full blur-[1px]" />
-        <div className="absolute top-24 right-20 w-44 h-20 bg-white rounded-full blur-[1px]" />
-        <div className="absolute top-16 right-32 w-28 h-28 bg-white rounded-full blur-[1px]" />
-        <div className="absolute bottom-32 left-1/4 w-36 h-18 bg-white rounded-full blur-[1px]" />
-      </div>
+    <div className="w-full h-full bg-gradient-to-b from-sky-400 via-sky-300 to-indigo-300 flex flex-col justify-between select-none relative overflow-hidden">
+      {/* Dramatic Suspense Vignette during UNO climax */}
+      {isUnoClimax && (
+        <div className="absolute inset-0 pointer-events-none z-10 bg-radial from-transparent via-amber-500/10 to-rose-600/30 animate-pulse" />
+      )}
 
       {/* Top Header Bar */}
       <header className="h-11 sm:h-12 shrink-0 border-b-2 sm:border-b-4 border-white/70 px-2 sm:px-4 flex items-center justify-between bg-white/90 backdrop-blur-md z-30 shadow-md">
@@ -286,7 +297,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               type="button"
               onClick={onOpenSettings}
               className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-white border-2 border-yellow-300 text-amber-900 hover:bg-yellow-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-bold text-xs"
-              title="Configurações & Modo Criança"
+              title="Configurações & Modo Treino"
             >
               <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500" />
               <span className="hidden md:inline">Ajustes</span>
@@ -320,38 +331,78 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         </div>
       </header>
 
+      {/* Spectator Top Banner */}
+      {isSpectator && (
+        <div className="w-full bg-slate-900 text-white px-3 py-1.5 flex items-center justify-between text-xs font-bold border-b-2 border-amber-400 shadow-md z-30">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+            <span className="flex items-center gap-1 text-amber-300 font-black">
+              <Eye className="w-4 h-4" /> MODO ESPECTADOR (Sala de Espera)
+            </span>
+            <span className="hidden sm:inline text-slate-300 text-[11px]">
+              • Você entrará para jogar automaticamente na próxima rodada!
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {state.spectatorCardsRevealed ? (
+              <span className="text-[10px] bg-emerald-800 text-emerald-200 px-2 py-0.5 rounded-full border border-emerald-400 font-black">
+                👀 Visão de Cartas Liberada
+              </span>
+            ) : (
+              <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-600">
+                🔒 Cartas Ocultas
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Table Area */}
       <main className="flex-1 min-h-0 relative flex flex-col justify-between p-1 sm:p-2 md:p-3 overflow-hidden">
         {/* Opponents Layout (Around Table) */}
         <div className="w-full shrink-0 flex items-center justify-around gap-1.5 sm:gap-2 px-1 py-0.5 z-20">
-          {opponents.map((opp) => {
+          {(isSpectator ? state.players : opponents).map((opp) => {
             const isOppTurn = state.currentTurnPlayerId === opp.id;
             const isCatchable = state.unoVulnerablePlayerId === opp.id;
+            const isUnoAlert = opp.cardsCount === 1;
 
             return (
               <div
                 key={opp.id}
                 className={`relative flex flex-col items-center p-1.5 sm:p-2.5 rounded-2xl sm:rounded-3xl transition-all duration-300 backdrop-blur-sm ${
                   isOppTurn
-                    ? 'bg-amber-200 text-slate-950 border-3 sm:border-4 border-amber-400 shadow-2xl scale-102 sm:scale-105 ring-2 sm:ring-4 ring-yellow-300/70'
+                    ? 'bg-gradient-to-b from-amber-100 via-yellow-200 to-amber-300 text-slate-950 border-3 sm:border-4 border-amber-500 shadow-[0_0_24px_rgba(245,158,11,0.6)] scale-105 sm:scale-110 ring-4 ring-amber-300/80 z-30'
                     : 'bg-white/90 text-slate-800 border-2 sm:border-3 border-white shadow-md'
                 }`}
               >
+                {/* Active Player Spotlight Halo */}
+                {isOppTurn && (
+                  <div className="absolute -top-3.5 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-[9px] sm:text-[10px] uppercase tracking-wider border-2 border-white shadow-lg flex items-center gap-1 animate-bounce">
+                    <Sparkles className="w-3 h-3 fill-slate-950" />
+                    <span>JOGANDO AGORA</span>
+                  </div>
+                )}
+
                 {/* Catch UNO Alert Button */}
                 {isCatchable && (
                   <button
                     type="button"
                     onClick={() => handleCatchUno(opp.id)}
-                    className="absolute -top-3.5 animate-bounce z-30 bg-rose-600 hover:bg-rose-500 text-white font-black text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-full shadow-xl border-2 border-white flex items-center gap-1 cursor-pointer"
+                    className="absolute -bottom-3.5 animate-bounce z-40 bg-rose-600 hover:bg-rose-500 text-white font-black text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-1 rounded-full shadow-2xl border-2 border-white flex items-center gap-1 cursor-pointer ring-4 ring-rose-400"
                   >
-                    <AlertTriangle className="w-3 h-3 text-yellow-300" />
+                    <AlertTriangle className="w-3.5 h-3.5 text-yellow-300 animate-spin" />
                     PEGAR UNO! (+2)
                   </button>
                 )}
 
                 {/* Avatar and Name */}
-                <div className="relative">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-gradient-to-br from-amber-300 via-orange-400 to-pink-500 border-2 sm:border-4 border-white flex items-center justify-center text-xl sm:text-2xl md:text-3xl shadow-md">
+                <div className="relative mt-1">
+                  <div
+                    className={`w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-gradient-to-br from-amber-300 via-orange-400 to-pink-500 border-2 sm:border-4 border-white flex items-center justify-center text-xl sm:text-2xl md:text-3xl shadow-md ${
+                      isOppTurn ? 'ring-2 ring-amber-500' : ''
+                    }`}
+                  >
                     {opp.avatar}
                   </div>
                   {opp.isHost && (
@@ -370,14 +421,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 </div>
 
                 <span className="text-[11px] sm:text-xs md:text-sm font-black text-slate-900 mt-1 truncate max-w-[80px] sm:max-w-[110px] md:max-w-[130px]">
-                  {opp.name}
+                  {opp.name} {opp.id === myPlayerId && '(Você)'}
                 </span>
 
-                {/* Opponent Card Stack visualization or Face-up cards for Kids Mode */}
-                {opp.botHand && opp.botHand.length > 0 ? (
+                {/* Opponent Card Stack or Face-up cards for Kids Mode / Spectator Mode */}
+                {opp.botHand && opp.botHand.length > 0 && localSpectatorShowCards ? (
                   <div className="flex flex-col items-center mt-0.5">
                     <span className="text-[8px] sm:text-[9px] font-black text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded-full border border-emerald-300 mb-0.5">
-                      Modo Criança
+                      Cartas Abertas
                     </span>
                     <div className="flex items-center -space-x-4 sm:-space-x-5 py-0.5 overflow-x-auto max-w-[120px] sm:max-w-[160px]">
                       {opp.botHand.map((c, i) => (
@@ -408,8 +459,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   </div>
                 )}
 
-                <span className="text-[10px] sm:text-xs font-black text-white mt-1 font-mono bg-gradient-to-r from-pink-500 to-rose-500 px-2 sm:px-2.5 py-0.2 rounded-full border border-white shadow-sm">
-                  {opp.cardsCount} {opp.cardsCount === 1 ? 'carta' : 'cartas'}
+                <span
+                  className={`text-[10px] sm:text-xs font-black text-white mt-1 font-mono px-2 sm:px-2.5 py-0.2 rounded-full border border-white shadow-sm ${
+                    isUnoAlert ? 'bg-rose-600 animate-pulse' : 'bg-gradient-to-r from-pink-500 to-rose-500'
+                  }`}
+                >
+                  {opp.cardsCount} {opp.cardsCount === 1 ? '🔥 1 CARTA' : 'cartas'}
                 </span>
               </div>
             );
@@ -418,28 +473,33 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
         {/* Central Table Center (Deck, Discard Pile, Color Indicator, Direction) */}
         <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center z-10 py-0.5">
-          {/* Turn status banner */}
+          {/* Prominent Turn status banner */}
           <div className="mb-1 flex flex-col items-center shrink-0">
             {isMyTurn ? (
               <div className="flex flex-col items-center">
-                <div className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400 text-slate-950 font-black text-[11px] sm:text-xs md:text-sm px-4 sm:px-6 py-0.5 sm:py-1 rounded-full shadow-lg border-2 border-white animate-bounce flex items-center gap-1.5 uppercase tracking-wider">
-                  <Sparkles className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                  Sua vez de jogar!
+                <div className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400 text-slate-950 font-black text-xs sm:text-sm md:text-base px-5 sm:px-7 py-1 sm:py-1.5 rounded-full shadow-2xl border-3 border-white animate-bounce flex items-center gap-2 uppercase tracking-wider ring-4 ring-amber-400/60">
+                  <Sparkles className="w-4 h-4 fill-amber-500 text-amber-500" />
+                  👉 SUA VEZ DE JOGAR! 👈
                 </div>
-                <div className="text-[9px] sm:text-[11px] text-sky-950 font-bold mt-0.5 bg-white/70 px-2.5 py-0.2 rounded-full border border-white/60">
-                  👉 Toque ou arraste uma carta destacada para a mesa
+                <div className="text-[10px] sm:text-xs text-sky-950 font-black mt-0.5 bg-white/90 px-3 py-0.5 rounded-full border border-white shadow-sm">
+                  Toque na carta iluminada ou compre do baralho
                 </div>
               </div>
             ) : (
-              <div className="text-[11px] sm:text-xs text-slate-700 flex items-center gap-1 font-black bg-white/80 px-3 py-0.5 rounded-full border-2 border-white shadow-sm">
-                <Clock className="w-3 h-3 text-slate-500" />
-                Vez de {state.players.find((p) => p.id === state.currentTurnPlayerId)?.name || '...'}
+              <div className="text-xs sm:text-sm text-slate-900 flex items-center gap-1.5 font-black bg-white/95 px-4 py-1 rounded-full border-2 border-amber-300 shadow-md">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
+                <span>Vez de: <strong className="text-amber-700 text-sm sm:text-base">{activeTurnPlayer?.name || '...'}</strong></span>
+                {state.turnDuration > 0 && (
+                  <span className="text-[11px] font-mono bg-amber-100 px-2 py-0.5 rounded-full text-amber-900">
+                    ⏳ {state.turnTimeLeft}s
+                  </span>
+                )}
               </div>
             )}
 
             {/* Error or help toast */}
             {feedbackToast && (
-              <div className="bg-rose-500 border-2 border-white text-white text-[10px] sm:text-xs px-3 sm:px-4 py-1 rounded-full shadow-2xl mt-1 font-black animate-bounce z-30">
+              <div className="bg-rose-600 border-2 border-white text-white text-[10px] sm:text-xs px-3.5 sm:px-5 py-1 rounded-full shadow-2xl mt-1 font-black animate-bounce z-30">
                 ⚠️ {feedbackToast}
               </div>
             )}
@@ -472,6 +532,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           >
             {/* Direction Arrows flanking the table on the left and right */}
             <TableDirectionArrows direction={state.turnDirection} />
+
+            {/* Staged Card Levitating / Floating Announcement Animation */}
+            {state.stagedCardPlay && (
+              <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-slate-950/40 rounded-full backdrop-blur-[2px] animate-in zoom-in-95 duration-200">
+                <div className="text-[10px] sm:text-xs font-black text-amber-300 bg-slate-900/90 px-3 py-0.5 rounded-full border border-amber-400 mb-2 shadow-xl animate-pulse flex items-center gap-1">
+                  <span>{state.stagedCardPlay.playerAvatar}</span>
+                  <span>{state.stagedCardPlay.playerName} jogou:</span>
+                </div>
+
+                <div className="transform scale-110 sm:scale-125 shadow-[0_0_30px_rgba(250,204,21,0.9)] animate-bounce rounded-2xl">
+                  <UnoCard card={state.stagedCardPlay.card} size="md" />
+                </div>
+              </div>
+            )}
 
             {/* Center Play Area */}
             <div className="flex items-center gap-3 sm:gap-4 md:gap-6 z-20">
@@ -507,7 +581,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 className="flex flex-col items-center cursor-pointer group"
                 onClick={() => {
                   if (hasPlayableCard && isMyTurn) {
-                    setFeedbackToast("Toque na carta da sua mão que deseja jogar aqui!");
+                    setFeedbackToast('Toque na carta da sua mão que deseja jogar aqui!');
                     setTimeout(() => setFeedbackToast(null), 3000);
                   }
                 }}
@@ -557,84 +631,112 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
         {/* Bottom Area: Controls & Player Hand */}
         <div className="w-full shrink-0 flex flex-col items-center z-20 pb-0.5 sm:pb-1">
-          {/* Action Row: UNO button & Pass button */}
-          <div className="w-full max-w-2xl flex items-center justify-between px-2 sm:px-4 mb-0.5 sm:mb-1">
-            {/* Call UNO button & Emote picker */}
-            <div className="relative flex items-center gap-1.5 sm:gap-2">
+          {/* Universal Catch UNO Vulnerability Alert Banner if someone forgot to call UNO */}
+          {state.unoVulnerablePlayerId && (
+            <div className="w-full max-w-md my-1 animate-bounce">
               <button
                 type="button"
-                onClick={handleCallUno}
-                className={`py-1.5 sm:py-2 md:py-2.5 px-3 sm:px-5 md:px-6 rounded-xl sm:rounded-2xl font-black text-[11px] sm:text-xs md:text-sm uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center gap-1.5 border-2 sm:border-4 border-white ${
-                  state.myHand.length <= 2
-                    ? 'bg-gradient-to-b from-yellow-300 via-orange-500 to-red-500 text-white animate-bounce shadow-[0_4px_0_#991b1b] active:shadow-[0_1px_0_#991b1b] active:translate-y-0.5'
-                    : 'bg-gradient-to-b from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white shadow-[0_3px_0_#9f1239] active:shadow-[0_1px_0_#9f1239] active:translate-y-0.5'
-                }`}
+                onClick={() => handleCatchUno(state.unoVulnerablePlayerId!)}
+                className="w-full py-2 px-4 rounded-2xl bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white font-black text-xs sm:text-sm uppercase tracking-wider shadow-2xl border-3 border-white flex items-center justify-center gap-2 cursor-pointer ring-4 ring-rose-300"
               >
-                <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-yellow-300 text-yellow-300" />
-                GRITAR UNO!
-                {me?.hasCalledUno && (
-                  <span className="text-[9px] sm:text-[10px] bg-white text-rose-600 px-1.5 py-0.2 rounded-full ml-1 font-black shadow-sm">
-                    OK
-                  </span>
-                )}
+                <AlertTriangle className="w-4 h-4 text-yellow-300 animate-spin" />
+                <span>🚨 PEGAR UNO! (PENALIZAR COM +2 CARTAS)</span>
               </button>
+            </div>
+          )}
 
-              {/* Emote Reaction Picker */}
-              <EmotePicker onSelectEmote={(emote) => onSendEmote?.(emote.id)} />
+          {/* Action Row: UNO button & Pass button */}
+          {!isSpectator && (
+            <div className="w-full max-w-2xl flex items-center justify-between px-2 sm:px-4 mb-0.5 sm:mb-1">
+              {/* Call UNO button & Emote picker */}
+              <div className="relative flex items-center gap-1.5 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={handleCallUno}
+                  className={`py-1.5 sm:py-2 md:py-2.5 px-3 sm:px-5 md:px-6 rounded-xl sm:rounded-2xl font-black text-[11px] sm:text-xs md:text-sm uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center gap-1.5 border-2 sm:border-4 border-white ${
+                    state.myHand.length <= 2
+                      ? 'bg-gradient-to-b from-yellow-300 via-orange-500 to-red-500 text-white animate-bounce shadow-[0_4px_0_#991b1b] active:shadow-[0_1px_0_#991b1b] active:translate-y-0.5'
+                      : 'bg-gradient-to-b from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white shadow-[0_3px_0_#9f1239] active:shadow-[0_1px_0_#9f1239] active:translate-y-0.5'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-yellow-300 text-yellow-300" />
+                  GRITAR UNO!
+                  {me?.hasCalledUno && (
+                    <span className="text-[9px] sm:text-[10px] bg-white text-rose-600 px-1.5 py-0.2 rounded-full ml-1 font-black shadow-sm">
+                      OK
+                    </span>
+                  )}
+                </button>
 
-              {/* My Active Emote Bubble */}
-              {activeEmotes[myPlayerId] && (
-                <EmoteBubble emote={activeEmotes[myPlayerId]} side="top" />
+                {/* Emote Reaction Picker */}
+                <EmotePicker onSelectEmote={(emote) => onSendEmote?.(emote.id)} />
+
+                {/* My Active Emote Bubble */}
+                {activeEmotes[myPlayerId] && (
+                  <EmoteBubble emote={activeEmotes[myPlayerId]} side="top" />
+                )}
+              </div>
+
+              {/* Pass Turn Button (Available if player has drawn) */}
+              {isMyTurn && (
+                <button
+                  type="button"
+                  onClick={onPassTurn}
+                  className="py-1.5 sm:py-2 md:py-2.5 px-3 sm:px-4 md:px-5 rounded-xl sm:rounded-2xl bg-gradient-to-b from-cyan-400 to-blue-600 hover:from-cyan-300 hover:to-blue-500 text-white text-[11px] sm:text-xs md:text-sm font-black border-2 sm:border-3 border-white shadow-[0_3px_0_#1e40af] active:shadow-[0_1px_0_#1e40af] active:translate-y-0.5 flex items-center gap-1 cursor-pointer transition-all"
+                >
+                  <span>Passar Vez</span>
+                  <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
               )}
             </div>
+          )}
 
-            {/* Pass Turn Button (Available if player has drawn) */}
-            {isMyTurn && (
-              <button
-                type="button"
-                onClick={onPassTurn}
-                className="py-1.5 sm:py-2 md:py-2.5 px-3 sm:px-4 md:px-5 rounded-xl sm:rounded-2xl bg-gradient-to-b from-cyan-400 to-blue-600 hover:from-cyan-300 hover:to-blue-500 text-white text-[11px] sm:text-xs md:text-sm font-black border-2 sm:border-3 border-white shadow-[0_3px_0_#1e40af] active:shadow-[0_1px_0_#1e40af] active:translate-y-0.5 flex items-center gap-1 cursor-pointer transition-all"
-              >
-                <span>Passar Vez</span>
-                <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </button>
-            )}
-          </div>
-
-          {/* Cards in Hand Fan Layout */}
-          <div className="w-full max-w-4xl px-1 sm:px-2 overflow-x-auto pb-0.5 pt-0.5 flex items-center justify-center">
-            <div
-              className={`flex items-center ${
-                state.myHand.length > 8
-                  ? '-space-x-8 sm:-space-x-10 md:-space-x-12'
-                  : state.myHand.length > 5
-                  ? '-space-x-6 sm:-space-x-8 md:-space-x-10'
-                  : '-space-x-5 sm:-space-x-7 md:-space-x-8'
-              } hover:-space-x-3 sm:hover:-space-x-4 transition-all duration-300 py-1 sm:py-1.5 px-2 sm:px-4`}
-            >
-              {state.myHand.map((card, idx) => {
-                const playable = isPlayable(card);
-                const isFlying = flyingCardId === card.id;
-
-                return (
-                  <div
-                    key={card.id}
-                    className={`transform transition-all duration-300 hover:z-40 hover:-translate-y-3 sm:hover:-translate-y-5 ${
-                      isFlying ? '-translate-y-48 scale-75 opacity-20 pointer-events-none' : ''
-                    }`}
-                    style={{ zIndex: isFlying ? 50 : idx }}
-                  >
-                    <UnoCard
-                      card={card}
-                      isPlayable={playable}
-                      onClick={() => handleCardClick(card)}
-                      size="md"
-                    />
-                  </div>
-                );
-              })}
+          {/* Cards in Hand Fan Layout or Spectator Message */}
+          {isSpectator ? (
+            <div className="w-full max-w-md p-3 bg-white/90 rounded-2xl border-2 border-white shadow-lg text-center my-1 text-slate-800">
+              <div className="text-xs font-black text-slate-900 flex items-center justify-center gap-1.5">
+                <Clock className="w-4 h-4 text-amber-500" />
+                Aguardando a rodada terminar...
+              </div>
+              <p className="text-[11px] text-slate-600 font-medium mt-0.5">
+                Você entrará como jogador automaticamente assim que a partida for reiniciada!
+              </p>
             </div>
-          </div>
+          ) : (
+            <div className="w-full max-w-4xl px-1 sm:px-2 overflow-x-auto pb-0.5 pt-0.5 flex items-center justify-center">
+              <div
+                className={`flex items-center ${
+                  state.myHand.length > 8
+                    ? '-space-x-8 sm:-space-x-10 md:-space-x-12'
+                    : state.myHand.length > 5
+                    ? '-space-x-6 sm:-space-x-8 md:-space-x-10'
+                    : '-space-x-5 sm:-space-x-7 md:-space-x-8'
+                } hover:-space-x-3 sm:hover:-space-x-4 transition-all duration-300 py-1 sm:py-1.5 px-2 sm:px-4`}
+              >
+                {state.myHand.map((card, idx) => {
+                  const playable = isPlayable(card);
+                  const isFlying = flyingCardId === card.id;
+
+                  return (
+                    <div
+                      key={card.id}
+                      className={`transform transition-all duration-300 hover:z-40 hover:-translate-y-3 sm:hover:-translate-y-5 ${
+                        isFlying ? '-translate-y-48 scale-75 opacity-20 pointer-events-none' : ''
+                      }`}
+                      style={{ zIndex: isFlying ? 50 : idx }}
+                    >
+                      <UnoCard
+                        card={card}
+                        isPlayable={playable}
+                        onClick={() => handleCardClick(card)}
+                        size="md"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </main>
 

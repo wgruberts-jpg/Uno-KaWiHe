@@ -618,7 +618,10 @@ function broadcastToRoom(roomId: string, message: ServerMessage) {
 
 function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) {
   const player = room.players.find((p) => p.id === playerId);
-  if (!player) return;
+  const isSpectator = !player && (room.spectators?.some((s) => s.id === playerId) ?? false);
+  if (!player && !isSpectator) return;
+
+  const spectatorCanSeeHands = room.spectatorCardsRevealed ?? (room.settings.spectatorMode === 'reveal_cards');
 
   const publicPlayers: Player[] = room.players.map((p) => ({
     id: p.id,
@@ -630,7 +633,7 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
     hasCalledUno: p.hasCalledUno,
     isConnected: p.isConnected,
     score: p.score,
-    botHand: room.settings.showBotCards && p.isBot ? p.hand : undefined,
+    botHand: (room.settings.showBotCards && p.isBot) || (isSpectator && spectatorCanSeeHands) ? p.hand : undefined,
   }));
 
   const activePlayer = room.players[room.currentTurnIndex];
@@ -639,7 +642,8 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
     roomId: room.id,
     status: room.status,
     players: publicPlayers,
-    myHand: player.hand,
+    spectators: room.spectators?.map((s) => ({ id: s.id, name: s.name, avatar: s.avatar, isConnected: s.isConnected })),
+    myHand: player ? player.hand : [],
     discardPileTop: room.discardPile.length > 0 ? room.discardPile[room.discardPile.length - 1] : null,
     currentColor: room.currentColor,
     currentTurnPlayerId: activePlayer ? activePlayer.id : '',
@@ -651,6 +655,10 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
     unoVulnerablePlayerId: room.unoVulnerablePlayerId,
     deckCardsCount: room.deck.length,
     settings: room.settings,
+    isSpectator: isSpectator,
+    spectatorCardsRevealed: spectatorCanSeeHands,
+    stagedCardPlay: room.stagedCardPlay,
+    rematchVotes: room.rematchVotes,
     roundDurationSeconds: room.lastRoundDurationSeconds,
     roundTurnCount: room.lastRoundTurnCount,
     roundPointsWon: room.lastRoundPointsWon,
@@ -1000,35 +1008,16 @@ function scheduleBotTurn(room: RoomData, bot: InternalPlayer) {
   }, delay);
 }
 
-function executePlayCard(
+function finalizePlayCard(
   room: RoomData,
   player: InternalPlayer,
   cardId: string,
-  chosenColor?: CardColor,
-  ws?: WebSocket
+  chosenColor?: CardColor
 ) {
   const cardIndex = player.hand.findIndex((c) => c.id === cardId);
-  if (cardIndex === -1) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'error', message: 'Carta não encontrada na sua mão.' }));
-    }
-    return;
-  }
+  if (cardIndex === -1) return;
 
   const card = player.hand[cardIndex];
-  const topCard = room.discardPile[room.discardPile.length - 1];
-
-  if (!isCardPlayable(card, topCard, room.currentColor)) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(
-        JSON.stringify({
-          type: 'error',
-          message: `Esta carta não pode ser jogada agora! A cor atual é ${room.currentColor.toUpperCase()} ou valor ${topCard.value.toUpperCase()}.`,
-        })
-      );
-    }
-    return;
-  }
 
   // Remove card from player hand
   player.hand.splice(cardIndex, 1);
@@ -1120,6 +1109,67 @@ function executePlayCard(
   }
 
   advanceTurn(room, steps);
+}
+
+function executePlayCard(
+  room: RoomData,
+  player: InternalPlayer,
+  cardId: string,
+  chosenColor?: CardColor,
+  ws?: WebSocket
+) {
+  const cardIndex = player.hand.findIndex((c) => c.id === cardId);
+  if (cardIndex === -1) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Carta não encontrada na sua mão.' }));
+    }
+    return;
+  }
+
+  const card = player.hand[cardIndex];
+  const topCard = room.discardPile[room.discardPile.length - 1];
+
+  if (!isCardPlayable(card, topCard, room.currentColor)) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          message: `Esta carta não pode ser jogada agora! A cor atual é ${room.currentColor.toUpperCase()} ou valor ${topCard.value.toUpperCase()}.`,
+        })
+      );
+    }
+    return;
+  }
+
+  // Animation staging: if playAnimationDelay is configured (or default 1.5s)
+  const animDelaySeconds = room.settings.playAnimationDelay !== undefined ? room.settings.playAnimationDelay : 1.5;
+
+  if (animDelaySeconds > 0) {
+    if (room.stagedCardTimeout) {
+      clearTimeout(room.stagedCardTimeout);
+      room.stagedCardTimeout = null;
+    }
+
+    room.stagedCardPlay = {
+      card,
+      playerId: player.id,
+      playerName: player.name,
+      playerAvatar: player.avatar,
+      chosenColor,
+      timestamp: Date.now(),
+      delaySeconds: animDelaySeconds,
+    };
+
+    syncRoomState(room);
+
+    room.stagedCardTimeout = setTimeout(() => {
+      room.stagedCardTimeout = null;
+      room.stagedCardPlay = null;
+      finalizePlayCard(room, player, cardId, chosenColor);
+    }, animDelaySeconds * 1000);
+  } else {
+    finalizePlayCard(room, player, cardId, chosenColor);
+  }
 }
 
 // WebSocket setup
@@ -1359,7 +1409,21 @@ wss.on('connection', (ws: WebSocket) => {
             return;
           }
 
-          ws.send(JSON.stringify({ type: 'error', message: 'A partida já está em andamento nesta sala.' }));
+          // Game is in progress: add as Spectator / Waiting for next round!
+          if (!room.spectators) room.spectators = [];
+          const spectatorId = `spectator-${Math.random().toString(36).substring(2, 9)}`;
+          const spectatorObj = {
+            id: spectatorId,
+            name: msg.playerName.trim() || `Espectador ${room.spectators.length + 1}`,
+            avatar: msg.avatar || '👀',
+            isConnected: true,
+          };
+          room.spectators.push(spectatorObj);
+          clientConnections.set(ws, { roomId: room.id, playerId: spectatorId });
+
+          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: spectatorId }));
+          broadcastLog(room, `👀 ${spectatorObj.name} entrou na sala como Espectador (Aguardando próxima rodada)!`, 'system');
+          syncRoomState(room);
           return;
         }
 
@@ -1584,10 +1648,39 @@ wss.on('connection', (ws: WebSocket) => {
         if (!player.isHost && msg.type === 'start_game') return;
         // Clean disconnected players before starting
         room.players = room.players.filter((p) => p.isBot || p.isConnected);
+
+        // Merge waiting spectators into active players
+        if (room.spectators && room.spectators.length > 0) {
+          const connectedSpectators = room.spectators.filter((s) => s.isConnected);
+          connectedSpectators.forEach((s) => {
+            if (room.players.length >= room.settings.maxPlayers) {
+              const botIdx = room.players.findIndex((p) => p.isBot);
+              if (botIdx !== -1) room.players.splice(botIdx, 1);
+            }
+            if (room.players.length < room.settings.maxPlayers) {
+              room.players.push({
+                id: s.id,
+                name: s.name,
+                avatar: s.avatar,
+                isHost: false,
+                isBot: false,
+                cardsCount: 0,
+                hasCalledUno: false,
+                isConnected: true,
+                score: 0,
+                hand: [],
+                hasDrawnThisTurn: false,
+              });
+            }
+          });
+          room.spectators = [];
+        }
+
         if (room.players.length < 2) {
           addBotToRoom(room);
         }
 
+        room.rematchVotes = {};
         startGame(room);
         return;
       }
@@ -1599,9 +1692,38 @@ wss.on('connection', (ws: WebSocket) => {
         room.unoVulnerablePlayerId = null;
         room.discardPile = [];
         room.deck = [];
+        room.stagedCardPlay = null;
+        room.rematchVotes = {};
 
         // Clean out disconnected human players
         room.players = room.players.filter((p) => p.isBot || p.isConnected);
+
+        // Merge waiting spectators into active players
+        if (room.spectators && room.spectators.length > 0) {
+          const connectedSpectators = room.spectators.filter((s) => s.isConnected);
+          connectedSpectators.forEach((s) => {
+            if (room.players.length >= room.settings.maxPlayers) {
+              const botIdx = room.players.findIndex((p) => p.isBot);
+              if (botIdx !== -1) room.players.splice(botIdx, 1);
+            }
+            if (room.players.length < room.settings.maxPlayers) {
+              room.players.push({
+                id: s.id,
+                name: s.name,
+                avatar: s.avatar,
+                isHost: false,
+                isBot: false,
+                cardsCount: 0,
+                hasCalledUno: false,
+                isConnected: true,
+                score: 0,
+                hand: [],
+                hasDrawnThisTurn: false,
+              });
+            }
+          });
+          room.spectators = [];
+        }
 
         // Ensure an active host exists
         const hasHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);
@@ -1621,6 +1743,46 @@ wss.on('connection', (ws: WebSocket) => {
 
         broadcastLog(room, `🏠 A sala voltou para o Lobby de espera. Pronto para configurar ou iniciar nova partida!`, 'system');
         syncRoomState(room);
+        return;
+      }
+
+      if (msg.type === 'vote_rematch') {
+        if (!room.rematchVotes) room.rematchVotes = {};
+        const pId = msg.playerId || player?.id || '';
+        const playerName = player ? player.name : (room.spectators?.find((s) => s.id === pId)?.name || 'Jogador');
+
+        room.rematchVotes[pId] = {
+          playerId: pId,
+          playerName,
+          ready: msg.ready,
+          phrase: msg.phrase,
+          timestamp: Date.now(),
+        };
+
+        if (msg.phrase) {
+          broadcastLog(room, `💬 ${playerName}: "${msg.phrase}"`, 'chat', playerName);
+        }
+        syncRoomState(room);
+
+        // Check if all connected human players voted ready
+        const humanPlayers = room.players.filter((p) => !p.isBot && p.isConnected);
+        const readyCount = humanPlayers.filter((p) => room.rematchVotes?.[p.id]?.ready).length;
+        if (humanPlayers.length > 0 && readyCount === humanPlayers.length && room.status === 'ended') {
+          broadcastLog(room, `✨ Todos os jogadores confirmaram! Iniciando nova rodada...`, 'system');
+          setTimeout(() => {
+            room.rematchVotes = {};
+            startGame(room);
+          }, 1500);
+        }
+        return;
+      }
+
+      if (msg.type === 'toggle_spectator_reveal') {
+        if (player && player.isHost) {
+          room.spectatorCardsRevealed = msg.reveal;
+          broadcastLog(room, `👁️ O Anfitrião ${msg.reveal ? 'liberou a visão das cartas para os Espectadores' : 'ocultou as cartas dos Espectadores'}.`, 'system');
+          syncRoomState(room);
+        }
         return;
       }
 
