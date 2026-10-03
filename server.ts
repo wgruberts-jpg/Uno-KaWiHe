@@ -1603,15 +1603,9 @@ wss.on('connection', (ws: WebSocket) => {
           const idx = room.players.findIndex((p) => p.id === msg.playerId);
           if (idx !== -1) {
             const leaving = room.players[idx];
-            if (room.status === 'waiting' || room.status === 'ended') {
-              room.players.splice(idx, 1);
-            } else {
-              leaving.isConnected = false;
-            }
+            const originalName = leaving.name;
 
-            broadcastLog(room, `${leaving.name} saiu da sala.`, 'system');
-
-            // 3. Immediately notify other peers in room about voice leave
+            // Voice leave
             broadcastToRoom(room.id, {
               type: 'rtc_voice_state',
               roomId: room.id,
@@ -1631,12 +1625,33 @@ wss.on('connection', (ws: WebSocket) => {
               }
             }
 
+            if (room.status === 'waiting' || room.status === 'ended') {
+              room.players.splice(idx, 1);
+              broadcastLog(room, `${originalName} saiu da sala.`, 'system');
+            } else {
+              // Active match (playing or paused): A Bot automatically assumes the cards and position!
+              const cleanBotName = originalName.startsWith('Bot ') ? originalName : `Bot (${originalName})`;
+              leaving.isBot = true;
+              leaving.isConnected = true;
+              leaving.name = cleanBotName;
+              leaving.avatar = '🤖';
+
+              broadcastLog(
+                room,
+                `🤖 ${originalName} saiu da partida. Um Robô assumiu as cartas para o jogo continuar!`,
+                'system'
+              );
+
+              // If it was the leaving player's turn, trigger bot turn
+              if (room.status === 'playing' && room.players[room.currentTurnIndex]?.id === leaving.id) {
+                scheduleBotTurn(room, leaving);
+              }
+            }
+
             const hasOnlineHumans = room.players.some((p) => !p.isBot && p.isConnected);
-            if (!hasOnlineHumans && (room.status === 'waiting' || room.status === 'ended')) {
+            if (!hasOnlineHumans) {
               stopTurnTimer(room);
               rooms.delete(room.id);
-            } else if (room.status === 'playing' && room.players[room.currentTurnIndex]?.id === leaving.id) {
-              advanceTurn(room, 1);
             } else {
               syncRoomState(room);
             }
@@ -2134,43 +2149,43 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'start_game' || msg.type === 'restart_game') {
-        if (!player.isHost && msg.type === 'start_game') return;
-        // Clean disconnected players before starting
-        room.players = room.players.filter((p) => p.isBot || p.isConnected);
-
-        // Merge waiting spectators into active players
-        if (room.spectators && room.spectators.length > 0) {
-          const connectedSpectators = room.spectators.filter((s) => s.isConnected);
-          connectedSpectators.forEach((s) => {
-            if (room.players.length >= room.settings.maxPlayers) {
-              const botIdx = room.players.findIndex((p) => p.isBot);
-              if (botIdx !== -1) room.players.splice(botIdx, 1);
-            }
-            if (room.players.length < room.settings.maxPlayers) {
-              room.players.push({
-                id: s.id,
-                name: s.name,
-                avatar: s.avatar,
-                isHost: false,
-                isBot: false,
-                cardsCount: 0,
-                hasCalledUno: false,
-                isConnected: true,
-                score: 0,
-                hand: [],
-                hasDrawnThisTurn: false,
-              });
-            }
-          });
-          room.spectators = [];
+        // Ensure player requesting start is recognized as host if no active host exists
+        if (!player.isHost) {
+          const hasActiveHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);
+          if (!hasActiveHost || msg.type === 'start_game') {
+            room.players.forEach((p) => { p.isHost = false; });
+            player.isHost = true;
+          }
         }
 
+        // Clean disconnected human players before starting
+        room.players = room.players.filter((p) => p.isBot || p.isConnected);
+
+        // Ensure minimum 2 players by auto-adding a Bot if needed
         if (room.players.length < 2) {
           addBotToRoom(room);
         }
 
         room.rematchVotes = {};
         startGame(room);
+        return;
+      }
+
+      if (msg.type === 'pause_game') {
+        if (room.status !== 'playing') return;
+        stopTurnTimer(room);
+        room.status = 'paused';
+        broadcastLog(room, `⏸️ ${player.name} pausou a partida!`, 'system');
+        syncRoomState(room);
+        return;
+      }
+
+      if (msg.type === 'resume_game') {
+        if (room.status !== 'paused') return;
+        room.status = 'playing';
+        startTurnTimer(room);
+        broadcastLog(room, `▶️ ${player.name} retomou a partida!`, 'system');
+        syncRoomState(room);
         return;
       }
 
@@ -2186,33 +2201,6 @@ wss.on('connection', (ws: WebSocket) => {
 
         // Clean out disconnected human players
         room.players = room.players.filter((p) => p.isBot || p.isConnected);
-
-        // Merge waiting spectators into active players
-        if (room.spectators && room.spectators.length > 0) {
-          const connectedSpectators = room.spectators.filter((s) => s.isConnected);
-          connectedSpectators.forEach((s) => {
-            if (room.players.length >= room.settings.maxPlayers) {
-              const botIdx = room.players.findIndex((p) => p.isBot);
-              if (botIdx !== -1) room.players.splice(botIdx, 1);
-            }
-            if (room.players.length < room.settings.maxPlayers) {
-              room.players.push({
-                id: s.id,
-                name: s.name,
-                avatar: s.avatar,
-                isHost: false,
-                isBot: false,
-                cardsCount: 0,
-                hasCalledUno: false,
-                isConnected: true,
-                score: 0,
-                hand: [],
-                hasDrawnThisTurn: false,
-              });
-            }
-          });
-          room.spectators = [];
-        }
 
         // Ensure an active host exists
         const hasHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected);

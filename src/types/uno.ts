@@ -26,7 +26,7 @@ export interface Player {
   isSpectator?: boolean;
 }
 
-export type GameStatus = 'waiting' | 'playing' | 'ended';
+export type GameStatus = 'waiting' | 'playing' | 'paused' | 'ended';
 export type TurnDirection = 1 | -1; // 1 = clockwise, -1 = counter-clockwise
 
 export interface GameLog {
@@ -208,7 +208,7 @@ export interface ActiveEmote {
 
 export interface AdminRoomSummary {
   id: string;
-  status: 'waiting' | 'playing' | 'ended';
+  status: 'waiting' | 'playing' | 'paused' | 'ended';
   playersCount: number;
   maxPlayers: number;
   turnDuration: number;
@@ -226,7 +226,7 @@ export interface AdminRoomSummary {
 
 export interface OpenRoomSummary {
   id: string;
-  status: 'waiting' | 'playing' | 'ended';
+  status: 'waiting' | 'playing' | 'paused' | 'ended';
   playersCount: number;
   maxPlayers: number;
   hostName: string;
@@ -277,6 +277,8 @@ export type ClientMessage =
   | { type: 'kick_player'; roomId: string; targetPlayerId: string; playerId?: string; reason?: string }
   | { type: 'transfer_host'; roomId: string; targetPlayerId: string; playerId?: string }
   | { type: 'start_game'; roomId: string; playerId?: string }
+  | { type: 'pause_game'; roomId: string; playerId?: string }
+  | { type: 'resume_game'; roomId: string; playerId?: string }
   | { type: 'play_card'; roomId: string; cardId: string; chosenColor?: CardColor; playerId?: string }
   | { type: 'draw_card'; roomId: string; playerId?: string }
   | { type: 'pass_turn'; roomId: string; playerId?: string }

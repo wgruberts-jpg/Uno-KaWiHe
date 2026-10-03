@@ -1138,12 +1138,18 @@ export const Lobby: React.FC<LobbyProps> = ({
                 <div className="space-y-2">
                   <button
                     type="button"
-                    onClick={onStartGame}
-                    disabled={players.length < 2}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-b from-amber-400 via-yellow-400 to-orange-500 hover:from-yellow-300 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c] active:translate-y-1 border-3 border-white transition-all ring-4 ring-amber-300/60"
+                    onClick={() => {
+                      if (players.length < 2) {
+                        onAddBot?.();
+                        setTimeout(() => onStartGame?.(), 150);
+                      } else {
+                        onStartGame?.();
+                      }
+                    }}
+                    className="w-full py-4 rounded-2xl bg-gradient-to-b from-amber-400 via-yellow-400 to-orange-500 hover:from-yellow-300 hover:to-orange-400 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c] active:translate-y-1 border-3 border-white transition-all ring-4 ring-amber-300/60"
                   >
                     <Play className="w-5 h-5 fill-slate-950" />
-                    <span>Iniciar Partida ({players.length}/4 Jogadores)</span>
+                    <span>{players.length < 2 ? 'Iniciar Partida com Robô' : `Iniciar Partida (${players.length}/4 Jogadores)`}</span>
                   </button>
                   {players.length < 2 && (
                     <div className="text-[11px] text-amber-900 font-bold text-center">

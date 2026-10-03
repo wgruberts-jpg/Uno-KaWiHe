@@ -82,7 +82,7 @@ export interface RoomData {
   id: string;
   creatorName?: string;
   settings: RoomSettings;
-  status: 'waiting' | 'playing' | 'ended';
+  status: 'waiting' | 'playing' | 'paused' | 'ended';
   players: InternalPlayer[];
   deck: Card[];
   discardPile: Card[];
