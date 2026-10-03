@@ -22,11 +22,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const [pendingRoom, setPendingRoom] = useState<string | null>(null);
+
   useEffect(() => {
     // Check if invite code was passed in URL query param: ?invite=@XXXX
-    const urlParam = new URLSearchParams(window.location.search).get('invite');
-    if (urlParam) {
-      let code = urlParam.trim().toUpperCase();
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteParam = urlParams.get('invite');
+    const roomParam = urlParams.get('room');
+
+    if (roomParam) {
+      setPendingRoom(roomParam.toUpperCase());
+    }
+
+    if (inviteParam) {
+      let code = inviteParam.trim().toUpperCase();
       if (!code.startsWith('@')) code = '@' + code;
       setInviteCode(code);
       setTab('register');
@@ -101,7 +110,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                 Conta Central KaWiHe
               </h3>
               <p className="text-[11px] text-slate-500 font-bold">
-                Acesso aos jogos e painéis
+                Acesso exclusivo por convite
               </p>
             </div>
           </div>
@@ -114,6 +123,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Room Invitation Banner */}
+        {pendingRoom && (
+          <div className="mt-3 p-3 bg-amber-50 border-2 border-amber-300 rounded-2xl flex items-center gap-2.5 shadow-sm">
+            <div className="w-8 h-8 rounded-xl bg-amber-400 flex items-center justify-center text-slate-950 font-black text-base shrink-0 shadow-sm">
+              🎮
+            </div>
+            <div className="text-left leading-tight">
+              <div className="text-[10px] font-black uppercase text-amber-900">
+                Convite para Sala
+              </div>
+              <div className="text-xs font-black text-slate-950">
+                Entre com sua conta para acessar a Sala <span className="font-mono text-rose-600">#{pendingRoom}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tab switch */}
         <div className="grid grid-cols-2 gap-2 mt-4 p-1 bg-slate-100 rounded-2xl shrink-0">
