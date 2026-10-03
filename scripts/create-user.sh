@@ -5,8 +5,8 @@
 # Uso rápido:
 #   ./scripts/create-user.sh <usuario> <senha> [nome_exibicao] [avatar] [role] [pin_admin]
 # Exemplo:
-#   ./scripts/create-user.sh heitor 1234 "Heitor" 🦁 player
-#   ./scripts/create-user.sh admin2 segredo "Super Admin" 👑 admin 1234
+#   ./scripts/create-user.sh heitor 123456 "Heitor" 🦁 player
+#   ./scripts/create-user.sh admin2 segredo "Super Admin" 👑 admin 774007
 # ==============================================================================
 set -e
 

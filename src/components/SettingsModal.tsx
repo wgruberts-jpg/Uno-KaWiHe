@@ -91,7 +91,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setIsAdminUnlocked(true);
         setPinInput('');
       } else {
-        setPinError('PIN de Administrador incorreto! (Padrão: 1234)');
+        setPinError('PIN de Administrador incorreto!');
       }
     } catch {
       setPinError('Erro ao validar PIN.');
@@ -422,7 +422,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-2 pt-2">
                     <label className="block text-[11px] font-bold text-slate-700">
-                      Digite o PIN de Administrador (padrão: 1234):
+                      Digite o PIN de Administrador (Edinho):
                     </label>
                     <div className="flex gap-2">
                       <input

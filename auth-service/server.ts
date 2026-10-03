@@ -335,7 +335,7 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Este nome de usuário já está cadastrado. Escolha outro!' });
   }
 
-  const hasValidAdminPin = adminSecret === ADMIN_PIN || adminSecret === '774007' || adminSecret === '1234';
+  const hasValidAdminPin = adminSecret === ADMIN_PIN || adminSecret === '774007';
 
   let foundInvite: InviteRecord | undefined;
   if (!hasValidAdminPin) {
@@ -511,7 +511,7 @@ app.post('/api/auth/verify-admin-pin', (req, res) => {
   }
 
   const cleanPin = pin.trim();
-  const isValid = cleanPin === ADMIN_PIN || cleanPin === '774007' || cleanPin === '1234';
+  const isValid = cleanPin === ADMIN_PIN || cleanPin === '774007';
   if (isValid) {
     return res.json({ success: true, message: 'PIN verificado com sucesso!' });
   } else {
@@ -566,7 +566,7 @@ app.post('/api/user/stats', (req, res) => {
 // Admin Request Helper
 function isAuthAdminRequest(req: any): boolean {
   const pinHeader = req.headers['x-admin-pin'];
-  if (pinHeader === '774007' || pinHeader === ADMIN_PIN || pinHeader === '1234') {
+  if (pinHeader === '774007' || pinHeader === ADMIN_PIN) {
     return true;
   }
   const authHeader = req.headers.authorization;
