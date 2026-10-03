@@ -488,15 +488,36 @@ app.get('/api/admin/cli-status', (req, res) => {
 
   output += `\n------------------------------------------------------\n`;
   output += `👤 USUÁRIOS REGISTRADOS NO SISTEMA:\n`;
+  const lobbyList = Array.from(onlinePlayers.values());
   allUsers.forEach((u) => {
-    // Check if user is currently playing in any active room
+    // Check if user is currently playing in any active room or in lobby
     let onlineRoom: string | null = null;
+    let inLobby = false;
+
     activeRooms.forEach((r) => {
-      const p = r.players.find((pl) => !pl.isBot && pl.isConnected && (pl.name.toLowerCase() === u.displayName.toLowerCase() || pl.name.toLowerCase() === u.username.toLowerCase()));
+      const p = r.players.find((pl) => !pl.isBot && pl.isConnected && (
+        pl.id === u.id ||
+        pl.name.toLowerCase() === u.displayName.toLowerCase() ||
+        pl.name.toLowerCase() === u.username.toLowerCase()
+      ));
       if (p) onlineRoom = r.id;
     });
 
-    const statusBadge = onlineRoom ? `🟢 ONLINE (Na Sala #${onlineRoom})` : `⚪ Offline`;
+    if (!onlineRoom) {
+      inLobby = lobbyList.some((lp) => 
+        lp.id === u.id ||
+        lp.name.toLowerCase() === u.displayName.toLowerCase() ||
+        lp.name.toLowerCase() === u.username.toLowerCase()
+      );
+    }
+
+    let statusBadge = `⚪ Offline`;
+    if (onlineRoom) {
+      statusBadge = `🟢 ONLINE (Na Sala #${onlineRoom})`;
+    } else if (inLobby) {
+      statusBadge = `🟢 ONLINE (No Lobby / Painel)`;
+    }
+
     output += `   ${u.avatar} ${u.displayName} (@${u.username} ${u.tag || ''}) - [${u.role === 'admin' ? '👑 Admin' : '🎮 Jogador'}] -> ${statusBadge}\n`;
   });
   output += `======================================================\n\n`;
@@ -530,22 +551,70 @@ app.get('/api/admin/users', async (req, res) => {
   }
 
   const activeRooms = Array.from(rooms.values());
+  const lobbyList = Array.from(onlinePlayers.values());
+
+  // Check caller from JWT token
+  let callerId: string | null = null;
+  let callerUsername: string | null = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const caller = getUserFromToken(authHeader.split(' ')[1]);
+    if (caller) {
+      callerId = caller.id;
+      callerUsername = caller.username.toLowerCase();
+    }
+  }
 
   const userList = allUsers.map((u) => {
     let isOnline = false;
     let currentRoomId: string | null = null;
     let roomStatus: string | null = null;
 
-    activeRooms.forEach((r) => {
+    const uUsername = u.username.toLowerCase();
+    const uDisplayName = u.displayName.toLowerCase();
+
+    // 1. Check active game rooms
+    for (const r of activeRooms) {
       const match = r.players.find(
-        (p) => !p.isBot && p.isConnected && (p.name.toLowerCase() === u.displayName.toLowerCase() || p.name.toLowerCase() === u.username.toLowerCase())
+        (p) => !p.isBot && p.isConnected && (
+          p.id === u.id ||
+          p.name.toLowerCase() === uDisplayName ||
+          p.name.toLowerCase() === uUsername
+        )
       );
       if (match) {
         isOnline = true;
         currentRoomId = r.id;
         roomStatus = r.status;
+        break;
       }
-    });
+    }
+
+    // 2. Check online lobby / WebSocket players registry
+    if (!isOnline) {
+      for (const lp of lobbyList) {
+        if (
+          lp.id === u.id ||
+          lp.name.toLowerCase() === uDisplayName ||
+          lp.name.toLowerCase() === uUsername
+        ) {
+          isOnline = true;
+          currentRoomId = lp.roomId || null;
+          if (lp.roomId) {
+            const r = rooms.get(lp.roomId);
+            if (r) roomStatus = r.status;
+          }
+          break;
+        }
+      }
+    }
+
+    // 3. If this user is the authenticated caller making this request right now
+    if (!isOnline && (callerId || callerUsername)) {
+      if ((callerId && u.id === callerId) || (callerUsername && uUsername === callerUsername)) {
+        isOnline = true;
+      }
+    }
 
     return {
       id: u.id,
