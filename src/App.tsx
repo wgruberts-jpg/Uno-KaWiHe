@@ -737,6 +737,14 @@ export default function App() {
         onSelectAvatar={handleSelectAvatar}
         isHost={isHost}
         isInGame={gameState?.status === 'playing'}
+        onOpenAdminUsers={() => {
+          setAdminModalTab('users');
+          setIsAdminRoomsOpen(true);
+        }}
+        onOpenAdminRooms={() => {
+          setAdminModalTab('rooms');
+          setIsAdminRoomsOpen(true);
+        }}
       />
 
       {/* Oracle VM Deployment Manual */}

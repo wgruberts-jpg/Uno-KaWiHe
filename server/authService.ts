@@ -211,47 +211,59 @@ export async function registerUser(params: {
     return { success: false, error: `O nome de jogador "${cleanDisplayName}" já foi escolhido por outro usuário! Quem escolheu primeiro escolheu. Escolha outro nome.` };
   }
 
-  // Validate Invite Code (MANDATORY)
-  if (!inviteCode || typeof inviteCode !== 'string') {
-    return {
-      success: false,
-      error: '🔒 O Uno KaWiHe é privado! É obrigatório inserir um Código de Convite (@XXXX) válido fornecido pelo Administrador Edinho.',
-    };
-  }
+  const hasValidAdminPin = verifyAdminPin(adminSecret);
 
-  let cleanInvite = inviteCode.trim().toUpperCase();
-  if (!cleanInvite.startsWith('@')) {
-    cleanInvite = '@' + cleanInvite;
-  }
+  // Validate Invite Code (MANDATORY for regular players without Admin PIN)
+  if (!hasValidAdminPin) {
+    if (!inviteCode || typeof inviteCode !== 'string') {
+      return {
+        success: false,
+        error: '🔒 O Uno KaWiHe é privado! É obrigatório inserir um Código de Convite (@XXXX) válido fornecido pelo Administrador Edinho.',
+      };
+    }
 
-  const invites = getAllInvites();
-  const foundInvite = invites.find((i) => i.code.toUpperCase() === cleanInvite);
+    let cleanInvite = inviteCode.trim().toUpperCase();
+    if (!cleanInvite.startsWith('@')) {
+      cleanInvite = '@' + cleanInvite;
+    }
 
-  if (!foundInvite) {
-    return {
-      success: false,
-      error: `❌ Código de convite ${cleanInvite} não existe! Verifique as letras ou peça um novo ao Edinho.`,
-    };
-  }
+    const invites = getAllInvites();
+    const foundInvite = invites.find((i) => i.code.toUpperCase() === cleanInvite);
 
-  if (foundInvite.status === 'revoked') {
-    return { success: false, error: '❌ Este convite foi cancelado pelo Administrador.' };
-  }
+    if (!foundInvite) {
+      return {
+        success: false,
+        error: `❌ Código de convite ${cleanInvite} não existe! Verifique as letras ou peça um novo ao Edinho.`,
+      };
+    }
 
-  if (foundInvite.status === 'expired' || (foundInvite.expiresAt !== 'never' && new Date(foundInvite.expiresAt) < new Date())) {
-    foundInvite.status = 'expired';
+    if (foundInvite.status === 'revoked') {
+      return { success: false, error: '❌ Este convite foi cancelado pelo Administrador.' };
+    }
+
+    if (foundInvite.status === 'expired' || (foundInvite.expiresAt !== 'never' && new Date(foundInvite.expiresAt) < new Date())) {
+      foundInvite.status = 'expired';
+      saveInvites(invites);
+      return { success: false, error: '⏰ Este código de convite expirou! Peça um novo convite ao Administrador Edinho.' };
+    }
+
+    if (foundInvite.usedCount >= foundInvite.maxUses || foundInvite.status === 'used') {
+      foundInvite.status = 'used';
+      saveInvites(invites);
+      return { success: false, error: '⚠️ Este código de convite já foi utilizado o número máximo de vezes.' };
+    }
+
+    // Mark invite used
+    foundInvite.usedCount += 1;
+    foundInvite.usedBy.push({ username: cleanUsername, usedAt: new Date().toISOString() });
+    if (foundInvite.usedCount >= foundInvite.maxUses) {
+      foundInvite.status = 'used';
+    }
     saveInvites(invites);
-    return { success: false, error: '⏰ Este código de convite expirou! Peça um novo convite ao Administrador Edinho.' };
-  }
-
-  if (foundInvite.usedCount >= foundInvite.maxUses || foundInvite.status === 'used') {
-    foundInvite.status = 'used';
-    saveInvites(invites);
-    return { success: false, error: '⚠️ Este código de convite já foi utilizado o número máximo de vezes.' };
   }
 
   let assignedRole: UserRole = 'player';
-  if (role === 'admin' && verifyAdminPin(adminSecret)) {
+  if ((role === 'admin' || hasValidAdminPin) && hasValidAdminPin) {
     assignedRole = 'admin';
   }
 
@@ -275,14 +287,6 @@ export async function registerUser(params: {
 
   users.push(newUser);
   saveUsers(users);
-
-  // Mark invite used
-  foundInvite.usedCount += 1;
-  foundInvite.usedBy.push({ username: cleanUsername, usedAt: new Date().toISOString() });
-  if (foundInvite.usedCount >= foundInvite.maxUses) {
-    foundInvite.status = 'used';
-  }
-  saveInvites(invites);
 
   const token = generateToken(newUser);
   return {

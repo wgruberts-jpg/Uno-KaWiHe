@@ -32,6 +32,8 @@ interface SettingsModalProps {
   onSelectAvatar: (avatar: string) => void;
   isHost?: boolean;
   isInGame?: boolean;
+  onOpenAdminUsers?: () => void;
+  onOpenAdminRooms?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -43,6 +45,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSelectAvatar,
   isHost = true,
   isInGame = false,
+  onOpenAdminUsers,
+  onOpenAdminRooms,
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'admin'>('general');
   const [turnDuration, setTurnDuration] = useState<number>(currentSettings.turnDuration ?? 25);
@@ -458,6 +462,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span className="text-[10px] bg-emerald-200 text-emerald-900 font-black px-2 py-0.5 rounded-full border border-emerald-300">
                       Recursos Liberados
                     </span>
+                  </div>
+
+                  {/* Quick Admin Actions */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {onOpenAdminUsers && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenAdminUsers();
+                        }}
+                        className="p-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs rounded-2xl border-2 border-amber-500 flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-95 transition-all"
+                      >
+                        <span>👥</span>
+                        <span>Cadastrar / Gerenciar Usuários</span>
+                      </button>
+                    )}
+                    {onOpenAdminRooms && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenAdminRooms();
+                        }}
+                        className="p-3 bg-gradient-to-r from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 text-white font-black text-xs rounded-2xl border-2 border-slate-700 flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-95 transition-all"
+                      >
+                        <span>🛡️</span>
+                        <span>Painel Geral & Moderação</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Recurso 1: Ver Cartas dos Robôs (Modo Treino / Aprendizado) */}

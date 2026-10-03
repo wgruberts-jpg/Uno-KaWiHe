@@ -335,57 +335,62 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Este nome de usuário já está cadastrado. Escolha outro!' });
   }
 
-  // Validate Invite Code (MANDATORY for new users)
-  if (!inviteCode || typeof inviteCode !== 'string') {
-    return res.status(403).json({
-      success: false,
-      error: '🔒 O Uno KaWiHe é privado! É obrigatório inserir um Código de Convite (@XXXX) válido fornecido pelo Administrador Edinho.',
-    });
-  }
+  const hasValidAdminPin = adminSecret === ADMIN_PIN || adminSecret === '774007' || adminSecret === '1234';
 
-  let cleanInvite = inviteCode.trim().toUpperCase();
-  if (!cleanInvite.startsWith('@')) {
-    cleanInvite = '@' + cleanInvite;
-  }
+  let foundInvite: InviteRecord | undefined;
+  if (!hasValidAdminPin) {
+    // Validate Invite Code (MANDATORY for regular new users)
+    if (!inviteCode || typeof inviteCode !== 'string') {
+      return res.status(403).json({
+        success: false,
+        error: '🔒 O Uno KaWiHe é privado! É obrigatório inserir um Código de Convite (@XXXX) válido fornecido pelo Administrador Edinho.',
+      });
+    }
 
-  const invites = getAllInvites();
-  const foundInvite = invites.find((i) => i.code.toUpperCase() === cleanInvite);
+    let cleanInvite = inviteCode.trim().toUpperCase();
+    if (!cleanInvite.startsWith('@')) {
+      cleanInvite = '@' + cleanInvite;
+    }
 
-  if (!foundInvite) {
-    return res.status(403).json({
-      success: false,
-      error: `❌ Código de convite ${cleanInvite} não existe! Verifique as letras ou peça um novo ao Edinho.`,
-    });
-  }
+    const invites = getAllInvites();
+    foundInvite = invites.find((i) => i.code.toUpperCase() === cleanInvite);
 
-  if (foundInvite.status === 'revoked') {
-    return res.status(403).json({
-      success: false,
-      error: '❌ Este convite foi cancelado pelo Administrador.',
-    });
-  }
+    if (!foundInvite) {
+      return res.status(403).json({
+        success: false,
+        error: `❌ Código de convite ${cleanInvite} não existe! Verifique as letras ou peça um novo ao Edinho.`,
+      });
+    }
 
-  if (foundInvite.status === 'expired' || (foundInvite.expiresAt !== 'never' && new Date(foundInvite.expiresAt) < new Date())) {
-    foundInvite.status = 'expired';
-    saveInvites(invites);
-    return res.status(403).json({
-      success: false,
-      error: '⏰ Este código de convite expirou! Peça um novo convite ao Administrador Edinho.',
-    });
-  }
+    if (foundInvite.status === 'revoked') {
+      return res.status(403).json({
+        success: false,
+        error: '❌ Este convite foi cancelado pelo Administrador.',
+      });
+    }
 
-  if (foundInvite.usedCount >= foundInvite.maxUses || foundInvite.status === 'used') {
-    foundInvite.status = 'used';
-    saveInvites(invites);
-    return res.status(403).json({
-      success: false,
-      error: '⚠️ Este código de convite já foi utilizado o número máximo de vezes.',
-    });
+    if (foundInvite.status === 'expired' || (foundInvite.expiresAt !== 'never' && new Date(foundInvite.expiresAt) < new Date())) {
+      foundInvite.status = 'expired';
+      saveInvites(invites);
+      return res.status(403).json({
+        success: false,
+        error: '⏰ Este código de convite expirou! Peça um novo convite ao Administrador Edinho.',
+      });
+    }
+
+    if (foundInvite.usedCount >= foundInvite.maxUses || foundInvite.status === 'used') {
+      foundInvite.status = 'used';
+      saveInvites(invites);
+      return res.status(403).json({
+        success: false,
+        error: '⚠️ Este código de convite já foi utilizado o número máximo de vezes.',
+      });
+    }
   }
 
   // Determine role: Edinho or valid adminSecret matches ADMIN_PIN
   let assignedRole: 'admin' | 'player' = 'player';
-  if (role === 'admin' && (adminSecret === ADMIN_PIN || adminSecret === '774007' || adminSecret === '1234')) {
+  if ((role === 'admin' || hasValidAdminPin) && hasValidAdminPin) {
     assignedRole = 'admin';
   }
 
@@ -411,13 +416,19 @@ app.post('/api/auth/register', async (req, res) => {
   users.push(newUser);
   saveUsers(users);
 
-  // Mark invite as used
-  foundInvite.usedCount += 1;
-  foundInvite.usedBy.push({ username: cleanUsername, usedAt: new Date().toISOString() });
-  if (foundInvite.usedCount >= foundInvite.maxUses) {
-    foundInvite.status = 'used';
+  // Mark invite as used if provided
+  if (foundInvite) {
+    const invites = getAllInvites();
+    const inv = invites.find((i) => i.code === foundInvite?.code);
+    if (inv) {
+      inv.usedCount += 1;
+      inv.usedBy.push({ username: cleanUsername, usedAt: new Date().toISOString() });
+      if (inv.usedCount >= inv.maxUses) {
+        inv.status = 'used';
+      }
+      saveInvites(invites);
+    }
   }
-  saveInvites(invites);
 
   const token = jwt.sign(
     { id: newUser.id, username: newUser.username, displayName: newUser.displayName, role: newUser.role },
