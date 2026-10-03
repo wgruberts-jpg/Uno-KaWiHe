@@ -222,10 +222,23 @@ export const Lobby: React.FC<LobbyProps> = ({
 
         {/* Quick User Badge next to menu button on wide screens */}
         {currentUser && !isLeftMenuOpen && (
-          <div className="hidden md:flex items-center gap-1.5 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white shadow-md text-xs font-black">
+          <div className="hidden md:flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border-2 border-amber-300 shadow-md text-xs font-black">
             <span>{currentUser.avatar}</span>
             <span>{currentUser.displayName}</span>
-            {currentUser.role === 'admin' && <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded-md font-bold">Admin</span>}
+            {currentUser.role === 'admin' && (
+              <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded-md font-bold">
+                Admin
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onLogout}
+              className="ml-1 p-1 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[11px] font-black flex items-center gap-1 cursor-pointer transition-colors"
+              title="Deslogar da conta"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sair</span>
+            </button>
           </div>
         )}
       </div>
@@ -297,11 +310,15 @@ export const Lobby: React.FC<LobbyProps> = ({
 
               <button
                 type="button"
-                onClick={onLogout}
-                className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
-                title="Sair da Conta"
+                onClick={() => {
+                  setIsLeftMenuOpen(false);
+                  onLogout();
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 border border-rose-300 text-xs font-black flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
+                title="Deslogar e sair da conta"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sair</span>
               </button>
             </div>
           ) : (
@@ -448,10 +465,49 @@ export const Lobby: React.FC<LobbyProps> = ({
               </div>
             </div>
           </button>
+
+          {/* Sair da Conta (Logout) Button in list when logged in */}
+          {currentUser && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsLeftMenuOpen(false);
+                onLogout();
+              }}
+              className="w-full p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 border-2 border-rose-300 text-rose-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-rose-200 flex items-center justify-center text-rose-700">
+                  <LogOut className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-rose-900">Sair da Conta</div>
+                  <div className="text-[10px] text-rose-600 font-medium">Deslogar do perfil ({currentUser.displayName})</div>
+                </div>
+              </div>
+              <span className="text-[9px] bg-rose-200 text-rose-800 font-black px-2 py-0.5 rounded-full">
+                Deslogar
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Drawer Footer Collapse */}
-        <div className="p-3 border-t-2 border-slate-200 bg-slate-50">
+        <div className="p-3 border-t-2 border-slate-200 bg-slate-50 space-y-2">
+          {currentUser && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsLeftMenuOpen(false);
+                onLogout();
+              }}
+              className="w-full py-2.5 px-3 rounded-xl text-center text-white bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98 border border-white"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sair da Conta (Deslogar)</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setIsLeftMenuOpen(false)}

@@ -48,14 +48,43 @@ export default function App() {
   const [activeEmotes, setActiveEmotes] = useState<Record<string, ActiveEmote>>({});
 
   useEffect(() => {
-    auth.initSession().finally(() => {
+    auth.initSession().then((user) => {
+      if (!user) {
+        // Not authenticated: prompt login/invite modal
+        setIsAuthOpen(true);
+      }
+    }).finally(() => {
       setIsAuthChecking(false);
     });
+
     const unsub = auth.subscribe((user) => {
       setCurrentUser(user);
       if (user) {
         setCurrentAvatar(user.avatar);
         statsManager.initForUser(user.id, user.username);
+        setIsAuthOpen(false);
+
+        // If there is a pending room in URL when user authenticates, join it now!
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlRoom = urlParams.get('room');
+        const watchParam = urlParams.get('watch') || urlParams.get('mode');
+        const isWatchOpen = watchParam === 'open' || watchParam === 'reveal' || urlParams.get('reveal') === '1';
+        const isWatch = !!watchParam || urlRoom?.startsWith('@') || urlRoom?.startsWith('*') || urlRoom?.startsWith('$');
+
+        if (urlRoom && wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !roomIdRef.current) {
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'join_room',
+              roomId: urlRoom.toUpperCase(),
+              playerName: user.displayName,
+              avatar: user.avatar,
+              asSpectator: isWatch,
+              spectatorRevealCards: isWatchOpen || urlRoom.startsWith('$'),
+            })
+          );
+        }
+      } else {
+        setIsAuthOpen(true);
       }
     });
     return unsub;
@@ -108,6 +137,13 @@ export default function App() {
       const isWatchOpen = watchParam === 'open' || watchParam === 'reveal' || urlParams.get('reveal') === '1';
       const isWatch = !!watchParam || activeRoom?.startsWith('@') || activeRoom?.startsWith('*') || activeRoom?.startsWith('$');
 
+      const user = auth.getCurrentUser();
+      if (!user) {
+        // Must authenticate first with KaWiHe account / invite
+        setIsAuthOpen(true);
+        return;
+      }
+
       if (activeRoom && activePlayer && !isWatch) {
         socket.send(
           JSON.stringify({
@@ -117,14 +153,12 @@ export default function App() {
           })
         );
       } else if (activeRoom) {
-        const storedName = localStorage.getItem('uno_nickname') || 'Jogador 1';
-        const storedAvatar = localStorage.getItem('uno_avatar') || (isWatch ? '📺' : '🎮');
         socket.send(
           JSON.stringify({
             type: 'join_room',
             roomId: activeRoom.toUpperCase(),
-            playerName: storedName,
-            avatar: storedAvatar,
+            playerName: user.displayName,
+            avatar: user.avatar,
             existingPlayerId: activePlayer || undefined,
             asSpectator: isWatch,
             spectatorRevealCards: isWatchOpen || activeRoom.startsWith('$'),
