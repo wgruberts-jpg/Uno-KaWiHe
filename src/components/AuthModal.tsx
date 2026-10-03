@@ -63,8 +63,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           setErrorMsg(res.error || 'Credenciais inválidas.');
         }
       } else {
-        if (!inviteCode || inviteCode.trim().length < 2) {
-          setErrorMsg('O código de convite (@XXXX) é obrigatório!');
+        const isBypassingInvite = isAdminRegister && adminSecret.trim().length >= 3;
+        if (!isBypassingInvite && (!inviteCode || inviteCode.trim().length < 2)) {
+          setErrorMsg('O código de convite (@XXXX) é obrigatório para novos jogadores!');
           setIsLoading(false);
           return;
         }
@@ -75,8 +76,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           displayName: displayName || username,
           avatar: selectedAvatar,
           role: isAdminRegister ? 'admin' : 'player',
-          adminSecret: isAdminRegister ? adminSecret : undefined,
-          inviteCode: inviteCode.trim(),
+          adminSecret: isAdminRegister ? adminSecret.trim() : undefined,
+          inviteCode: inviteCode.trim() || undefined,
         });
 
         if (res.success && res.user) {
@@ -199,20 +200,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                   <Ticket className="w-3.5 h-3.5 text-amber-600" />
                   Código de Convite (@XXXX):
                 </span>
-                <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded font-black">
-                  OBRIGATÓRIO
+                <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${isAdminRegister ? 'bg-slate-200 text-slate-700' : 'bg-amber-400 text-slate-950'}`}>
+                  {isAdminRegister ? 'OPCIONAL COM PIN' : 'OBRIGATÓRIO'}
                 </span>
               </label>
               <input
                 type="text"
-                required
+                required={!isAdminRegister}
                 value={inviteCode}
                 onChange={(e) => {
                   let val = e.target.value.toUpperCase();
                   if (val.length > 0 && !val.startsWith('@')) val = '@' + val;
                   setInviteCode(val.slice(0, 5));
                 }}
-                placeholder="@XXXX (ex: @KWH1)"
+                placeholder={isAdminRegister ? "@XXXX (opcional com PIN)" : "@XXXX (ex: @KWH1)"}
                 maxLength={5}
                 className="w-full px-3 py-2 rounded-xl border-2 border-amber-400 focus:border-amber-600 focus:outline-none font-mono font-black text-sm bg-white uppercase tracking-widest text-slate-950"
               />

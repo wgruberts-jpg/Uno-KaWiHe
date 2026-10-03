@@ -1,0 +1,92 @@
+[
+  {
+    "id": "usr_edinho",
+    "username": "edinho",
+    "passwordHash": "$2b$10$hhA5bBEfcUCDCFgy2oQgv.Mdofi0JM/yzuz1RNYav8r5dPnDsQIT.",
+    "displayName": "Edinho",
+    "avatar": "👑",
+    "role": "admin",
+    "tag": "#0001",
+    "createdAt": "2026-10-03T14:09:08.935Z"
+  },
+  {
+    "id": "usr_will",
+    "username": "will",
+    "passwordHash": "$2b$10$Lid70N7MpqhFK5ldMpc9Pu/8oEKt1tzkgJEEhx.FoqTWGgYFY9npi",
+    "displayName": "Will",
+    "avatar": "🦸‍♂️",
+    "role": "player",
+    "tag": "#1001",
+    "createdAt": "2026-10-03T14:09:09.041Z"
+  },
+  {
+    "id": "usr_henry",
+    "username": "henry",
+    "passwordHash": "$2b$10$WiGnAOInlqWhBQbhfJ94def8yK8wwO3eCqc/37BkFEKsVmfJWxs/W",
+    "displayName": "Henry",
+    "avatar": "⚡",
+    "role": "player",
+    "tag": "#1002",
+    "createdAt": "2026-10-03T14:09:09.147Z"
+  },
+  {
+    "id": "usr_grazy",
+    "username": "grazy",
+    "passwordHash": "$2b$10$IV/naUPDUzHN1I7RVd.IbedO/mqZA8AtpIdEX1EdDluh2BhlY4tly",
+    "displayName": "Grazy",
+    "avatar": "🌸",
+    "role": "player",
+    "tag": "#1003",
+    "createdAt": "2026-10-03T14:09:09.251Z"
+  },
+  {
+    "id": "usr_milly",
+    "username": "milly",
+    "passwordHash": "$2b$10$PAYdxzV/gPx518GKuoIRjOm88Ayh9HVNcKZrx96dYQ5olCktKFqbS",
+    "displayName": "Milly",
+    "avatar": "🦄",
+    "role": "player",
+    "tag": "#1004",
+    "createdAt": "2026-10-03T14:09:09.356Z"
+  },
+  {
+    "id": "usr_aline",
+    "username": "aline",
+    "passwordHash": "$2b$10$PBNnugvOc9isDt04cd0QL.D2jwszpiPoxcdfJlmIBUtvh9eXX5BmO",
+    "displayName": "Aline",
+    "avatar": "🌺",
+    "role": "player",
+    "tag": "#1005",
+    "createdAt": "2026-10-03T14:09:09.460Z"
+  },
+  {
+    "id": "usr_guilherme",
+    "username": "guilherme",
+    "passwordHash": "$2b$10$/Tudm4A6kkVNgqnDjiKYW.tB0KKbIRXmq8467mgspAdPK5psqKU.O",
+    "displayName": "Guilherme",
+    "avatar": "🦁",
+    "role": "player",
+    "tag": "#1006",
+    "createdAt": "2026-10-03T14:09:09.566Z"
+  },
+  {
+    "id": "usr_1791043740645_rrya4",
+    "username": "arthur",
+    "passwordHash": "$2b$10$20tWwHXS7aI/4a0oVzYCkOZnpAzFGnxhXmIQGtvtFjGNG5F9HjEgi",
+    "displayName": "Arthur",
+    "avatar": "🦸‍♂️",
+    "role": "player",
+    "tag": "#2530",
+    "createdAt": "2026-10-03T16:09:00.645Z"
+  },
+  {
+    "id": "usr_1791045622799_tj3oq",
+    "username": "arthur2",
+    "passwordHash": "$2b$10$bJzGR4QhMQSvhpOCvVqh9ewTPj07/6wp3FwpeEEhkqpk2yHY/rHBi",
+    "displayName": "Arthur 2",
+    "avatar": "🦁",
+    "role": "player",
+    "tag": "#5067",
+    "createdAt": "2026-10-03T16:40:22.799Z"
+  }
+]

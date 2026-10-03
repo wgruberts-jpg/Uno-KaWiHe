@@ -43,6 +43,11 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
 // Auth Microservice Proxy or Fallback Local Handler
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL;
 
