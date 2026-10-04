@@ -858,8 +858,57 @@ app.post('/api/admin/broadcast', (req, res) => {
 
 // In-memory rooms repository
 const rooms = new Map<string, RoomData>();
-// Map client WebSocket to playerId and roomId
-const clientConnections = new Map<WebSocket, { roomId: string; playerId: string }>();
+
+interface ConnectionMeta {
+  socketId: string;
+  roomId: string;
+  playerId: string;
+  reconnectToken: string;
+}
+
+// Map client WebSocket to connection metadata
+const clientConnections = new Map<WebSocket, ConnectionMeta>();
+
+function generateReconnectToken(): string {
+  return `rtoken-${Math.random().toString(36).substring(2, 12)}-${Date.now()}`;
+}
+
+function registerClientConnection(ws: WebSocket, socketId: string, roomId: string, playerId: string): string {
+  const existing = clientConnections.get(ws);
+  const reconnectToken = existing?.reconnectToken || generateReconnectToken();
+  clientConnections.set(ws, {
+    socketId,
+    roomId,
+    playerId,
+    reconnectToken,
+  });
+  return reconnectToken;
+}
+
+// Idempotency window for message processing
+interface MessageCacheItem {
+  result: any;
+  expiresAt: number;
+}
+const processedMessageCache = new Map<string, MessageCacheItem>();
+
+function cleanMessageCache() {
+  const now = Date.now();
+  for (const [id, item] of processedMessageCache.entries()) {
+    if (item.expiresAt < now) {
+      processedMessageCache.delete(id);
+    }
+  }
+}
+setInterval(cleanMessageCache, 30000);
+
+function cacheMessageResult(messageId: string | undefined, resultPayload: any) {
+  if (!messageId) return;
+  processedMessageCache.set(messageId, {
+    result: resultPayload,
+    expiresAt: Date.now() + 60000, // 60s TTL
+  });
+}
 
 function generateRoomId(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -1465,9 +1514,52 @@ function updatePlayerRoom(ws: WebSocket, roomId: string | null) {
 }
 
 wss.on('connection', (ws: WebSocket) => {
+  const socketId = `soc-${Math.random().toString(36).substring(2, 10)}`;
+
   ws.on('message', (data: string) => {
     try {
       const msg: ClientMessage = JSON.parse(data.toString());
+
+      // 1. Protocol Version Check
+      if (msg.protocolVersion !== undefined && typeof msg.protocolVersion === 'number' && msg.protocolVersion < 1) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'action_rejected',
+              messageId: msg.messageId,
+              code: 'UNSUPPORTED_VERSION',
+              message: 'Unsupported protocol version.',
+            })
+          );
+        }
+        return;
+      }
+
+      // 2. Idempotency Check (if messageId is provided and already processed)
+      if (msg.messageId && processedMessageCache.has(msg.messageId)) {
+        const cached = processedMessageCache.get(msg.messageId);
+        if (cached && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(cached.result));
+        }
+        return;
+      }
+
+      // 3. Socket Identity Verification (PLAYER_MISMATCH)
+      const socketMeta = clientConnections.get(ws);
+      const msgPlayerId = (msg as any).playerId;
+      if (socketMeta && socketMeta.playerId && msgPlayerId && typeof msgPlayerId === 'string' && msgPlayerId !== socketMeta.playerId) {
+        if (ws.readyState === WebSocket.OPEN) {
+          const rejectMsg = {
+            type: 'action_rejected',
+            messageId: msg.messageId,
+            code: 'PLAYER_MISMATCH' as const,
+            message: 'Identity mismatch: cannot send actions on behalf of another player.',
+          };
+          ws.send(JSON.stringify(rejectMsg));
+          cacheMessageResult(msg.messageId, rejectMsg);
+        }
+        return;
+      }
 
       if (msg.type === 'register_lobby') {
         const pId = msg.playerId || `player-${Math.random().toString(36).substring(2, 9)}`;
@@ -1571,10 +1663,10 @@ wss.on('connection', (ws: WebSocket) => {
         }
 
         rooms.set(roomId, room);
-        clientConnections.set(ws, { roomId, playerId: hostPlayer.id });
+        const reconnectToken = registerClientConnection(ws, socketId, roomId, hostPlayer.id);
         updatePlayerRoom(ws, roomId);
 
-        ws.send(JSON.stringify({ type: 'room_joined', roomId, playerId: hostPlayer.id }));
+        ws.send(JSON.stringify({ type: 'room_joined', roomId, playerId: hostPlayer.id, reconnectToken }));
         startGame(room);
         return;
       }
@@ -1705,10 +1797,10 @@ wss.on('connection', (ws: WebSocket) => {
         };
 
         rooms.set(roomId, room);
-        clientConnections.set(ws, { roomId, playerId: hostPlayer.id });
+        const reconnectToken = registerClientConnection(ws, socketId, roomId, hostPlayer.id);
         updatePlayerRoom(ws, roomId);
 
-        ws.send(JSON.stringify({ type: 'room_joined', roomId, playerId: hostPlayer.id }));
+        ws.send(JSON.stringify({ type: 'room_joined', roomId, playerId: hostPlayer.id, reconnectToken }));
         broadcastLog(room, `Sala ${roomId} criada por ${hostPlayer.name}.`, 'system');
         syncRoomState(room);
         return;
@@ -1727,9 +1819,9 @@ wss.on('connection', (ws: WebSocket) => {
               room.players.forEach((p) => { p.isHost = false; });
               player.isHost = true;
             }
-            clientConnections.set(ws, { roomId: room.id, playerId: player.id });
+            const reconnectToken = registerClientConnection(ws, socketId, room.id, player.id);
             updatePlayerRoom(ws, room.id);
-            ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: player.id }));
+            ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: player.id, reconnectToken }));
             syncRoomState(room);
             return;
           } else if (room.status === 'waiting') {
@@ -1737,9 +1829,9 @@ wss.on('connection', (ws: WebSocket) => {
             const disc = room.players.find((p) => !p.isBot && !p.isConnected);
             if (disc) {
               disc.isConnected = true;
-              clientConnections.set(ws, { roomId: room.id, playerId: disc.id });
+              const reconnectToken = registerClientConnection(ws, socketId, room.id, disc.id);
               updatePlayerRoom(ws, room.id);
-              ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: disc.id }));
+              ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: disc.id, reconnectToken }));
               syncRoomState(room);
               return;
             }
@@ -1793,9 +1885,9 @@ wss.on('connection', (ws: WebSocket) => {
           }
 
           room.spectators.push(spectatorObj);
-          clientConnections.set(ws, { roomId: room.id, playerId: spectatorId });
+          const reconnectToken = registerClientConnection(ws, socketId, room.id, spectatorId);
 
-          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: spectatorId }));
+          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: spectatorId, reconnectToken }));
           broadcastLog(
             room,
             `📺 ${spectatorObj.name} conectou na transmissão (${canRevealCards ? 'Cartas Abertas' : 'Apenas Mesa'})!`,
@@ -1821,9 +1913,9 @@ wss.on('connection', (ws: WebSocket) => {
               room.players.forEach((p) => { p.isHost = false; });
               existing.isHost = true;
             }
-            clientConnections.set(ws, { roomId: room.id, playerId: existing.id });
+            const reconnectToken = registerClientConnection(ws, socketId, room.id, existing.id);
             updatePlayerRoom(ws, room.id);
-            ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: existing.id }));
+            ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: existing.id, reconnectToken }));
             broadcastLog(room, `🔄 ${existing.name} reconectou à sala!`, 'system');
             syncRoomState(room);
             return;
@@ -1842,9 +1934,9 @@ wss.on('connection', (ws: WebSocket) => {
             room.players.forEach((p) => { p.isHost = false; });
             discMatch.isHost = true;
           }
-          clientConnections.set(ws, { roomId: room.id, playerId: discMatch.id });
+          const reconnectToken = registerClientConnection(ws, socketId, room.id, discMatch.id);
           updatePlayerRoom(ws, room.id);
-          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: discMatch.id }));
+          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: discMatch.id, reconnectToken }));
           broadcastLog(room, `🔄 ${discMatch.name} reconectou à sala!`, 'system');
           syncRoomState(room);
           return;
@@ -1861,10 +1953,10 @@ wss.on('connection', (ws: WebSocket) => {
             isConnected: true,
           };
           room.spectators.push(spectatorObj);
-          clientConnections.set(ws, { roomId: room.id, playerId: spectatorId });
+          const reconnectToken = registerClientConnection(ws, socketId, room.id, spectatorId);
           updatePlayerRoom(ws, room.id);
 
-          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: spectatorId }));
+          ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: spectatorId, reconnectToken }));
           broadcastLog(room, `👀 ${spectatorObj.name} entrou na sala como Espectador (Aguardando próxima rodada)!`, 'system');
           syncRoomState(room);
           return;
@@ -1916,10 +2008,11 @@ wss.on('connection', (ws: WebSocket) => {
         };
 
         room.players.push(newPlayer);
-        clientConnections.set(ws, { roomId: room.id, playerId: newPlayer.id });
+        const reconnectToken = registerClientConnection(ws, socketId, room.id, newPlayer.id);
         updatePlayerRoom(ws, room.id);
 
-        ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: newPlayer.id }));
+        ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: newPlayer.id, reconnectToken }));
+
         broadcastLog(room, `${newPlayer.name} entrou na sala!`, 'system');
         syncRoomState(room);
         return;
@@ -2038,8 +2131,8 @@ wss.on('connection', (ws: WebSocket) => {
       if (!meta && 'roomId' in msg && 'playerId' in msg && msg.roomId && msg.playerId) {
         const room = rooms.get(String(msg.roomId).trim().toUpperCase());
         if (room && room.players.some((p) => p.id === msg.playerId && p.isConnected)) {
-          meta = { roomId: room.id, playerId: String(msg.playerId) };
-          clientConnections.set(ws, meta);
+          registerClientConnection(ws, socketId, room.id, String(msg.playerId));
+          meta = clientConnections.get(ws);
         }
       }
       if (!meta) return;

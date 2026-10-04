@@ -263,11 +263,42 @@ export interface VoicePeerState {
   joined: boolean;
 }
 
+export interface Envelope {
+  protocolVersion?: number;
+  messageId?: string;
+}
+
+export type ErrorCode =
+  | 'UNSUPPORTED_VERSION'
+  | 'NOT_AUTHENTICATED'
+  | 'PLAYER_MISMATCH'
+  | 'ROOM_NOT_FOUND'
+  | 'ROOM_FULL'
+  | 'NAME_TAKEN'
+  | 'NAME_RESERVED'
+  | 'NOT_IN_ROOM'
+  | 'NOT_HOST'
+  | 'GAME_NOT_ACTIVE'
+  | 'GAME_ALREADY_STARTED'
+  | 'NOT_YOUR_TURN'
+  | 'CARD_NOT_IN_HAND'
+  | 'CARD_NOT_PLAYABLE'
+  | 'COLOR_REQUIRED'
+  | 'INVALID_CHOSEN_COLOR'
+  | 'ALREADY_DREW'
+  | 'MUST_DRAW_FIRST'
+  | 'UNO_NOT_ALLOWED'
+  | 'UNO_NOT_CATCHABLE'
+  | 'UNO_SELF_CATCH'
+  | 'RATE_LIMITED'
+  | 'INVALID_PAYLOAD'
+  | 'FORBIDDEN';
+
 // WebSocket message protocols
-export type ClientMessage =
+export type ClientMessagePayload =
   | { type: 'create_room'; playerName: string; avatar: string; settings?: Partial<RoomSettings> }
   | { type: 'join_room'; roomId: string; playerName: string; avatar: string; existingPlayerId?: string; asSpectator?: boolean; spectatorRevealCards?: boolean }
-  | { type: 'sync_session'; roomId: string; playerId: string }
+  | { type: 'sync_session'; roomId: string; playerId: string; reconnectToken?: string }
   | { type: 'add_bot'; roomId: string; playerId?: string }
   | { type: 'fill_bots'; roomId: string; playerId?: string }
   | { type: 'start_solo'; playerName: string; avatar: string; botCount: number; settings?: Partial<RoomSettings> }
@@ -305,8 +336,10 @@ export type ClientMessage =
   | { type: 'send_lobby_chat'; playerId: string; name: string; avatar: string; text: string }
   | { type: 'send_lobby_invite'; playerId: string; name: string; avatar: string; roomId: string };
 
+export type ClientMessage = ClientMessagePayload & Envelope;
+
 export type ServerMessage =
-  | { type: 'room_joined'; roomId: string; playerId: string }
+  | { type: 'room_joined'; roomId: string; playerId: string; reconnectToken?: string }
   | { type: 'game_state'; state: GameState }
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'game_log'; log: GameLog }
@@ -324,4 +357,7 @@ export type ServerMessage =
   | { type: 'lobby_online_players'; players: Array<{ id: string; name: string; avatar: string; roomId: string | null }> }
   | { type: 'lobby_chat_message'; message: { id: string; name: string; avatar: string; text: string; timestamp: number } }
   | { type: 'lobby_invite_received'; invite: { fromName: string; fromAvatar: string; roomId: string; timestamp: number } }
-  | { type: 'error'; message: string };
+  | { type: 'action_ack'; messageId: string }
+  | { type: 'action_rejected'; messageId?: string; code: ErrorCode; message: string }
+  | { type: 'error'; message: string; code?: ErrorCode; messageId?: string };
+
