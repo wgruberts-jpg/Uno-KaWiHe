@@ -130,12 +130,18 @@ export class VoiceChatService {
       this.notifyLocalState();
       return true;
     } catch (err: any) {
-      console.error('Error accessing microphone:', err);
+      console.warn('Informação de acesso ao microfone:', err?.message || err);
       let msg = 'Não foi possível acessar o microfone.';
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Permissão de microfone negada. Autorize o microfone no navegador para falar.';
-      } else if (err.name === 'NotFoundError') {
-        msg = 'Nenhum microfone encontrado neste dispositivo.';
+      const errMsg = String(err?.message || '');
+      if (
+        err?.name === 'NotAllowedError' ||
+        err?.name === 'PermissionDeniedError' ||
+        errMsg.includes('not allowed') ||
+        errMsg.includes('Permission')
+      ) {
+        msg = 'Permissão de microfone não liberada pelo navegador ou ambiente. Libere o acesso ao microfone nas permissões do site.';
+      } else if (err?.name === 'NotFoundError' || errMsg.includes('not found')) {
+        msg = 'Nenhum microfone foi detectado neste dispositivo.';
       }
       this.notifyError(msg);
       return false;
@@ -409,7 +415,7 @@ export class VoiceChatService {
         offer: pc.localDescription,
       });
     } catch (err) {
-      console.error('Error creating offer for peer:', targetPlayerId, err);
+      console.warn('Informação ao criar oferta para peer:', targetPlayerId, err);
     }
   }
 
@@ -430,7 +436,7 @@ export class VoiceChatService {
         answer: pc.localDescription,
       });
     } catch (err) {
-      console.error('Error handling offer from peer:', fromPlayerId, err);
+      console.warn('Informação ao processar oferta de peer:', fromPlayerId, err);
     }
   }
 
@@ -441,7 +447,7 @@ export class VoiceChatService {
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
     } catch (err) {
-      console.error('Error handling answer from peer:', fromPlayerId, err);
+      console.warn('Informação ao processar resposta de peer:', fromPlayerId, err);
     }
   }
 
@@ -452,7 +458,7 @@ export class VoiceChatService {
     try {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
-      console.error('Error adding ICE candidate:', err);
+      console.warn('Informação ao adicionar candidato ICE:', err);
     }
   }
 
