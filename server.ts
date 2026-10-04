@@ -20,7 +20,10 @@ import {
   getNextPlayerIndex,
   InternalPlayer,
   isCardPlayable,
-  RoomData
+  RoomData,
+  advanceTurnEngine,
+  handleTimeoutEngine,
+  expireUnoVulnerability
 } from './server/unoEngine.js';
 import { EMOTES_MAP } from './src/utils/emotes.js';
 import {
@@ -1187,23 +1190,20 @@ function handleTurnTimeout(room: RoomData) {
   const player = room.players[room.currentTurnIndex];
   if (!player) return;
 
-  if (player.hasDrawnThisTurn) {
-    broadcastLog(room, `⏱️ Tempo esgotado para ${player.name}! Vez passada automaticamente.`, 'action', player.name);
-  } else {
+  const result = handleTimeoutEngine(room);
+  if (result.drewCard) {
     broadcastLog(room, `⏱️ Tempo esgotado para ${player.name}! Comprou 1 carta automaticamente.`, 'action', player.name);
-    const drawn = drawCardsFromDeck(room, 1);
-    player.hand.push(...drawn);
     broadcastSound(room.id, 'draw');
+  } else {
+    broadcastLog(room, `⏱️ Tempo esgotado para ${player.name}! Vez passada automaticamente.`, 'action', player.name);
   }
 
-  player.hasDrawnThisTurn = false;
-  advanceTurn(room, 1);
+  syncRoomState(room);
+  startTurnTimer(room);
 }
 
 function advanceTurn(room: RoomData, steps = 1) {
-  room.players[room.currentTurnIndex].hasDrawnThisTurn = false;
-  room.roundTurnCount = (room.roundTurnCount || 0) + 1;
-  room.currentTurnIndex = getNextPlayerIndex(room.currentTurnIndex, room.turnDirection, room.players.length, steps);
+  advanceTurnEngine(room, steps);
   syncRoomState(room);
   startTurnTimer(room);
 }
@@ -1392,9 +1392,14 @@ function finalizePlayCard(
       broadcastSound(room.id, 'uno');
     } else {
       room.unoVulnerablePlayerId = player.id;
+      room.unoVulnerableTurnCount = room.roundTurnCount;
     }
   } else if (player.hand.length !== 1) {
     player.hasCalledUno = false;
+    if (room.unoVulnerablePlayerId === player.id) {
+      room.unoVulnerablePlayerId = null;
+      delete room.unoVulnerableTurnCount;
+    }
   }
 
   // Handle card colors
@@ -1430,6 +1435,8 @@ function finalizePlayCard(
     const targetPlayer = room.players[targetIdx];
     const penaltyCards = drawCardsFromDeck(room, 2);
     targetPlayer.hand.push(...penaltyCards);
+    targetPlayer.cardsCount = targetPlayer.hand.length;
+    expireUnoVulnerability(room);
     logText = `${player.name} jogou +2! ${targetPlayer.name} comprou 2 cartas e perdeu a vez.`;
     broadcastSound(room.id, 'draw');
 
@@ -1446,6 +1453,8 @@ function finalizePlayCard(
     const targetPlayer = room.players[targetIdx];
     const penaltyCards = drawCardsFromDeck(room, 4);
     targetPlayer.hand.push(...penaltyCards);
+    targetPlayer.cardsCount = targetPlayer.hand.length;
+    expireUnoVulnerability(room);
     logText = `${player.name} jogou CORINGA +4! Nova cor: ${room.currentColor.toUpperCase()}. ${targetPlayer.name} comprou 4 cartas e perdeu a vez!`;
     soundToPlay = 'wild';
     broadcastSound(room.id, 'draw');

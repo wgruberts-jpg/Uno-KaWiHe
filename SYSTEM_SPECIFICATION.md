@@ -106,7 +106,7 @@ export interface ClientMessageEnvelope {
 Para manter o servidor livre de processamento de áudio pesado, a comunicação de voz utiliza uma arquitetura de **malha WebRTC (Full Mesh)**.
 
 ### 5.1 Sanitização de Origem nos Sinais
-Na retransmissão de mensagens de sinalização P2P (`webrtc_offer`, `webrtc_answer`, `webrtc_candidate`), o servidor **sempre sobrescreve o campo `fromPlayerId`** com o ID do jogador associado ao socket autenticado, impedindo falsificação de origem.
+Na retransmissão de mensagens de sinalização P2P (`rtc_offer`, `rtc_answer`, `rtc_ice_candidate`), o servidor **sempre sobrescreve o campo `fromPlayerId`** com o ID do jogador associado ao socket autenticado, impedindo falsificação de origem.
 
 ---
 
@@ -132,10 +132,12 @@ function atomicWriteFileSync(filePath: string, data: string): void {
 
 ## 7. Suíte de Testes Automatizados (Vitest)
 
-O motor de regras `unoEngine.ts` possui cobertura de testes unitários automatizados executados via `npm test` (`vitest run`).
+O motor de regras `unoEngine.ts` possui cobertura de **24 testes unitários automatizados** executados via `npm test` (`vitest run` ou `npx vitest run --reporter=verbose`).
 - **Composição do Baralho:** 108 cartas, verificação por cor e tipo.
-- **Jogabilidade (`isCardPlayable`):** Validação de regras de descarte, cores ativas e coringas.
+- **Jogabilidade (`isCardPlayable`):** Validação de regras de descarte, cores ativas e coringas (`wild` e `wild4`).
 - **Navegação de Turnos:** Sentido horário, anti-horário, saltos (`steps = 2`) e efeito de Reverso com 2 jogadores.
+- **Primeira Carta do Descarte:** Tratamento de cartas especiais neutras e re-saque de Wild4 inicial.
 - **Reciclagem do Descarte:** Preservação de cores de cartas coloridas e reset apenas de Coringas.
-- **Timer de Turno:** Expiração com e sem compra prévia.
-- **Pontuação:** Cálculo correto da soma das cartas dos perdedores ao vencer a rodada.
+- **Timer de Turno e Passar a Vez:** Exigência de compra prévia (`hasDrawnThisTurn === true`) e testes do temporizador (`handleTimeoutEngine`) com e sem compra.
+- **Vitória com Ação (+2/+4):** Permissão de vitória com cartas especiais como última carta e cálculo de pontos dos perdedores.
+- **Janela de UNO e Casos Limite:** Testes de Skip com UNO catch (jogador C PODE pegar A), +2 contra A com 2 jogadores (limpeza imediata de vulnerabilidade), bloqueio de auto-multa (`UNO_SELF_CATCH`) e expiração autoritativa no $N+2$.

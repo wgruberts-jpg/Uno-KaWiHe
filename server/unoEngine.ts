@@ -92,6 +92,7 @@ export interface RoomData {
   turnTimeLeft: number;
   winnerId: string | null;
   unoVulnerablePlayerId: string | null;
+  unoVulnerableTurnCount?: number;
   turnTimerInterval: NodeJS.Timeout | null;
   botTimerTimeout: NodeJS.Timeout | null;
   emptyRoomTimeout?: NodeJS.Timeout | null;
@@ -157,4 +158,52 @@ export function getNextPlayerIndex(currentIndex: number, direction: TurnDirectio
   let next = (currentIndex + direction * steps) % totalPlayers;
   if (next < 0) next += totalPlayers;
   return next;
+}
+
+export function expireUnoVulnerability(room: RoomData) {
+  if (room.unoVulnerablePlayerId) {
+    const vulnPlayer = room.players.find((p) => p.id === room.unoVulnerablePlayerId);
+    // If player no longer has 1 card or called UNO, clear vulnerability immediately
+    if (!vulnPlayer || vulnPlayer.hand.length !== 1 || vulnPlayer.hasCalledUno) {
+      room.unoVulnerablePlayerId = null;
+      delete room.unoVulnerableTurnCount;
+      return;
+    }
+    // If the round turn count passed the catch window
+    if (
+      typeof room.unoVulnerableTurnCount === 'number' &&
+      (room.roundTurnCount || 0) > room.unoVulnerableTurnCount + 1
+    ) {
+      room.unoVulnerablePlayerId = null;
+      delete room.unoVulnerableTurnCount;
+    }
+  }
+}
+
+export function advanceTurnEngine(room: RoomData, steps = 1) {
+  if (room.players[room.currentTurnIndex]) {
+    room.players[room.currentTurnIndex].hasDrawnThisTurn = false;
+  }
+  room.roundTurnCount = (room.roundTurnCount || 0) + 1;
+  expireUnoVulnerability(room);
+  room.currentTurnIndex = getNextPlayerIndex(
+    room.currentTurnIndex,
+    room.turnDirection,
+    room.players.length,
+    steps
+  );
+}
+
+export function handleTimeoutEngine(room: RoomData): { player: InternalPlayer; drewCard: boolean } {
+  const player = room.players[room.currentTurnIndex];
+  let drewCard = false;
+  if (!player.hasDrawnThisTurn) {
+    const drawn = drawCardsFromDeck(room, 1);
+    player.hand.push(...drawn);
+    player.cardsCount = player.hand.length;
+    drewCard = true;
+  }
+  player.hasDrawnThisTurn = false;
+  advanceTurnEngine(room, 1);
+  return { player, drewCard };
 }

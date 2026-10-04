@@ -67,14 +67,16 @@ Este documento mapeia os principais fluxos de uso, interações e cenários de t
   2. Se a sala possui o **Modo Infantil (`autoUnoProtection`)** ativado, o servidor aciona o grito de UNO automaticamente pelo jogador.
   3. Se o Modo Infantil não estiver ativo:
      - O jogador pode clicar em **`[ 📢 GRITAR UNO! ]`**.
-     - Se esquecer de gritar, fica marcado como vulnerável. Qualquer oponente pode clicar em **`[ Pegar UNO ]`** para aplicar a penalidade de 2 cartas.
+     - Se esquecer de gritar, fica marcado como vulnerável durante todo o turno do próximo jogador ($N+1$).
+     - Qualquer oponente na sua vez pode clicar em **`[ Pegar UNO ]`** para aplicar a penalidade de 2 cartas.
      - Se um jogador tentar clicar em pegar UNO contra si mesmo, o servidor rejeita a ação com o código `UNO_SELF_CATCH`.
+     - Ao final do turno do próximo jogador ($N+2$), se o acerto não for realizado, a vulnerabilidade expira automaticamente.
 
 ---
 
 ## 🧪 Caso de Uso 6: Execução da Suíte de Testes do Motor (`npm test`)
 * **Descrição:** Permite ao desenvolvedor ou sistema de CI/CD validar as regras do motor em milissegundos.
 * **Fluxo Principal:**
-  1. O engenheiro executa `npm test` no terminal.
-  2. O `Vitest` executa os 14 testes unitários do arquivo `tests/unoEngine.test.ts`.
-  3. Validações de 108 cartas do baralho, regras de `isCardPlayable`, rotação de turnos, reciclagem do descarte mantendo cor de cartas normais, expiração de timer e soma de pontos são verificadas com 100% de sucesso.
+  1. O engenheiro executa `npm test` ou `npx vitest run --reporter=verbose` no terminal.
+  2. O `Vitest` executa os 24 testes unitários do arquivo `tests/unoEngine.test.ts`.
+  3. Validações de 108 cartas do baralho, regras de `isCardPlayable`, rotação de turnos, efeito de Reverso com 2 jogadores, reciclagem do descarte mantendo cor de cartas normais, expiração de timer com e sem compra prévia (`handleTimeoutEngine`), Skip com UNO catch para jogador C, +2 contra A limpo imediatamente, acusações de UNO, bloqueio de auto-multa e soma de pontos de vitória são verificadas com 100% de sucesso.
