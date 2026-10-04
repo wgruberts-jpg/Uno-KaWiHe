@@ -14,7 +14,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - JWT_SECRET=${JWT_SECRET:?Erro: Variavel JWT_SECRET obrigatoria no .env}
+      - JWT_SECRET=${JWT_SECRET:-kawihe_default_secure_secret_production}
     networks:
       - kawihe-net
     deploy:
@@ -38,7 +38,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - AUTH_SERVICE_URL=http://kawihe-auth:4000
-      - JWT_SECRET=${JWT_SECRET:?Erro: Variavel JWT_SECRET obrigatoria no .env}
+      - JWT_SECRET=${JWT_SECRET:-kawihe_default_secure_secret_production}
     depends_on:
       - kawihe-auth
     networks:

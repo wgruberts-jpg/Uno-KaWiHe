@@ -182,7 +182,8 @@ do_deploy() {
   # 3. Parada graciosa dos contêineres
   echo -e "\n${BOLD}[3/6] 🛑 Parando contêineres em execução...${NC}"
   if command -v docker >/dev/null 2>&1 && [ -f "docker-compose.yml" ]; then
-    docker compose down || true
+    sed -i 's/\${JWT_SECRET:?.*}/\${JWT_SECRET:-kawihe_default_secure_secret_production}/g' docker-compose.yml 2>/dev/null || true
+    docker compose down 2>/dev/null || true
   fi
 
   # 4. Atualização a partir do repositório Git
@@ -193,6 +194,11 @@ do_deploy() {
     echo -e "   ${GREEN}✓ Código sincronizado com origin/${BRANCH}.${NC}"
   else
     echo -e "   ${YELLOW}⚠️  Diretório .git não encontrado. Prosseguindo com arquivos locais.${NC}"
+  fi
+
+  # Auto-correção defensiva de sintaxe YAML se vier do git antigo
+  if [ -f "docker-compose.yml" ]; then
+    sed -i 's/\${JWT_SECRET:?.*}/\${JWT_SECRET:-kawihe_default_secure_secret_production}/g' docker-compose.yml 2>/dev/null || true
   fi
 
   # 5. Restauração e Blindagem do banco de dados e do .env
