@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
@@ -10,7 +11,29 @@ const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const INVITES_FILE = path.join(DATA_DIR, 'invites.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'kawihe_jwt_super_secret_key_2026';
-const ADMIN_PIN = process.env.ADMIN_PIN || ;
+const ADMIN_PIN = process.env.ADMIN_PIN || '';
+
+function getInitialAdminPassword(): string {
+  if (process.env.INITIAL_ADMIN_PASSWORD && process.env.INITIAL_ADMIN_PASSWORD.trim().length > 0) {
+    return process.env.INITIAL_ADMIN_PASSWORD.trim();
+  }
+  const randomPass = crypto.randomBytes(12).toString('hex');
+  console.warn('=================================================================');
+  console.warn('🔑 [BOOTSTRAP DE SEGURANÇA] INITIAL_ADMIN_PASSWORD não configurada no .env.');
+  console.warn(`🔑 Senha temporária única gerada para o Admin (Edinho): ${randomPass}`);
+  console.warn('🔑 Altere sua senha imediatamente através do painel de administração!');
+  console.warn('=================================================================');
+  return randomPass;
+}
+
+function getInitialPlayerPassword(username: string): string {
+  if (process.env.INITIAL_PLAYER_PASSWORD && process.env.INITIAL_PLAYER_PASSWORD.trim().length > 0) {
+    return process.env.INITIAL_PLAYER_PASSWORD.trim();
+  }
+  const randomPass = crypto.randomBytes(8).toString('hex');
+  console.log(`ℹ️ [BOOTSTRAP] Senha inicial gerada para jogador ${username}: ${randomPass}`);
+  return randomPass;
+}
 
 // Standard CORS Headers
 app.use((_req, res, next) => {
@@ -50,19 +73,19 @@ interface InviteRecord {
 
 const INITIAL_USERS: Array<{
   username: string;
-  password: string;
+  getPassword: () => string;
   displayName: string;
   avatar: string;
   role: 'admin' | 'player';
   tag: string;
 }> = [
-  { username: 'edinho', password: , displayName: 'Edinho', avatar: '👑', role: 'admin', tag: '#0001' },
-  { username: 'will', password: '123456', displayName: 'Will', avatar: '🦸‍♂️', role: 'player', tag: '#1001' },
-  { username: 'henry', password: '123456', displayName: 'Henry', avatar: '⚡', role: 'player', tag: '#1002' },
-  { username: 'grazy', password: '123456', displayName: 'Grazy', avatar: '🌸', role: 'player', tag: '#1003' },
-  { username: 'milly', password: '123456', displayName: 'Milly', avatar: '🦄', role: 'player', tag: '#1004' },
-  { username: 'aline', password: '123456', displayName: 'Aline', avatar: '🌺', role: 'player', tag: '#1005' },
-  { username: 'guilherme', password: '123456', displayName: 'Guilherme', avatar: '🦁', role: 'player', tag: '#1006' },
+  { username: 'edinho', getPassword: () => getInitialAdminPassword(), displayName: 'Edinho', avatar: '👑', role: 'admin', tag: '#0001' },
+  { username: 'will', getPassword: () => getInitialPlayerPassword('will'), displayName: 'Will', avatar: '🦸‍♂️', role: 'player', tag: '#1001' },
+  { username: 'henry', getPassword: () => getInitialPlayerPassword('henry'), displayName: 'Henry', avatar: '⚡', role: 'player', tag: '#1002' },
+  { username: 'grazy', getPassword: () => getInitialPlayerPassword('grazy'), displayName: 'Grazy', avatar: '🌸', role: 'player', tag: '#1003' },
+  { username: 'milly', getPassword: () => getInitialPlayerPassword('milly'), displayName: 'Milly', avatar: '🦄', role: 'player', tag: '#1004' },
+  { username: 'aline', getPassword: () => getInitialPlayerPassword('aline'), displayName: 'Aline', avatar: '🌺', role: 'player', tag: '#1005' },
+  { username: 'guilherme', getPassword: () => getInitialPlayerPassword('guilherme'), displayName: 'Guilherme', avatar: '🦁', role: 'player', tag: '#1006' },
 ];
 
 function ensureDataDir() {
@@ -87,7 +110,7 @@ function ensureDataDir() {
       currentUsers.push({
         id: `usr_${initUser.username}`,
         username: initUser.username,
-        passwordHash: bcrypt.hashSync(initUser.password, 10),
+        passwordHash: bcrypt.hashSync(initUser.getPassword(), 12),
         displayName: initUser.displayName,
         avatar: initUser.avatar,
         role: initUser.role,
@@ -335,7 +358,7 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Este nome de usuário já está cadastrado. Escolha outro!' });
   }
 
-  const hasValidAdminPin = adminSecret === ADMIN_PIN || adminSecret === ;
+  const hasValidAdminPin = !!(adminSecret && ADMIN_PIN && adminSecret === ADMIN_PIN);
 
   let foundInvite: InviteRecord | undefined;
   if (!hasValidAdminPin) {
@@ -511,7 +534,7 @@ app.post('/api/auth/verify-admin-pin', (req, res) => {
   }
 
   const cleanPin = pin.trim();
-  const isValid = cleanPin === ADMIN_PIN || cleanPin === ;
+  const isValid = !!(cleanPin && ADMIN_PIN && cleanPin === ADMIN_PIN);
   if (isValid) {
     return res.json({ success: true, message: 'PIN verificado com sucesso!' });
   } else {
@@ -566,7 +589,7 @@ app.post('/api/user/stats', (req, res) => {
 // Admin Request Helper
 function isAuthAdminRequest(req: any): boolean {
   const pinHeader = req.headers['x-admin-pin'];
-  if (pinHeader ===  || pinHeader === ADMIN_PIN) {
+  if (ADMIN_PIN && pinHeader && pinHeader === ADMIN_PIN) {
     return true;
   }
   const authHeader = req.headers.authorization;

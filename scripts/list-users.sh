@@ -36,6 +36,6 @@ if [ -f "$USERS_FILE" ]; then
   "
 else
   echo "⚠️ Arquivo de banco de dados 'data/users.json' ainda não foi gerado."
-  echo "O usuário padrão inicial é: admin (senha: admin123)"
+  echo "O usuário inicial será gerado no primeiro boot da aplicação."
 fi
 echo "================================================================="

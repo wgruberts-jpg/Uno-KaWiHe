@@ -82,14 +82,11 @@ sudo netfilter-persistent save
       id: 'docker-auth-admin',
       title: '4. Contas Centralizadas e Senha de Administrador',
       desc: 'O sistema inclui o microserviço dedicado (kawihe-auth) que gerencia os usuários em banco persistente e protege as trapaças (cheats).',
-      command: `# Credenciais do Administrador Padrão:
-#   Usuário: admin
-#   Senha:   admin123
-#   PIN para Liberar Cheats: 1234
+      command: `# Credenciais e Variáveis de Ambiente no docker-compose.yml / .env:
+#   JWT_SECRET=sua_chave_secreta_jwt_longa_e_segura
+#   INITIAL_ADMIN_PASSWORD=sua_senha_segura_de_admin
 #
-# Para alterar a qualquer momento no docker-compose.yml:
-#   JWT_SECRET=sua_chave_secreta_aqui
-#   ADMIN_PIN=5678  <- Seu PIN mestre personalizado`,
+# O administrador gerencia os usuários com segurança via JWT com perfil admin.`,
     },
     {
       id: 'docker-multi-games',

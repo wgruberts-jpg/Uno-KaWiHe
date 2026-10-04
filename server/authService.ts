@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { UserProfile, UserRole, AuthResponse, InviteCode } from '../src/types/uno.js';
@@ -21,21 +22,43 @@ const INVITES_FILE = path.join(DATA_DIR, 'invites.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'kawihe_jwt_super_secret_key_2026';
 const ADMIN_PIN = process.env.ADMIN_PIN || '';
 
+function getInitialAdminPassword(): string {
+  if (process.env.INITIAL_ADMIN_PASSWORD && process.env.INITIAL_ADMIN_PASSWORD.trim().length > 0) {
+    return process.env.INITIAL_ADMIN_PASSWORD.trim();
+  }
+  const randomPass = crypto.randomBytes(12).toString('hex');
+  console.warn('=================================================================');
+  console.warn('🔑 [BOOTSTRAP DE SEGURANÇA] INITIAL_ADMIN_PASSWORD não configurada no .env.');
+  console.warn(`🔑 Senha temporária única gerada para o Admin (Edinho): ${randomPass}`);
+  console.warn('🔑 Altere sua senha imediatamente através do painel de administração!');
+  console.warn('=================================================================');
+  return randomPass;
+}
+
+function getInitialPlayerPassword(username: string): string {
+  if (process.env.INITIAL_PLAYER_PASSWORD && process.env.INITIAL_PLAYER_PASSWORD.trim().length > 0) {
+    return process.env.INITIAL_PLAYER_PASSWORD.trim();
+  }
+  const randomPass = crypto.randomBytes(8).toString('hex');
+  console.log(`ℹ️ [BOOTSTRAP] Senha inicial gerada para jogador ${username}: ${randomPass}`);
+  return randomPass;
+}
+
 const INITIAL_USERS: Array<{
   username: string;
-  password: string;
+  getPassword: () => string;
   displayName: string;
   avatar: string;
   role: UserRole;
   tag: string;
 }> = [
-  { username: 'edinho', password: , displayName: 'Edinho', avatar: '👑', role: 'admin', tag: '#0001' },
-  { username: 'will', password: '123456', displayName: 'Will', avatar: '🦸‍♂️', role: 'player', tag: '#1001' },
-  { username: 'henry', password: '123456', displayName: 'Henry', avatar: '⚡', role: 'player', tag: '#1002' },
-  { username: 'grazy', password: '123456', displayName: 'Grazy', avatar: '🌸', role: 'player', tag: '#1003' },
-  { username: 'milly', password: '123456', displayName: 'Milly', avatar: '🦄', role: 'player', tag: '#1004' },
-  { username: 'aline', password: '123456', displayName: 'Aline', avatar: '🌺', role: 'player', tag: '#1005' },
-  { username: 'guilherme', password: '123456', displayName: 'Guilherme', avatar: '🦁', role: 'player', tag: '#1006' },
+  { username: 'edinho', getPassword: () => getInitialAdminPassword(), displayName: 'Edinho', avatar: '👑', role: 'admin', tag: '#0001' },
+  { username: 'will', getPassword: () => getInitialPlayerPassword('will'), displayName: 'Will', avatar: '🦸‍♂️', role: 'player', tag: '#1001' },
+  { username: 'henry', getPassword: () => getInitialPlayerPassword('henry'), displayName: 'Henry', avatar: '⚡', role: 'player', tag: '#1002' },
+  { username: 'grazy', getPassword: () => getInitialPlayerPassword('grazy'), displayName: 'Grazy', avatar: '🌸', role: 'player', tag: '#1003' },
+  { username: 'milly', getPassword: () => getInitialPlayerPassword('milly'), displayName: 'Milly', avatar: '🦄', role: 'player', tag: '#1004' },
+  { username: 'aline', getPassword: () => getInitialPlayerPassword('aline'), displayName: 'Aline', avatar: '🌺', role: 'player', tag: '#1005' },
+  { username: 'guilherme', getPassword: () => getInitialPlayerPassword('guilherme'), displayName: 'Guilherme', avatar: '🦁', role: 'player', tag: '#1006' },
 ];
 
 function atomicWriteFileSync(filePath: string, data: string): void {
@@ -74,7 +97,7 @@ function ensureDataDir() {
       users.push({
         id: `usr_${init.username}`,
         username: init.username,
-        passwordHash: bcrypt.hashSync(init.password, 10),
+        passwordHash: bcrypt.hashSync(init.getPassword(), 12),
         displayName: init.displayName,
         avatar: init.avatar,
         role: init.role,

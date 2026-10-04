@@ -14,8 +14,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - JWT_SECRET=kawihe_jwt_super_secret_key_2026
-      - ADMIN_PIN=
+      - JWT_SECRET=${JWT_SECRET:?Erro: Variavel JWT_SECRET obrigatoria no .env}
     networks:
       - kawihe-net
     deploy:
@@ -39,8 +38,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - AUTH_SERVICE_URL=http://kawihe-auth:4000
-      - JWT_SECRET=kawihe_jwt_super_secret_key_2026
-      - ADMIN_PIN=
+      - JWT_SECRET=${JWT_SECRET:?Erro: Variavel JWT_SECRET obrigatoria no .env}
     depends_on:
       - kawihe-auth
     networks:
@@ -52,25 +50,6 @@ services:
           memory: 512M
         reservations:
           memory: 128M
-
-  # ==============================================================
-  # EXEMPLO: COMO CONECTAR UM SEGUNDO JOGO AO MESMO SERVIÇO DE AUTH
-  # ==============================================================
-  # truco-game:
-  #   build:
-  #     context: ../truco-game
-  #   container_name: truco-game
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3001:3000"
-  #   environment:
-  #     - NODE_ENV=production
-  #     - PORT=3000
-  #     - AUTH_SERVICE_URL=http://kawihe-auth:4000
-  #   depends_on:
-  #     - kawihe-auth
-  #   networks:
-  #     - kawihe-net
 
 volumes:
   auth-data:

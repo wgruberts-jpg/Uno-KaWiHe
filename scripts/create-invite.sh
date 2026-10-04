@@ -17,11 +17,11 @@ USES="${2:-1}"
 CUSTOM_CODE="$3"
 
 mkdir -p data
-INVITES_FILE="data/invites.json"
 
 node -e "
   const fs = require('fs');
   const path = require('path');
+  const crypto = require('crypto');
   const file = path.join(process.cwd(), 'data', 'invites.json');
   let invites = [];
   if (fs.existsSync(file)) {
@@ -36,7 +36,7 @@ node -e "
     const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
     let rand = '';
     for (let i = 0; i < 4; i++) {
-      rand += chars.charAt(Math.floor(Math.random() * chars.length));
+      rand += chars.charAt(crypto.randomInt(0, chars.length));
     }
     code = '@' + rand;
   }
@@ -57,7 +57,12 @@ node -e "
   };
 
   invites.unshift(newInvite);
-  fs.writeFileSync(file, JSON.stringify(invites, null, 2), 'utf-8');
+  const tempPath = file + '.tmp.' + Date.now();
+  const fd = fs.openSync(tempPath, 'w');
+  fs.writeSync(fd, JSON.stringify(invites, null, 2), 0, 'utf-8');
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+  fs.renameSync(tempPath, file);
 
   console.log('=================================================================');
   console.log('🎟️  NOVO CONVITE GERADO COM SUCESSO!');

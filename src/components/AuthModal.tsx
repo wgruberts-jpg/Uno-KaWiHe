@@ -319,7 +319,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                     type="password"
                     value={adminSecret}
                     onChange={(e) => setAdminSecret(e.target.value)}
-                    placeholder="Digite o PIN de admin ()"
+                    placeholder="Digite a Chave Mestre de Admin"
                     className="w-full px-3 py-1.5 rounded-xl border border-amber-300 bg-white font-mono text-xs focus:outline-none"
                   />
                 </div>

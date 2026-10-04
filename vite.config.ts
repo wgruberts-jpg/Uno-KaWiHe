@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -9,6 +10,11 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+      },
+    },
+    test: {
+      env: {
+        JWT_SECRET: 'test_jwt_secret_isolated_in_vitest_config_only_32bytes_long',
       },
     },
     server: {

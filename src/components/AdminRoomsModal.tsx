@@ -91,7 +91,6 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
     try {
       const headers = {
         Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
-        'x-admin-pin': ,
       };
 
       // Fetch Rooms
@@ -228,7 +227,6 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
-          'x-admin-pin': ,
         },
         body: JSON.stringify({ reason: 'Esta sala foi encerrada pelo Administrador Edinho.' }),
       });
@@ -255,7 +253,6 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
-          'x-admin-pin': ,
         },
         body: JSON.stringify({ targetPlayerId: playerId, reason: 'Expulso pelo Administrador Edinho.' }),
       });
@@ -279,7 +276,11 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
 
   const handleForceEndGame = (roomId: string) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'admin_force_end_game', roomId, adminSecret:  }));
+      ws.send(JSON.stringify({
+        type: 'admin_force_end_game',
+        roomId,
+        token: localStorage.getItem('kawihe_auth_token') || '',
+      }));
       setActionFeedback(`Partida da sala ${roomId} retornada ao Lobby.`);
       setTimeout(fetchAdminData, 500);
     }
@@ -300,7 +301,6 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
-            'x-admin-pin': ,
           },
           body: JSON.stringify({
             message: messageText.trim(),
@@ -319,7 +319,6 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
-            'x-admin-pin': ,
           },
           body: JSON.stringify({
             text: messageText.trim(),
@@ -350,7 +349,6 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
-          'x-admin-pin': ,
         },
         body: JSON.stringify({
           text: quickMsgText.trim(),
