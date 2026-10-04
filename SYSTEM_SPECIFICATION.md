@@ -1,4 +1,4 @@
-# 📄 ESPECIFICAÇÃO TÉCNICA E ARQUITETURA — UNO KAWIHE v2.0
+# 📄 ESPECIFICAÇÃO TÉCNICA E ARQUITETURA — UNO KAWIHE v2.1
 
 Este documento descreve detalhadamente a arquitetura, protocolos de comunicação, modelo de dados e decisões de implementação do **Uno KaWiHe**. Ele foi estruturado de forma a servir como um manual completo para recriação total e idêntica do sistema a partir do zero por qualquer engenheiro de software ou modelo de Inteligência Artificial.
 
@@ -36,7 +36,7 @@ O **Uno KaWiHe** é uma plataforma full-stack de jogo de cartas UNO multiplayer 
 │   ├── components/
 │   │   ├── Sidebar.tsx       # Menu Lateral Retrátil (Barra de Ícones / Expandido)
 │   │   ├── Lobby.tsx         # Lobby Central (Criação de Sala, Entrada e Treino)
-│   │   ├── GameBoard.tsx     # Tabuleiro de Jogo Ativo (Mesa, Jogadores, Baralho)
+│   │   ├── GameBoard.tsx     # Tabuleiro de Jogo Ativo (Mesa Radial, Jogadores, Baralho)
 │   │   ├── VoiceControls.tsx # Controles de Voz (Microfone, Som, Sair)
 │   │   ├── OpenRoomsModal.tsx# Explorador de Salas Abertas ao Vivo
 │   │   ├── InviteShareModal.tsx # Modal de Compartilhamento de Convites (WhatsApp)
@@ -52,9 +52,22 @@ O **Uno KaWiHe** é uma plataforma full-stack de jogo de cartas UNO multiplayer 
 
 ---
 
-## 3. Estruturas e Modelos de Dados (Types)
+## 3. Disposição do Tabuleiro e Oponentes (Mesa Radial)
 
-### 3.1 Perfis de Usuário e Segurança (`UserProfile`)
+O tabuleiro do jogo (`GameBoard.tsx`) utiliza uma disposição em arco semi-circular proporcional (Ângulos 0°, 90°, 180° e 270°):
+
+* **Jogador Principal (0° - Base):** Posicionado na parte inferior com leque de cartas dinâmico, controles de turno e botão de grito UNO.
+* **Oponente da Esquerda (90°):** Card vertical compacto na lateral esquerda.
+* **Oponente do Topo (180°):** Disposição especial horizontal lado a lado (*Side-by-Side*) com dimensões fixas confortáveis para evitar encolhimento automático em telas grandes:
+  * **Bloco Esquerdo:** Avatar circular de 40px, nome do jogador e pílula indicadora do número de cartas.
+  * **Bloco Direito:** Leque visual compacto das cartas da mão e indicador `+X`.
+* **Oponente da Direita (270°):** Card vertical compacto na lateral direita.
+
+---
+
+## 4. Estruturas e Modelos de Dados (Types)
+
+### 4.1 Perfis de Usuário e Segurança (`UserProfile`)
 ```typescript
 export type UserRole = 'admin' | 'player';
 
@@ -69,7 +82,7 @@ export interface UserProfile {
 }
 ```
 
-### 3.2 Códigos de Convite (`InviteCode`)
+### 4.2 Códigos de Convite (`InviteCode`)
 O acesso ao sistema exige convites iniciados com `@` (Ex: `@KWH1`), controlados pelo Administrador para garantir a privacidade da rede.
 ```typescript
 export interface InviteCode {
@@ -84,7 +97,7 @@ export interface InviteCode {
 }
 ```
 
-### 3.3 Estado da Partida (`GameState`)
+### 4.3 Estado da Partida (`GameState`)
 ```typescript
 export type CardColor = 'red' | 'blue' | 'green' | 'yellow' | 'wild';
 export type CardType = 'number' | 'skip' | 'reverse' | 'draw_two' | 'wild' | 'wild_draw_four';
@@ -130,11 +143,11 @@ export interface GameState {
 
 ---
 
-## 4. Protocolo de Comunicação WebSocket
+## 5. Protocolo de Comunicação WebSocket
 
 Toda a sincronização de eventos entre o servidor e os clientes é realizada via conexões WebSocket persistentes.
 
-### 4.1 Mensagens Enviadas pelo Cliente (`ClientMessage`)
+### 5.1 Mensagens Enviadas pelo Cliente (`ClientMessage`)
 ```typescript
 export type ClientMessage =
   | { type: 'create_room'; playerName: string; avatar: string; settings?: Partial<RoomSettings> }
@@ -164,7 +177,7 @@ export type ClientMessage =
   | { type: 'rtc_voice_state'; roomId: string; playerId: string; isMuted: boolean; isDeafened: boolean; isSpeaking: boolean; joined: boolean };
 ```
 
-### 4.2 Mensagens Enviadas pelo Servidor (`ServerMessage`)
+### 5.2 Mensagens Enviadas pelo Servidor (`ServerMessage`)
 ```typescript
 export type ServerMessage =
   | { type: 'room_joined'; roomId: string; playerId: string }
@@ -180,10 +193,10 @@ export type ServerMessage =
 
 ---
 
-## 5. Implementação de Voz P2P WebRTC Estrita
+## 6. Implementação de Voz P2P WebRTC Estrita
 Para manter o servidor livre de processamento de áudio pesado, a comunicação de voz utiliza uma arquitetura de **malha WebRTC (Full Mesh)**. Cada jogador estabelece conexões diretas individuais com todos os outros participantes ativos no canal de áudio da sala.
 
-### 5.1 Prevenção de Eco de Hardware e Vazamento de Áudio
+### 6.1 Prevenção de Eco de Hardware e Vazamento de Áudio
 Para possibilitar testes com múltiplos aparelhos em proximidade física (ex: dois celulares lado a lado) e garantir isolamento, a implementação da classe `VoiceService` segue regras estritas de corte de áudio:
 
 1. **Ativação Segura do Microfone (`getUserMedia`):**
@@ -222,11 +235,11 @@ Para possibilitar testes com múltiplos aparelhos em proximidade física (ex: do
 
 ---
 
-## 6. Motor do Jogo UNO (`unoEngine.ts`)
+## 7. Motor do Jogo UNO (`unoEngine.ts`)
 
 O motor de jogo é responsável por gerenciar as regras oficiais do baralho e turnos, além da simulação de inteligência artificial de robôs (bots).
 
-### 6.1 Fluxo de IA dos Bots
+### 7.1 Fluxo de IA dos Bots
 * **Velocidade de Ação:** Configurável de `1000ms` a `3000ms`.
 * **Processo de Decisão:**
   1. O bot analisa suas cartas da mão.
@@ -242,7 +255,7 @@ O motor de jogo é responsável por gerenciar as regras oficiais do baralho e tu
 
 ---
 
-## 7. Controle de Unicidade de Nomes
+## 8. Controle de Unicidade de Nomes
 
 Para proteger contas de usuários cadastrados e manter a integridade visual da mesa de jogo:
 1. **No Cadastro:** O servidor Express confere se o `displayName` solicitado já existe em `data/users.json` (Case-Insensitive). Se sim, bloqueia o cadastro de nova conta com esse apelido.
@@ -252,7 +265,7 @@ Para proteger contas de usuários cadastrados e manter a integridade visual da m
 
 ---
 
-## 8. Persistência de Dados Baseada em Disco
+## 9. Persistência de Dados Baseada em Disco
 
 A persistência de dados é mantida de forma leve no diretório estruturado `/data`.
 
@@ -264,19 +277,20 @@ Para evitar corrupção de arquivos em escritas concorrentes, as rotinas de pers
 
 ---
 
-## 9. Instruções de Deploy e Execução de VM
+## 10. Procedimentos de Backup Local e Deploy em VM
 
-O projeto é empacotado para execução em qualquer ambiente Linux/Docker por meio de um arquivo Docker Compose padrão.
+O projeto possui fluxo padronizado de deploy e backup local de segurança na Máquina Virtual.
 
-### 9.1 Pré-requisitos
-* Porta `3000` aberta na VM (direcionada para o container Node).
-* Certificado SSL configurado (recomenda-se Nginx Reverse Proxy com Let's Encrypt para fornecer HTTPS obrigatório exigido por navegadores para liberar o microfone/WebRTC).
-
-### 9.2 Iniciar o Servidor
+### 10.1 Comando Único de Atualização e Backup Local na VM
 ```bash
-# Entrar no diretório do projeto
-cd ~/Uno-KaWiHe
-
-# Iniciar container reconstruindo pacotes
-docker compose up -d --build
+cd ~/Uno-KaWiHe && sudo chown -R $USER:$USER . && git tag -f -a backupanteslayout -m "Backup antes do novo layout" && mkdir -p ~/backups_kawihe && cp -r . ~/backups_kawihe/backup_$(date +%Y%m%d_%H%M%S) && git pull && docker compose up -d --build
 ```
+
+#### O que o comando realiza:
+1. **`cd ~/Uno-KaWiHe`**: Acessa o diretório raiz da aplicação na VM.
+2. **`sudo chown -R $USER:$USER .`**: Corrige permissões de arquivo para o usuário atual.
+3. **`git tag -f -a backupanteslayout`**: Cria/atualiza a tag local no Git.
+4. **`cp -r . ~/backups_kawihe/backup_...`**: Copia o código, repositório Git e pasta de dados para o diretório de backups local.
+5. **`git pull`**: Atualiza o repositório local com as alterações do repositório remoto.
+6. **`docker compose up -d --build`**: Recompila as imagens Docker e reinicia a aplicação.
+

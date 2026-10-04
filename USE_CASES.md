@@ -1,4 +1,4 @@
-# 📊 CASOS DE USO — UNO KAWIHE v2.0
+# 📊 CASOS DE USO — UNO KAWIHE v2.1
 
 Este documento mapeia os principais fluxos de uso, interações e cenários de testes do sistema **Uno KaWiHe**, detalhando as pré-condições, fluxos principais, cenários alternativos e comportamentos esperados.
 
@@ -7,7 +7,7 @@ Este documento mapeia os principais fluxos de uso, interações e cenários de t
 ## 👥 Atores do Sistema
 * **Jogador Visitante (Guest):** Usuário que joga sem registrar conta, utilizando apelido temporário que não colida com nomes registrados.
 * **Jogador Registrado (Player):** Usuário autenticado que acumula conquistas, troféus e estatísticas de carreira.
-* **Administrador (Admin - Edinho):** Usuário com privilégios de moderação total, visualização de painel de salas ativas e gerador de convites de cadastro.
+* **Administrador (Admin - Edinho):** Usuário com privilégios de moderação total, visualização de painel de salas ativas, gerador de convites de cadastro e executor de rotinas de backup da VM.
 
 ---
 
@@ -80,3 +80,16 @@ Este documento mapeia os principais fluxos de uso, interações e cenários de t
   3. Se houver uma sala travada ou com comportamento abusivo, o Admin pode forçar o fechamento daquela sala em tempo real com um clique.
   4. No painel de convites, o Admin cria novos códigos promocionais (ex: `@AMIGO1`, de uso único ou múltiplos usos) para liberar acesso a novos conhecidos.
   5. No painel de Deploy, o Admin consulta os comandos prontos para atualizações do servidor Docker e monitoramento de desempenho de rede na VM.
+
+---
+
+## 💾 Caso de Uso 7: Execução de Backup Local e Atualização na VM
+* **Descrição:** O Administrador executa a rotina de segurança local na VM antes de aplicar novas atualizações de layout ou funcionalidades.
+* **Fluxo Principal:**
+  1. O Administrador acessa o terminal da Máquina Virtual no diretório do projeto (`~/Uno-KaWiHe`).
+  2. Executa o comando em lote de atualização:
+     `cd ~/Uno-KaWiHe && sudo chown -R $USER:$USER . && git tag -f -a backupanteslayout -m "Backup antes do novo layout" && mkdir -p ~/backups_kawihe && cp -r . ~/backups_kawihe/backup_$(date +%Y%m%d_%H%M%S) && git pull && docker compose up -d --build`
+  3. O sistema ajusta as permissões de arquivo do projeto.
+  4. Cria uma tag local `backupanteslayout` no repositório Git da VM.
+  5. Copia integralmente o estado atual da aplicação, histórico do Git e pasta `data` para o diretório de backups local (`~/backups_kawihe/backup_...`).
+  6. Baixa a versão mais recente (`git pull`) e reconstrói os containers Docker (`docker compose up -d --build`).

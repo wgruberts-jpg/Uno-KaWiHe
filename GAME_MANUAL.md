@@ -1,6 +1,6 @@
-# 🃏 MANUAL DE JOGO — UNO KAWIHE v2.0
+# 🃏 MANUAL DE JOGO — UNO KAWIHE v2.1
 
-Bem-vindo ao **Uno KaWiHe**, o jogo de cartas mais divertido do mundo feito sob medida para brincar com a família, amigos e crianças em um ambiente seguro, privado e sem anúncios! Este manual explica passo a passo o funcionamento do jogo, o significado de cada carta, as regras oficiais aplicadas e as proteções especiais do nosso sistema.
+Bem-vindo ao **Uno KaWiHe**, o jogo de cartas mais divertido do mundo feito sob medida para brincar com a família, amigos e crianças em um ambiente seguro, privado e sem anúncios! Este manual explica passo a passo o funcionamento do jogo, o significado de cada carta, as regras oficiais aplicadas, a disposição visual da mesa e as proteções especiais do nosso sistema.
 
 ---
 
@@ -22,7 +22,16 @@ Você pode jogar uma carta da sua mão se ela corresponder a **pelo menos um** d
 
 ---
 
-## 🎨 3. Guia de Cartas Especiais
+## 📐 3. Disposição do Tabuleiro e Mesa de Jogo
+A mesa de jogo foi desenvolvida em formato radial curvo e proporcional, otimizada para telas de celular e monitores sem que nenhum elemento fique espremido:
+
+* **Sua Mão (Base - 0°):** Suas cartas ficam organizadas na parte inferior da tela, com indicação clara do seu turno, botões de ação e o grande botão de gritar **UNO!**.
+* **Oponente da Esquerda (90°) & Direita (270°):** Cards verticais compactos e bem posicionados nas laterais.
+* **Oponente do Topo (180°):** Disposição especial horizontal lado a lado (*Side-by-Side*), com dimensões sólidas e não-redutivas (avatar de 40px e cartas visíveis lado a lado) mantendo perfeita leitura mesmo ao expandir a tela.
+
+---
+
+## 🎨 4. Guia de Cartas Especiais
 
 | Carta | Nome da Carta | Efeito Prático no Jogo |
 | :---: | :--- | :--- |
