@@ -1,0 +1,1474 @@
+UNO KAWIHE v2.2 — CONTRATO TÉCNICO, DE COMPORTAMENTO E IMPLEMENTAÇÃO
+
+Status: Especificação normativa
+Base: Uno KaWiHe v2.1
+Objetivo: servir como contrato completo para análise, correção, evolução e reconstrução do sistema existente.
+
+    Regra fundamental: o código atualmente existente (unoEngine.ts, server.ts, authService.ts, voiceChat.ts e demais arquivos relevantes) deve ser inspecionado antes de qualquer alteração. Quando o comportamento real do código divergir deste documento, o agente de implementação deverá identificar a divergência e determinar, com base no objetivo de preservação do sistema, se deve atualizar o código ou ajustar a especificação. Nenhuma decisão importante deve ser tomada apenas por inferência.
+
+1. Objetivo do documento
+
+O Uno KaWiHe é uma plataforma multiplayer de UNO em tempo real, voltada para ambientes familiares e infantis.
+
+A v2.2 transforma a especificação arquitetural v2.1 em um contrato de comportamento, definindo:
+
+    autoridade do servidor;
+
+    modelo público e privado do estado;
+
+    regras do motor UNO;
+
+    ciclo de vida da partida;
+
+    protocolo WebSocket;
+
+    autenticação e identidade;
+
+    reconexão;
+
+    WebRTC;
+
+    persistência;
+
+    segurança;
+
+    limites;
+
+    Kids Mode;
+
+    critérios de aceitação.
+
+O objetivo não é obrigatoriamente refatorar a arquitetura existente.
+
+O objetivo prioritário é:
+
+    preservar o comportamento válido existente e eliminar ambiguidades que possam causar implementações divergentes.
+
+2. Princípios fundamentais
+2.1 Servidor autoritativo
+
+O servidor é a única autoridade sobre:
+
+    cartas;
+
+    mãos;
+
+    deck;
+
+    descarte;
+
+    turnos;
+
+    efeitos;
+
+    pontuação;
+
+    UNO;
+
+    vitória;
+
+    configurações;
+
+    identidade dos jogadores;
+
+    permissões;
+
+    salas.
+
+O cliente envia intenções, nunca alterações de estado.
+
+Exemplo:
+
+{
+  type: "play_card",
+  cardId: "blue-7-a"
+}
+
+e não:
+
+{
+  type: "update_game_state",
+  currentTurn: "player2"
+}
+
+2.2 O cliente nunca é autoridade
+
+O cliente não pode determinar:
+
+    seu próprio playerId;
+
+    sua quantidade de cartas;
+
+    sua pontuação;
+
+    seu turno;
+
+    a validade de uma carta;
+
+    sua condição de vitória;
+
+    quem é host;
+
+    quem deve receber penalidade.
+
+Toda informação enviada pelo cliente deve ser considerada não confiável.
+2.3 Identidade do socket
+
+O servidor deve associar cada WebSocket a uma identidade conhecida:
+
+interface Connection {
+  socketId: string;
+  userId?: string;
+  guestId?: string;
+  playerId?: string;
+  roomId?: string;
+}
+
+Se uma mensagem contiver playerId, o servidor não deve confiar nele.
+
+Caso seja diferente do playerId associado ao socket:
+
+PLAYER_MISMATCH
+
+3. Modelo de identidade
+
+Existem três conceitos distintos:
+
+User
+Session
+Room Player
+
+Um usuário cadastrado possui:
+
+userId
+
+Uma conexão autenticada possui:
+
+sessionId
+
+Um participante de uma sala possui:
+
+playerId
+
+Bots podem possuir playerId sem userId.
+
+Visitantes podem possuir guestId e playerId.
+
+O playerId não deve ser utilizado como segredo de reconexão.
+4. Estado público e privado
+4.1 Estado público
+
+O GameState enviado a todos não pode conter mãos privadas nem ordem interna do deck.
+
+export type PlayableColor =
+  | 'red'
+  | 'blue'
+  | 'green'
+  | 'yellow';
+
+export interface GameState {
+  roomId: string;
+  status: 'waiting' | 'playing' | 'ended';
+
+  players: Player[];
+
+  currentTurnPlayerId: string;
+  currentTurnIndex: number;
+
+  turnDirection: 1 | -1;
+  turnTimeLeft: number;
+
+  activeColor: PlayableColor;
+
+  currentType?: CardType;
+  currentValue?: number;
+
+  topDiscardCard: Card | null;
+
+  winnerId: string | null;
+
+  unoVulnerablePlayerId: string | null;
+  unoWindowExpiresAt: number | null;
+
+  deckCardsCount: number;
+
+  spectatorsCount: number;
+  spectatorCardsRevealed: boolean;
+}
+
+activeColor nunca pode ser wild.
+5. Estado privado
+
+Cada jogador recebe sua própria mão exclusivamente pelo socket correspondente.
+
+export interface HandState {
+  type: 'hand_state';
+  hand: Card[];
+  playableCardIds: string[];
+  canDraw: boolean;
+  canPassTurn: boolean;
+}
+
+O servidor calcula:
+
+playableCardIds
+
+O cliente apenas utiliza essa informação para a interface.
+
+O cliente não deve determinar independentemente quais cartas são jogáveis para validar uma ação.
+6. Espectadores
+
+Se:
+
+allowSpectators === true
+
+um espectador pode entrar sem participar do jogo.
+
+Se:
+
+spectatorCardsRevealed === true
+
+o servidor pode enviar:
+
+{
+  type: 'spectator_hands',
+  hands: Record<string, Card[]>
+}
+
+Esse estado deve ser enviado somente aos sockets autorizados de espectadores.
+
+Jogadores normais nunca recebem as mãos dos adversários.
+7. Modelo de cartas
+
+export type CardColor =
+  | 'red'
+  | 'blue'
+  | 'green'
+  | 'yellow'
+  | 'wild';
+
+export type CardType =
+  | 'number'
+  | 'skip'
+  | 'reverse'
+  | 'draw_two'
+  | 'wild'
+  | 'wild_draw_four';
+
+export interface Card {
+  id: string;
+  color: CardColor;
+  type: CardType;
+  value?: number;
+}
+
+Card.id deve permanecer estável durante toda a partida.
+8. Baralho
+
+O baralho padrão contém 108 cartas:
+Carta	Quantidade
+0	4
+1–9	72
+Skip	8
+Reverse	8
++2	8
+Wild	4
+Wild +4	4
+Total	108
+
+Cores:
+
+    red
+
+    blue
+
+    green
+
+    yellow
+
+Coringas:
+
+color = wild
+
+9. Embaralhamento
+
+O servidor é responsável pelo embaralhamento.
+
+Utilizar Fisher-Yates com fonte aleatória apropriada do servidor.
+
+Quando disponível, utilizar crypto.randomInt.
+
+Não expor a ordem do deck ao cliente.
+10. Início da partida
+
+A partida exige:
+
+mínimo: 2 jogadores
+máximo: RoomSettings.maxPlayers
+
+Cada jogador recebe 7 cartas.
+
+Depois:
+
+    o deck é preparado;
+
+    uma carta é colocada no descarte;
+
+    os efeitos iniciais são resolvidos;
+
+    o primeiro jogador efetivo é determinado;
+
+    o timer começa.
+
+Carta inicial +4
+
+Se a primeira carta for:
+
+wild_draw_four
+
+ela deve retornar ao deck, o deck deve ser embaralhado e outra carta deve ser retirada.
+Wild inicial
+
+Se a carta inicial for wild, a cor ativa precisa ser determinada de acordo com a regra definida pelo código/configuração atual.
+Skip inicial
+
+O primeiro jogador perde a vez.
+Reverse inicial
+
+A direção é invertida.
+
+Com dois jogadores, Reverse possui comportamento equivalente a Skip.
++2 inicial
+
+O jogador afetado compra 2 cartas e perde a vez.
+11. Cor ativa
+
+Carta colorida:
+
+activeColor = card.color
+
+Coringa:
+
+activeColor = chosenColor
+
+Portanto:
+
+topDiscardCard.color === 'wild'
+
+não significa:
+
+activeColor === 'wild'
+
+12. Validade das cartas
+
+Uma carta normal é jogável se:
+
+mesma cor
+OU
+mesmo tipo
+OU
+mesmo valor, quando for carta numérica
+
+Formalmente:
+
+function isCardPlayable(...)
+
+deve considerar:
+Número
+
+mesma cor
+OU
+mesmo valor
+
+Skip
+
+mesma cor
+OU
+top.type === skip
+
+Reverse
+
+mesma cor
+OU
+top.type === reverse
+
++2
+
+mesma cor
+OU
+top.type === draw_two
+
+Wild
+
+Sempre jogável.
+Wild +4
+
+Depende de:
+
+strictWildDrawFour
+
+Quando desligado:
+
+sempre jogável
+
+Quando ligado:
+
+não pode ser jogado se o jogador possuir
+uma carta da activeColor
+
+13. Escolha de cor
+
+Para:
+
+wild
+wild_draw_four
+
+chosenColor é obrigatório.
+
+Valores permitidos:
+
+red
+blue
+green
+yellow
+
+Para cartas normais:
+
+chosenColor
+
+deve ser omitido.
+14. Stack Draw
+
+Configuração:
+
+stackDraw: boolean
+
+Padrão:
+
+false
+
+Quando desligado:
+
+    +2 aplica +2 imediatamente;
+
+    +4 aplica +4 imediatamente.
+
+Quando ligado:
+
++2 → +2
++4 → +4
+
+acumulam a penalidade.
+
++2 e +4 não devem ser automaticamente considerados equivalentes, a menos que o código existente explicitamente implemente essa variante.
+15. Compra
+
+Estado interno:
+
+hasDrawnThisTurn: boolean
+
+No início do turno:
+
+false
+
+Ao comprar:
+
+true
+
+O jogador não pode comprar duas vezes no mesmo turno.
+16. Passar
+
+pass_turn só pode ocorrer depois de uma compra válida.
+
+Se:
+
+hasDrawnThisTurn === false
+
+a ação é rejeitada:
+
+MUST_DRAW_FIRST
+
+Após passar:
+
+hasDrawnThisTurn = false
+
+e o turno muda.
+17. Compra de carta jogável
+
+Se uma carta comprada for jogável, o jogador poderá:
+
+    jogar a carta;
+
+    ou passar.
+
+O comportamento exato de compra voluntária quando já existe carta jogável deve ser preservado do código atual.
+
+Se o produto adotar a regra configurável:
+
+mustPlayIfPossible
+
+ela deverá ser aplicada pelo servidor.
+18. Deck esgotado
+
+Quando não houver cartas suficientes:
+
+    manter a carta superior do descarte;
+
+    retirar o restante do descarte;
+
+    embaralhar;
+
+    transformar em novo deck;
+
+    continuar a operação.
+
+Coringas retornam ao deck como cartas físicas com:
+
+color = wild
+
+A activeColor pertence ao estado da mesa e não é gravada na carta.
+19. Regra UNO
+
+Estado:
+
+unoVulnerablePlayerId: string | null;
+unoWindowExpiresAt: number | null;
+
+Quando um jogador fica com uma carta:
+
+unoVulnerablePlayerId = playerId
+unoWindowExpiresAt = now + unoWindowMs
+
+Valor padrão proposto:
+
+unoWindowMs = 5000
+
+Esse valor deve ser confirmado contra o código existente.
+20. Call UNO
+
+call_uno deve ser processado pelo servidor.
+
+O jogador não pode declarar UNO em nome de outro jogador.
+
+Quando a declaração for válida:
+
+hasCalledUno = true
+unoVulnerablePlayerId = null
+unoWindowExpiresAt = null
+
+Se o comportamento atual suportar aviso antecipado com duas cartas, ele deve ser documentado e preservado.
+
+Caso contrário:
+
+call_uno só é válido com exatamente 1 carta.
+
+21. Catch UNO
+
+Outro jogador pode utilizar:
+
+catch_uno
+
+somente durante a janela válida.
+
+O jogador vulnerável não pode capturar a si próprio.
+
+Quando válido:
+
+target compra 2 cartas
+
+e:
+
+unoVulnerablePlayerId = null
+unoWindowExpiresAt = null
+
+Qualquer ação que avance o jogo pode encerrar a janela.
+22. Bots
+
+Bots devem utilizar o mesmo motor autoritativo usado pelos jogadores humanos.
+
+O bot não deve possuir uma implementação paralela das regras.
+
+Fluxo:
+
+    detectar turno;
+
+    analisar mão;
+
+    calcular cartas jogáveis;
+
+    escolher carta;
+
+    executar ação através do mesmo motor;
+
+    aplicar UNO;
+
+    continuar.
+
+Velocidade:
+
+1000–3000 ms
+
+de acordo com botSpeedMs.
+
+Chance proposta:
+
+85% → call UNO
+15% → permanece vulnerável
+
+Esses valores devem ser confirmados no código antes de serem considerados comportamento histórico.
+23. Fim da rodada
+
+Quando um jogador ficar sem cartas:
+
+status = ended
+winnerId = playerId
+
+Se a última carta possuir efeito de penalidade, o comportamento deve ser preservado de acordo com o código/variante adotada.
+
+Pontuação padrão proposta:
+
+number      → valor
+skip        → 20
+reverse     → 20
+draw_two    → 20
+wild        → 50
+wild_draw_4 → 50
+
+O vencedor recebe a soma das cartas restantes dos adversários.
+24. Pontuação
+
+Devem ser distinguidos:
+
+score da sessão
+estatísticas de carreira
+vitórias
+rodadas
+conquistas
+
+Player.score representa o score da sessão.
+
+stats.json representa estatísticas persistentes de carreira.
+25. Timer
+
+O servidor deve manter um deadline lógico:
+
+turnDeadline: number | null
+
+O cliente pode derivar:
+
+turnTimeLeft = deadline - currentTime
+
+Configuração:
+
+turnTimeLimit: number
+
+0 significa ilimitado.
+
+Ao expirar:
+
+comprar 1 carta
+encerrar turno
+
+sem permitir que o cliente determine o resultado.
+26. Envelope WebSocket
+
+Toda mensagem deve possuir:
+
+interface Envelope {
+  protocolVersion: 2;
+  messageId?: string;
+}
+
+Mensagens de ação devem possuir messageId.
+
+O servidor deve rejeitar versões incompatíveis:
+
+UNSUPPORTED_VERSION
+
+27. Idempotência
+
+O servidor deve manter uma janela de mensagens processadas.
+
+Exemplo:
+
+messageId
+→ resultado
+→ expiration
+
+Janela:
+
+60 segundos
+
+Se a mesma ação chegar novamente dentro da janela:
+
+    não executar novamente;
+
+    retornar o mesmo resultado.
+
+28. Mensagens do servidor
+
+Além das mensagens existentes:
+
+type ServerMessage =
+  | { type: 'game_state'; state: GameState }
+  | { type: 'hand_state'; hand: Card[]; playableCardIds: string[]; canDraw: boolean; canPassTurn: boolean }
+  | { type: 'action_ack'; messageId: string }
+  | { type: 'action_rejected'; messageId?: string; code: ErrorCode; message: string }
+  | { type: 'room_joined'; roomId: string; playerId: string; reconnectToken: string }
+  | ...
+
+29. Códigos de erro
+
+type ErrorCode =
+  | 'UNSUPPORTED_VERSION'
+  | 'NOT_AUTHENTICATED'
+  | 'PLAYER_MISMATCH'
+  | 'ROOM_NOT_FOUND'
+  | 'ROOM_FULL'
+  | 'NAME_TAKEN'
+  | 'NAME_RESERVED'
+  | 'NOT_IN_ROOM'
+  | 'NOT_HOST'
+  | 'GAME_NOT_ACTIVE'
+  | 'GAME_ALREADY_STARTED'
+  | 'NOT_YOUR_TURN'
+  | 'CARD_NOT_IN_HAND'
+  | 'CARD_NOT_PLAYABLE'
+  | 'COLOR_REQUIRED'
+  | 'INVALID_CHOSEN_COLOR'
+  | 'ALREADY_DREW'
+  | 'MUST_DRAW_FIRST'
+  | 'UNO_NOT_ALLOWED'
+  | 'UNO_NOT_CATCHABLE'
+  | 'UNO_SELF_CATCH'
+  | 'RATE_LIMITED'
+  | 'INVALID_PAYLOAD'
+  | 'FORBIDDEN';
+
+30. Validação de ações
+
+Toda mensagem deve passar por:
+
+parse
+↓
+schema validation
+↓
+authentication
+↓
+authorization
+↓
+room validation
+↓
+game validation
+↓
+state mutation
+↓
+broadcast
+
+Nenhuma alteração de estado deve ocorrer antes de todas as validações passarem.
+
+Uma ação rejeitada não altera o estado.
+31. create_room
+
+Permitido a qualquer conexão válida.
+
+Validar:
+
+    nome;
+
+    avatar;
+
+    settings;
+
+    limites;
+
+    permissões.
+
+32. join_room
+
+Validar:
+
+    sala existente;
+
+    capacidade;
+
+    nome;
+
+    identidade;
+
+    partida já iniciada;
+
+    permissão de espectador;
+
+    reconexão.
+
+33. start_game
+
+Somente host.
+
+Requisitos:
+
+status === waiting
+players >= 2
+
+34. kick_player
+
+Somente host.
+
+O alvo:
+
+    precisa estar na sala;
+
+    não pode ser o próprio host.
+
+35. transfer_host
+
+Somente host.
+
+O novo host deve ser:
+
+    humano;
+
+    participante da sala;
+
+    conectado.
+
+36. update_settings
+
+Somente host.
+
+Preferencialmente apenas durante:
+
+status === waiting
+
+Valores devem ser validados no servidor.
+37. Reconexão
+
+Ao entrar numa sala, o servidor gera:
+
+reconnectToken
+
+Esse token é secreto e não deve ser derivado do playerId.
+
+Se o socket cair:
+
+connected
+→ disconnected
+
+O jogador mantém:
+
+    assento;
+
+    mão;
+
+    score;
+
+    identidade;
+
+    posição na partida.
+
+A reconexão deve utilizar:
+
+sync_session
++
+reconnectToken
+
+e restaurar:
+
+game_state
++
+hand_state
+
+38. Grace period
+
+Valor proposto:
+
+60 segundos
+
+deve ser confirmado contra a implementação atual.
+
+Durante a desconexão:
+
+    o timer da partida continua;
+
+    o servidor continua sendo autoridade;
+
+    a reconexão pode ocorrer sem perder a mão.
+
+Qualquer mecanismo de substituição automática por bot deve ser preservado apenas se existir no comportamento atual ou deliberadamente adotado como mudança de produto.
+39. Limpeza de salas
+
+Sala sem participantes humanos conectados pode ser destruída após período configurável.
+
+Valor proposto:
+
+5 minutos
+
+40. DisplayName
+
+Normalização:
+
+    Unicode NFKC;
+
+    remover espaços nas extremidades;
+
+    colapsar espaços consecutivos;
+
+    remover/rejeitar caracteres de controle;
+
+    remover/rejeitar zero-width;
+
+    tratar caracteres bidi perigosos;
+
+    comparação case-insensitive.
+
+Comprimento proposto:
+
+2–16 caracteres
+
+A mesma normalização deve ser utilizada:
+
+    cadastro;
+
+    login quando aplicável;
+
+    criação de sala;
+
+    entrada na sala.
+
+41. Unicidade
+
+Dentro da mesma sala:
+
+displayName normalizado é único
+
+Visitante não pode utilizar identidade visual reservada por conta cadastrada.
+
+O servidor deve impedir impersonação.
+42. RoomSettings
+
+export interface RoomSettings {
+  maxPlayers: number;
+  turnTimeLimit: number;
+  botSpeedMs: number;
+
+  stackDraw: boolean;
+  strictWildDrawFour: boolean;
+  mustPlayIfPossible: boolean;
+
+  kidsMode: boolean;
+
+  isPublic: boolean;
+  allowSpectators: boolean;
+
+  voiceEnabled: boolean;
+}
+
+Valores padrão devem ser definidos depois da conferência do código existente.
+
+Propostas iniciais:
+
+maxPlayers = 4
+turnTimeLimit = 30
+stackDraw = false
+strictWildDrawFour = false
+mustPlayIfPossible = false
+
+43. Chat
+
+interface ChatMessage {
+  id: string;
+  playerId: string;
+  playerName: string;
+  avatar: string;
+  text: string;
+  timestamp: number;
+}
+
+Limite:
+
+200 caracteres
+
+O servidor deve:
+
+    validar;
+
+    sanitizar;
+
+    limitar taxa;
+
+    aplicar política do Kids Mode.
+
+44. Kids Mode
+
+Kids Mode deve poder controlar:
+
+    chat;
+
+    emotes;
+
+    voz;
+
+    conteúdo inadequado;
+
+    interação de espectadores.
+
+A implementação deve priorizar:
+
+    linguagem apropriada;
+
+    minimização de exposição;
+
+    controles simples para responsáveis;
+
+    proteção de dados.
+
+As regras legais aplicáveis ao tratamento de dados de menores devem ser consideradas antes do lançamento público.
+45. Emotes
+
+Somente IDs presentes na lista oficial do servidor.
+
+Nunca aceitar HTML, SVG arbitrário ou conteúdo executável vindo do cliente.
+46. WebRTC
+
+A voz utiliza Full Mesh P2P.
+
+Para N participantes:
+
+N × (N - 1) / 2
+
+conexões potenciais.
+
+A implementação deve possuir limite explícito de participantes de voz.
+47. ICE
+
+A configuração deve contemplar:
+
+STUN
++
+TURN fallback
+
+quando necessário.
+
+A ausência de media server não significa garantia de que nenhuma mídia passe por infraestrutura de relay.
+48. Mute
+
+Ao mutar:
+
+localAudioTrack.enabled = false
+
+e, quando utilizado:
+
+sender.replaceTrack(null)
+
+A referência à faixa original deve ser preservada:
+
+localAudioTrack
+
+para permitir restauração.
+49. Unmute
+
+Ao desmutar:
+
+sender.replaceTrack(localAudioTrack)
+
+e:
+
+localAudioTrack.enabled = true
+
+Não solicitar novamente getUserMedia() se a faixa original ainda estiver válida.
+50. Silenciamento remoto
+
+Quando um jogador estiver mutado:
+
+remoteAudio.muted = true
+remoteAudio.volume = 0
+
+Quando voltar a transmitir:
+
+remoteAudio.muted = false
+remoteAudio.volume = configuredVolume
+
+51. Sinalização WebRTC
+
+O servidor apenas retransmite:
+
+rtc_offer
+rtc_answer
+rtc_ice_candidate
+rtc_voice_state
+
+Nunca confiar no fromPlayerId fornecido pelo cliente.
+
+O servidor determina o remetente através da conexão.
+
+O destinatário precisa pertencer à mesma sala.
+52. Limites
+
+Valores propostos:
+
+WS normal             8 KB
+RTC offer/answer      16 KB
+chat                  200 caracteres
+chat                  5 / 10 segundos
+emote                 1 / 2 segundos
+ICE                   60 / 10 segundos
+join inválido         10 / minuto / IP
+invite inválido       5 / 15 minutos / IP
+malformed messages    5 antes de fechar socket
+
+Esses valores devem ser configuráveis quando apropriado.
+53. Persistência
+
+Arquivos:
+
+data/users.json
+data/invites.json
+data/stats.json
+
+O diretório data não deve ser servido publicamente pelo Express.
+
+No Docker, deve existir volume persistente para os dados.
+54. Escrita atômica
+
+Não considerar:
+
+fs.writeFileSync(target)
+
+isoladamente como garantia de atomicidade.
+
+O mecanismo recomendado:
+
+write temp
+↓
+flush/fsync quando aplicável
+↓
+rename temp → target
+
+As escritas devem ser serializadas pelo mecanismo de persistência.
+55. Backup
+
+Código e dados devem ser tratados separadamente.
+Código
+
+Pode utilizar:
+
+Git tag
+backup de arquivos
+
+Dados
+
+Deve possuir:
+
+users.json
+invites.json
+stats.json
+
+em backup separado e protegido.
+
+Backups contendo passwordHash são dados sensíveis.
+
+Backups antigos devem possuir política de retenção.
+56. Deploy
+
+O deploy deve:
+
+    preservar data;
+
+    atualizar código;
+
+    reconstruir imagem;
+
+    reiniciar containers;
+
+    validar healthcheck;
+
+    verificar persistência.
+
+O processo não deve depender de copiar indiscriminadamente:
+
+.git
+node_modules
+logs
+segredos
+data
+
+como parte de um único backup.
+57. Observabilidade
+
+O servidor deve registrar eventos importantes sem registrar segredos:
+
+    criação de sala;
+
+    entrada;
+
+    saída;
+
+    início de partida;
+
+    ações rejeitadas;
+
+    término;
+
+    erros WebSocket;
+
+    falhas WebRTC;
+
+    autenticação;
+
+    administração.
+
+Nunca registrar:
+
+    senha;
+
+    passwordHash;
+
+    reconnectToken;
+
+    tokens de sessão;
+
+    conteúdo sensível desnecessário.
+
+58. Máquina de estados
+
+A partida deve possuir estados claramente definidos:
+
+waiting
+   ↓
+playing
+   ↓
+ended
+
+Não permitir:
+
+play_card
+
+quando:
+
+status !== playing
+
+59. Integridade transacional da jogada
+
+Uma ação deve ser processada como operação lógica indivisível:
+
+receber ação
+↓
+validar
+↓
+modificar mão
+↓
+modificar deck/discard
+↓
+aplicar efeito
+↓
+atualizar UNO
+↓
+atualizar turno
+↓
+atualizar timer
+↓
+verificar vitória
+↓
+emitir novo estado
+
+Nenhuma outra ação pode alterar o mesmo estado no meio desse processo.
+60. Critérios de aceitação
+
+A implementação será considerada conforme somente quando atender aos testes de contrato.
+UNO
+
+UNO-001
+Deck possui 108 cartas.
+
+UNO-002
+Cada jogador recebe 7 cartas.
+
+UNO-003
+Carta inválida é rejeitada.
+
+UNO-004
+Wild pode ser jogado.
+
+UNO-005
+Wild Draw Four respeita strictWildDrawFour.
+
+UNO-006
+Reverse de dois jogadores possui comportamento definido.
+
+UNO-007
+Pass sem compra é rejeitado.
+
+UNO-008
+Deck é reciclado sem perder a carta superior.
+
+UNO-009
+Jogador com uma carta pode ser colocado em estado vulnerável de UNO.
+
+UNO-010
+Catch UNO fora da janela é rejeitado.
+
+Segurança
+
+SEC-001
+Cliente não pode executar ação em nome de outro player.
+
+SEC-002
+Cliente não pode modificar GameState diretamente.
+
+SEC-003
+Cliente não pode descobrir mãos adversárias.
+
+SEC-004
+Somente host pode iniciar partida.
+
+SEC-005
+Somente host pode expulsar jogador.
+
+SEC-006
+Somente admin pode gerar/revogar convites.
+
+WebSocket
+
+WS-001
+Mensagem inválida não altera estado.
+
+WS-002
+Mensagem duplicada não executa duas vezes.
+
+WS-003
+messageId retorna resultado idempotente.
+
+WS-004
+Versão incompatível é rejeitada.
+
+WS-005
+hand_state só é entregue ao destinatário correto.
+
+Reconexão
+
+REC-001
+Jogador desconectado mantém a mão durante grace period.
+
+REC-002
+ReconnectToken não é igual ao playerId.
+
+REC-003
+Reconexão restaura game_state.
+
+REC-004
+Reconexão restaura hand_state.
+
+REC-005
+PeerConnections antigas são descartadas.
+
+WebRTC
+
+RTC-001
+Mute interrompe transmissão de áudio.
+
+RTC-002
+Unmute restaura a faixa original.
+
+RTC-003
+Sinalização só ocorre entre participantes da mesma sala.
+
+RTC-004
+Limites de payload são aplicados.
+
+61. Matriz de conformidade obrigatória
+
+Antes de modificar comportamento existente, o agente deve produzir internamente ou no relatório de implementação uma matriz semelhante a:
+Regra	v2.1	Código atual	v2.2	Ação
+Deck	108	?	108	confirmar
+Mão inicial	7	?	7	confirmar
+Max players	8	?	8	confirmar
+Reverse 2P	Skip	?	definido	confirmar
+Stack +2	off	?	off	confirmar
+Stack +4	off	?	off	confirmar
+Strict +4	off	?	off	confirmar
+Compra livre	?	?	?	confirmar
+UNO window	?	?	5s proposta	confirmar
+Turn timer	?	?	30s proposta	confirmar
+Reconnect grace	?	?	60s proposta	confirmar
+Bot takeover	?	?	somente se existente	confirmar
+
+Nenhuma linha marcada como desconhecida deve ser silenciosamente inventada.
+62. Regra para o agente de implementação
+
+O agente responsável pelo projeto deve seguir esta ordem:
+
+1. Inspecionar o repositório inteiro.
+2. Ler unoEngine.ts.
+3. Ler server.ts.
+4. Ler authService.ts.
+5. Ler types/uno.ts.
+6. Ler voiceChat.ts.
+7. Ler os componentes que consomem GameState.
+8. Mapear comportamento real.
+9. Comparar com este contrato.
+10. Identificar divergências.
+11. Preservar comportamento existente quando este for claramente intencional.
+12. Corrigir bugs de segurança/integridade sem depender do cliente.
+13. Implementar comportamentos explicitamente definidos pela v2.2.
+14. Criar/atualizar testes.
+15. Executar os testes.
+16. Só então realizar refatorações estruturais necessárias.
+
+63. Regra de prioridade
+
+Quando houver conflito entre fontes:
+
+Segurança/integridade
+        ↓
+comportamento deliberadamente definido na v2.2
+        ↓
+comportamento existente comprovadamente intencional
+        ↓
+v2.1
+        ↓
+inferência do agente
+
+O agente não deve inventar comportamento quando houver ambiguidade.
+
+Se uma decisão for necessária, deve:
+
+    identificar a ambiguidade;
+
+    verificar o código;
+
+    procurar testes;
+
+    verificar o uso no frontend;
+
+    escolher a alternativa mais compatível;
+
+    documentar a decisão.
+
+64. Resultado esperado
+
+Ao concluir a implementação, o agente deve conseguir afirmar:
+
+✓ Motor do jogo autoritativo
+✓ Estado público/privado separado
+✓ Protocolo WebSocket validado
+✓ Identidade vinculada ao socket
+✓ Reconexão segura
+✓ WebRTC protegido
+✓ Persistência segura
+✓ Backup preservando dados
+✓ Kids Mode coerente
+✓ Testes de contrato passando
+✓ Nenhuma regra crítica dependente de interpretação do cliente
+
+Minha recomendação para você
+
+Sim, eu entregaria exatamente uma especificação desse nível para o Gemini.
+
+E faria uma coisa adicional: não colocaria “faça em etapas” no documento. Deixaria o Gemini decidir internamente a ordem de implementação, como você falou.
+
+O contrato deve dizer o que o sistema precisa ser, não microgerenciar como o Gemini deve chegar lá.
+
+A única instrução processual que eu manteria é esta:
+
+    Antes de alterar o código, faça uma auditoria do comportamento existente e compare-o com a v2.2. Não assuma que os valores marcados como proposta correspondem ao comportamento atual.
