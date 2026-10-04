@@ -2444,7 +2444,9 @@ wss.on('connection', (ws: WebSocket) => {
 
         const drawn = drawCardsFromDeck(room, 1);
         player.hand.push(...drawn);
+        player.cardsCount = player.hand.length;
         player.hasDrawnThisTurn = true;
+        expireUnoVulnerability(room);
 
         broadcastLog(room, `${player.name} comprou 1 carta.`, 'action', player.name);
         broadcastSound(room.id, 'draw');
