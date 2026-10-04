@@ -19,7 +19,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const INVITES_FILE = path.join(DATA_DIR, 'invites.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'kawihe_jwt_super_secret_key_2026';
-const ADMIN_PIN = process.env.ADMIN_PIN || '774007';
+const ADMIN_PIN = process.env.ADMIN_PIN || '';
 
 const INITIAL_USERS: Array<{
   username: string;
@@ -193,8 +193,9 @@ export function toPublicProfile(user: UserRecord): UserProfile {
 
 export function verifyAdminPin(pin?: string): boolean {
   if (!pin) return false;
+  if (!process.env.ADMIN_PIN) return false; // Disabled if no ADMIN_PIN set in environment
   const cleanPin = pin.trim();
-  return cleanPin === ADMIN_PIN || cleanPin === '774007';
+  return cleanPin === process.env.ADMIN_PIN.trim();
 }
 
 export function getUserFromToken(token: string): UserProfile | null {

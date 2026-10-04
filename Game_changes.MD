@@ -80,6 +80,14 @@ Este documento descreve a auditoria técnica, tabela de comportamentos observado
      - Execução do Compilador Vite/React (`compile_applet`): Build aprovado com sucesso.
      - Atualização integrada e completa de todos os manuais e especificações do repositório (`GAME_MANUAL.md`, `SYSTEM_SPECIFICATION.md`, `USE_CASES.md`, `Game_changes.MD`).
 
+### 9. **Passo 9: Endurecimento de Segurança, Criptografia e Testes de Integração WebSocket [CONCLUÍDO]**
+   - **O que foi feito para resolver:**
+     - **Remoção de Usurpação de Socket:** Eliminado o fallback que permitia associar sockets não autenticados a `playerId`s ativos. Sockets agora só são vinculados via `join_room`, `start_solo` ou `reconnect_session` com token válido.
+     - **Remoção de PINs Hardcoded:** Os PINs `774007` e `1234` foram totalmente removidos. O acesso administrativo exige obrigatoriamente a variável de ambiente `process.env.ADMIN_PIN`.
+     - **Fortalecimento de Tokens:** Tokens de reconexão agora utilizam `crypto.randomUUID()` nativo para entropia criptográfica sólida.
+     - **Regra de UNO na Compra:** A oportunidade de acusar UNO encerra-se imediatamente quando o próximo jogador efetua a compra de carta (`draw_card`).
+     - **Suíte de Testes de Integração WebSocket:** Criação do arquivo `tests/serverIntegration.test.ts` com 5 testes automatizados de protocolo real via WebSocket (totalizando **29 testes automatizados** no projeto: 24 unitários + 5 de integração).
+
 ---
 
 ## ⚠️ Divergências Conhecidas & Pendências Pós-Deploy

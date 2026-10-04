@@ -132,7 +132,9 @@ function atomicWriteFileSync(filePath: string, data: string): void {
 
 ## 7. Suíte de Testes Automatizados (Vitest)
 
-O motor de regras `unoEngine.ts` possui cobertura de **24 testes unitários automatizados** executados via `npm test` (`vitest run` ou `npx vitest run --reporter=verbose`).
+O sistema possui uma cobertura de **29 testes automatizados** (24 unitários no `unoEngine.test.ts` e 5 de integração de protocolo em `serverIntegration.test.ts`) executados via `npm test` (`vitest run` ou `npx vitest run --reporter=verbose`).
+
+### A) Testes Unitários do Motor (`tests/unoEngine.test.ts` - 24 testes)
 - **Composição do Baralho:** 108 cartas, verificação por cor e tipo.
 - **Jogabilidade (`isCardPlayable`):** Validação de regras de descarte, cores ativas e coringas (`wild` e `wild4`).
 - **Navegação de Turnos:** Sentido horário, anti-horário, saltos (`steps = 2`) e efeito de Reverso com 2 jogadores.
@@ -140,4 +142,11 @@ O motor de regras `unoEngine.ts` possui cobertura de **24 testes unitários auto
 - **Reciclagem do Descarte:** Preservação de cores de cartas coloridas e reset apenas de Coringas.
 - **Timer de Turno e Passar a Vez:** Exigência de compra prévia (`hasDrawnThisTurn === true`) e testes do temporizador (`handleTimeoutEngine`) com e sem compra.
 - **Vitória com Ação (+2/+4):** Permissão de vitória com cartas especiais como última carta e cálculo de pontos dos perdedores.
-- **Janela de UNO e Casos Limite:** Testes de Skip com UNO catch (jogador C PODE pegar A), +2 contra A com 2 jogadores (limpeza imediata de vulnerabilidade), bloqueio de auto-multa (`UNO_SELF_CATCH`) e expiração autoritativa no $N+2$.
+- **Janela de UNO e Casos Limite:** Testes de Skip com UNO catch, +2 contra A com 2 jogadores, encerramento de janela ao comprar carta (`draw_card`), bloqueio de auto-multa (`UNO_SELF_CATCH`) e expiração autoritativa.
+
+### B) Testes de Integração de Protocolo WebSocket (`tests/serverIntegration.test.ts` - 5 testes)
+1. **Rejeição de Sockets Não Autenticados:** Impede a usurpação de identidade por sockets que forneçam `playerId` e `roomId` sem autenticação prévia (`UNAUTHENTICATED_SOCKET`).
+2. **Incompatibilidade de Versão:** Rejeita requisições com `protocolVersion` incompatível (`UNSUPPORTED_VERSION`).
+3. **Autenticação e Reconexão:** Garante a emissão e validação de `reconnectToken` seguro gerado com `crypto.randomUUID()`.
+4. **Validação de Ação (`MUST_DRAW_FIRST`):** Valida a rejeição do servidor quando o jogador tenta passar a vez sem comprar.
+5. **Bloqueio de Auto-Multa (`UNO_SELF_CATCH`):** Rejeita via WebSocket tentativas de aplicar penalidades de UNO a si próprio.

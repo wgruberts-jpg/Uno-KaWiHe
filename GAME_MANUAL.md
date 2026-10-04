@@ -18,7 +18,7 @@ Você pode jogar uma carta da sua mão se ela corresponder a **pelo menos um** d
 2. **Mesmo Número ou Símbolo:** A carta tem o mesmo número (0-9) ou o mesmo símbolo especial (Pular, Inverter, +2).
 3. **Coringa:** Cartas pretas especiais (Coringa comum ou Coringa +4) podem ser jogadas sobre **qualquer** cor ou número da mesa!
 
-> 💡 **Se você não tiver nenhuma carta jogável:** Você clica no baralho para **Comprar uma Carta**. Se a nova carta comprada for válida para jogar, você pode jogá-la imediatamente! Se não puder ou não quiser jogá-la, você pode clicar em *"Passar Turno"*.  
+> 💡 **Se você não tiver nenhuma carta jogável:** Você clica no baralho para **Comprar uma Carta**. Depois de comprar, se a carta for jogável, você pode jogá-la; caso contrário, deve passar clicando no botão *"Passar Turno"*.  
 > 🛡️ **Garantia de Regra:** O servidor não permite passar o turno sem antes comprar pelo menos uma carta (retornando a mensagem de segurança `MUST_DRAW_FIRST`).
 
 ---

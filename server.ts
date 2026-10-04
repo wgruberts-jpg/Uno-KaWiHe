@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   Card,
@@ -888,7 +889,7 @@ interface ConnectionMeta {
 const clientConnections = new Map<WebSocket, ConnectionMeta>();
 
 function generateReconnectToken(): string {
-  return `rtoken-${Math.random().toString(36).substring(2, 12)}-${Date.now()}`;
+  return `rtoken-${crypto.randomUUID()}`;
 }
 
 // Map (roomId + ':' + playerId) -> secret reconnectToken
@@ -2117,7 +2118,7 @@ wss.on('connection', (ws: WebSocket) => {
 
       // Global Admin WebSocket Messages
       if (msg.type === 'admin_get_rooms') {
-        const isAdm = msg.adminSecret === '774007' || msg.adminSecret === process.env.ADMIN_PIN || msg.adminSecret === '1234';
+        const isAdm = verifyAdminPin(msg.adminSecret);
         if (isAdm) {
           const list = Array.from(rooms.values()).map((r) => ({
             id: r.id,
@@ -2142,7 +2143,7 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'admin_close_room') {
-        const isAdm = msg.adminSecret === '774007' || msg.adminSecret === process.env.ADMIN_PIN || msg.adminSecret === '1234';
+        const isAdm = verifyAdminPin(msg.adminSecret);
         if (isAdm) {
           const targetRoom = rooms.get(msg.roomId?.toUpperCase());
           if (targetRoom) {
@@ -2158,7 +2159,7 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'admin_force_end_game') {
-        const isAdm = msg.adminSecret === '774007' || msg.adminSecret === process.env.ADMIN_PIN || msg.adminSecret === '1234';
+        const isAdm = verifyAdminPin(msg.adminSecret);
         if (isAdm) {
           const targetRoom = rooms.get(msg.roomId?.toUpperCase());
           if (targetRoom) {
@@ -2181,7 +2182,7 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'admin_global_broadcast') {
-        const isAdm = msg.adminSecret === '774007' || msg.adminSecret === process.env.ADMIN_PIN || msg.adminSecret === '1234';
+        const isAdm = verifyAdminPin(msg.adminSecret);
         if (isAdm && msg.message) {
           const announcement: ServerMessage = {
             type: 'global_announcement',
@@ -2197,14 +2198,7 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      let meta = clientConnections.get(ws);
-      if (!meta && 'roomId' in msg && 'playerId' in msg && msg.roomId && msg.playerId) {
-        const room = rooms.get(String(msg.roomId).trim().toUpperCase());
-        if (room && room.players.some((p) => p.id === msg.playerId && p.isConnected)) {
-          registerClientConnection(ws, socketId, room.id, String(msg.playerId));
-          meta = clientConnections.get(ws);
-        }
-      }
+      const meta = clientConnections.get(ws);
       if (!meta) return;
 
       const room = rooms.get(meta.roomId.toUpperCase());
@@ -2446,7 +2440,10 @@ wss.on('connection', (ws: WebSocket) => {
         player.hand.push(...drawn);
         player.cardsCount = player.hand.length;
         player.hasDrawnThisTurn = true;
-        expireUnoVulnerability(room);
+        
+        // Drawing a card ends the opportunity for the current player to catch a previous UNO
+        room.unoVulnerablePlayerId = null;
+        delete room.unoVulnerableTurnCount;
 
         broadcastLog(room, `${player.name} comprou 1 carta.`, 'action', player.name);
         broadcastSound(room.id, 'draw');
