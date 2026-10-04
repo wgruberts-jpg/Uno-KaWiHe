@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, CardColor, GameState, Player, ActiveEmote } from '../types/uno.js';
+import { Card, CardColor, GameState, Player, ActiveEmote, HandState } from '../types/uno.js';
 import { UnoCard } from './UnoCard.js';
+
 import { ColorPickerModal } from './ColorPickerModal.js';
 import { TableDirectionArrows } from './TableDirectionArrows.js';
 import { EmoteBubble } from './EmoteBubble.js';
@@ -41,7 +42,9 @@ import { sound } from '../services/sound.js';
 
 interface GameBoardProps {
   state: GameState;
+  handState?: HandState | null;
   myPlayerId: string;
+
   onPlayCard: (cardId: string, chosenColor?: CardColor) => void;
   onDrawCard: () => void;
   onPassTurn: () => void;
@@ -76,7 +79,9 @@ const currentColorNames: Record<CardColor, string> = {
 
 export const GameBoard: React.FC<GameBoardProps> = ({
   state,
+  handState,
   myPlayerId,
+
   onPlayCard,
   onDrawCard,
   onPassTurn,

@@ -38,6 +38,20 @@ const INITIAL_USERS: Array<{
   { username: 'guilherme', password: '123456', displayName: 'Guilherme', avatar: '🦁', role: 'player', tag: '#1006' },
 ];
 
+function atomicWriteFileSync(filePath: string, data: string): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tempPath = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const fd = fs.openSync(tempPath, 'w');
+  fs.writeSync(fd, data, 0, 'utf-8');
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+  fs.renameSync(tempPath, filePath);
+}
+
+
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -72,7 +86,7 @@ function ensureDataDir() {
   });
 
   if (updated || !fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+    atomicWriteFileSync(USERS_FILE, JSON.stringify(users, null, 2));
   }
 
   // Seed Invites
@@ -87,11 +101,21 @@ function ensureDataDir() {
       usedBy: [],
       status: 'active',
     };
-    fs.writeFileSync(INVITES_FILE, JSON.stringify([defaultInvite], null, 2), 'utf-8');
+    atomicWriteFileSync(INVITES_FILE, JSON.stringify([defaultInvite], null, 2));
   }
 }
 
+export function normalizeDisplayName(name: string): string {
+  if (!name) return '';
+  return name
+    .normalize('NFKC')
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 export function getAllUsers(): UserRecord[] {
+
   ensureDataDir();
   try {
     const raw = fs.readFileSync(USERS_FILE, 'utf-8');
@@ -103,7 +127,7 @@ export function getAllUsers(): UserRecord[] {
 
 export function saveUsers(users: UserRecord[]): void {
   ensureDataDir();
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+  atomicWriteFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
 export function getAllInvites(): InviteCode[] {
@@ -122,7 +146,7 @@ export function getAllInvites(): InviteCode[] {
     });
 
     if (updated) {
-      fs.writeFileSync(INVITES_FILE, JSON.stringify(invites, null, 2), 'utf-8');
+      atomicWriteFileSync(INVITES_FILE, JSON.stringify(invites, null, 2));
     }
     return invites;
   } catch {
@@ -132,8 +156,9 @@ export function getAllInvites(): InviteCode[] {
 
 export function saveInvites(invites: InviteCode[]): void {
   ensureDataDir();
-  fs.writeFileSync(INVITES_FILE, JSON.stringify(invites, null, 2), 'utf-8');
+  atomicWriteFileSync(INVITES_FILE, JSON.stringify(invites, null, 2));
 }
+
 
 export function generateToken(user: UserRecord): string {
   const payload = {

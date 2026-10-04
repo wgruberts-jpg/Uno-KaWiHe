@@ -367,14 +367,29 @@ function getAllStats(): Record<string, any> {
   return {};
 }
 
+function atomicWriteFileSync(filePath: string, data: string): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tempPath = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const fd = fs.openSync(tempPath, 'w');
+  fs.writeSync(fd, data, 0, 'utf-8');
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+  fs.renameSync(tempPath, filePath);
+}
+
+
 function saveStats(statsMap: Record<string, any>): void {
   ensureDataDir();
   try {
-    fs.writeFileSync(STATS_FILE, JSON.stringify(statsMap, null, 2), 'utf-8');
+    atomicWriteFileSync(STATS_FILE, JSON.stringify(statsMap, null, 2));
   } catch (e) {
     console.error('Erro ao salvar stats.json:', e);
   }
 }
+
 
 app.get('/api/user/stats', async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -873,9 +888,14 @@ function generateReconnectToken(): string {
   return `rtoken-${Math.random().toString(36).substring(2, 12)}-${Date.now()}`;
 }
 
-function registerClientConnection(ws: WebSocket, socketId: string, roomId: string, playerId: string): string {
-  const existing = clientConnections.get(ws);
-  const reconnectToken = existing?.reconnectToken || generateReconnectToken();
+// Map (roomId + ':' + playerId) -> secret reconnectToken
+const sessionReconnectTokens = new Map<string, string>();
+
+function registerClientConnection(ws: WebSocket, socketId: string, roomId: string, playerId: string, providedToken?: string): string {
+  const tokenKey = `${roomId}:${playerId}`;
+  let reconnectToken = providedToken || sessionReconnectTokens.get(tokenKey) || generateReconnectToken();
+  sessionReconnectTokens.set(tokenKey, reconnectToken);
+
   clientConnections.set(ws, {
     socketId,
     roomId,
@@ -884,6 +904,7 @@ function registerClientConnection(ws: WebSocket, socketId: string, roomId: strin
   });
   return reconnectToken;
 }
+
 
 // Idempotency window for message processing
 interface MessageCacheItem {
@@ -962,7 +983,9 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
     myHand: player ? player.hand : [],
     discardPileTop: room.discardPile.length > 0 ? room.discardPile[room.discardPile.length - 1] : null,
     currentColor: room.currentColor,
+    activeColor: room.currentColor === 'wild' ? 'red' : room.currentColor,
     currentTurnPlayerId: activePlayer ? activePlayer.id : '',
+
     turnDirection: room.turnDirection,
     turnTimeLeft: room.turnTimeLeft,
     turnDuration: room.settings.turnDuration,
@@ -985,8 +1008,27 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
 
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'game_state', state: clientState }));
+
+    if (player) {
+      const topCard = room.discardPile.length > 0 ? room.discardPile[room.discardPile.length - 1] : null;
+      const playableCardIds = topCard
+        ? player.hand.filter((card) => isCardPlayable(card, topCard, room.currentColor)).map((card) => card.id)
+        : player.hand.map((card) => card.id);
+
+      const isMyTurn = activePlayer && activePlayer.id === player.id;
+      const handStatePayload = {
+        type: 'hand_state' as const,
+        hand: player.hand,
+        playableCardIds,
+        canDraw: isMyTurn && !player.hasDrawnThisTurn && room.status === 'playing',
+        canPassTurn: isMyTurn && player.hasDrawnThisTurn && room.status === 'playing',
+      };
+
+      ws.send(JSON.stringify(handStatePayload));
+    }
   }
 }
+
 
 function syncRoomState(room: RoomData) {
   clientConnections.forEach((meta, ws) => {
@@ -1145,13 +1187,16 @@ function handleTurnTimeout(room: RoomData) {
   const player = room.players[room.currentTurnIndex];
   if (!player) return;
 
-  broadcastLog(room, `Tempo esgotado para ${player.name}! Comprou 1 carta automaticamente.`, 'action', player.name);
-  const drawn = drawCardsFromDeck(room, 1);
-  player.hand.push(...drawn);
-  player.hasDrawnThisTurn = false;
-  broadcastSound(room.id, 'draw');
+  if (player.hasDrawnThisTurn) {
+    broadcastLog(room, `⏱️ Tempo esgotado para ${player.name}! Vez passada automaticamente.`, 'action', player.name);
+  } else {
+    broadcastLog(room, `⏱️ Tempo esgotado para ${player.name}! Comprou 1 carta automaticamente.`, 'action', player.name);
+    const drawn = drawCardsFromDeck(room, 1);
+    player.hand.push(...drawn);
+    broadcastSound(room.id, 'draw');
+  }
 
-  // Advance turn
+  player.hasDrawnThisTurn = false;
   advanceTurn(room, 1);
 }
 
@@ -1812,6 +1857,21 @@ wss.on('connection', (ws: WebSocket) => {
         if (room) {
           const player = room.players.find((p) => p.id === msg.playerId);
           if (player) {
+            const storedToken = sessionReconnectTokens.get(`${room.id}:${player.id}`);
+            if (storedToken && msg.reconnectToken && msg.reconnectToken !== storedToken) {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(
+                  JSON.stringify({
+                    type: 'action_rejected',
+                    messageId: msg.messageId,
+                    code: 'NOT_AUTHENTICATED' as const,
+                    message: 'Token de reconexão de sessão inválido.',
+                  })
+                );
+              }
+              return;
+            }
+
             player.isConnected = true;
             const hasOtherOnlineHost = room.players.some((p) => p.isHost && !p.isBot && p.isConnected && p.id !== player.id);
             const isCreator = !!(room.creatorName && player.name.toLowerCase() === room.creatorName.toLowerCase());
@@ -1819,12 +1879,13 @@ wss.on('connection', (ws: WebSocket) => {
               room.players.forEach((p) => { p.isHost = false; });
               player.isHost = true;
             }
-            const reconnectToken = registerClientConnection(ws, socketId, room.id, player.id);
+            const reconnectToken = registerClientConnection(ws, socketId, room.id, player.id, msg.reconnectToken);
             updatePlayerRoom(ws, room.id);
             ws.send(JSON.stringify({ type: 'room_joined', roomId: room.id, playerId: player.id, reconnectToken }));
             syncRoomState(room);
             return;
-          } else if (room.status === 'waiting') {
+          }
+ else if (room.status === 'waiting') {
             // Check if there is an offline player slot that was disconnected
             const disc = room.players.find((p) => !p.isBot && !p.isConnected);
             if (disc) {
@@ -2384,9 +2445,16 @@ wss.on('connection', (ws: WebSocket) => {
 
       if (msg.type === 'pass_turn') {
         if (room.status !== 'playing') return;
-        if (room.players[room.currentTurnIndex].id !== player.id) return;
+        if (room.players[room.currentTurnIndex].id !== player.id) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'action_rejected', messageId: msg.messageId, code: 'NOT_YOUR_TURN' as const, message: 'Aguarde a sua vez de jogar!' }));
+          }
+          return;
+        }
         if (!player.hasDrawnThisTurn) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Você precisa comprar uma carta antes de passar a vez!' }));
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'action_rejected', messageId: msg.messageId, code: 'MUST_DRAW_FIRST' as const, message: 'Você precisa comprar uma carta antes de passar a vez!' }));
+          }
           return;
         }
 
@@ -2394,6 +2462,7 @@ wss.on('connection', (ws: WebSocket) => {
         advanceTurn(room, 1);
         return;
       }
+
 
       if (msg.type === 'call_uno') {
         if (room.status !== 'playing') return;
@@ -2411,6 +2480,19 @@ wss.on('connection', (ws: WebSocket) => {
 
       if (msg.type === 'catch_uno') {
         if (room.status !== 'playing') return;
+        if (msg.targetPlayerId === player.id) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'action_rejected',
+                messageId: msg.messageId,
+                code: 'UNO_SELF_CATCH' as const,
+                message: 'Você não pode aplicar a penalidades de UNO a si próprio.',
+              })
+            );
+          }
+          return;
+        }
         if (room.unoVulnerablePlayerId === msg.targetPlayerId) {
           const target = room.players.find((p) => p.id === msg.targetPlayerId);
           if (target && target.hand.length === 1 && !target.hasCalledUno) {
@@ -2424,6 +2506,7 @@ wss.on('connection', (ws: WebSocket) => {
         }
         return;
       }
+
 
       if (msg.type === 'send_chat') {
         const text = msg.text.trim();
@@ -2468,7 +2551,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(JSON.stringify({
               type: 'rtc_offer',
-              fromPlayerId: msg.fromPlayerId || player.id,
+              fromPlayerId: player.id,
               toPlayerId: targetPlayerId,
               offer: msg.offer,
             }));
@@ -2484,7 +2567,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(JSON.stringify({
               type: 'rtc_answer',
-              fromPlayerId: msg.fromPlayerId || player.id,
+              fromPlayerId: player.id,
               toPlayerId: targetPlayerId,
               answer: msg.answer,
             }));
@@ -2500,7 +2583,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(JSON.stringify({
               type: 'rtc_ice_candidate',
-              fromPlayerId: msg.fromPlayerId || player.id,
+              fromPlayerId: player.id,
               toPlayerId: targetPlayerId,
               candidate: msg.candidate,
             }));
@@ -2514,14 +2597,15 @@ wss.on('connection', (ws: WebSocket) => {
         broadcastToRoom(room.id, {
           type: 'rtc_voice_state',
           roomId: room.id,
-          playerId: msg.playerId || player.id,
-          isMuted: msg.isMuted,
-          isDeafened: msg.isDeafened,
-          isSpeaking: msg.isSpeaking,
-          joined: msg.joined,
+          playerId: player.id,
+          isMuted: !!msg.isMuted,
+          isDeafened: !!msg.isDeafened,
+          isSpeaking: !!msg.isSpeaking,
+          joined: !!msg.joined,
         });
         return;
       }
+
 
       // Automatically keep onlinePlayers roomId in sync with clientConnections!
       const conn = clientConnections.get(ws);

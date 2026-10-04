@@ -6,7 +6,9 @@ import {
   ClientMessage,
   GameLog,
   GameState,
+  HandState,
   RoomSettings,
+
   ServerMessage
 } from './types/uno.js';
 import { Lobby } from './components/Lobby.js';
@@ -31,7 +33,9 @@ export default function App() {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [myPlayerId, setMyPlayerId] = useState<string>(() => sessionStorage.getItem('uno_player_id') || '');
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [handState, setHandState] = useState<HandState | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+
   const [gameLogs, setGameLogs] = useState<GameLog[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -163,14 +167,17 @@ export default function App() {
       }
 
       if (activeRoom && !hasLeftRoomRef.current && activePlayer && !isWatch) {
+        const savedToken = sessionStorage.getItem(`rtoken_${activeRoom.toUpperCase()}_${activePlayer}`) || undefined;
         socket.send(
           JSON.stringify({
             type: 'sync_session',
             roomId: activeRoom.toUpperCase(),
             playerId: activePlayer,
+            reconnectToken: savedToken,
           })
         );
       } else if (activeRoom && !hasLeftRoomRef.current) {
+
         socket.send(
           JSON.stringify({
             type: 'join_room',
@@ -227,7 +234,11 @@ export default function App() {
           myPlayerIdRef.current = msg.playerId;
           setRoomId(msg.roomId);
           setMyPlayerId(msg.playerId);
+          if (msg.reconnectToken) {
+            sessionStorage.setItem(`rtoken_${msg.roomId}_${msg.playerId}`, msg.reconnectToken);
+          }
           setErrorMessage(null);
+
 
           // Update URL without reload
           const newUrl = new URL(window.location.href);
@@ -273,7 +284,18 @@ export default function App() {
             sound.yourTurn();
           }
           prevTurnRef.current = msg.state.currentTurnPlayerId;
-        } else if (msg.type === 'chat_message') {
+        } else if (msg.type === 'hand_state') {
+          setHandState(msg);
+          setGameState((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              myHand: msg.hand,
+            };
+          });
+        }
+ else if (msg.type === 'chat_message') {
+
           setChatMessages((prev) => [...prev, msg.message]);
         } else if (msg.type === 'game_log') {
           setGameLogs((prev) => [...prev, msg.log]);
@@ -675,7 +697,9 @@ export default function App() {
         ) : (
           <GameBoard
             state={gameState}
+            handState={handState}
             myPlayerId={myPlayerId}
+
             onPlayCard={handlePlayCard}
             onDrawCard={handleDrawCard}
             onPassTurn={handlePassTurn}

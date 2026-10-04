@@ -65,6 +65,14 @@ export interface RematchVote {
   timestamp: number;
 }
 
+export interface HandState {
+  type: 'hand_state';
+  hand: Card[];
+  playableCardIds: string[];
+  canDraw: boolean;
+  canPassTurn: boolean;
+}
+
 export interface GameState {
   roomId: string;
   creatorName?: string;
@@ -74,7 +82,9 @@ export interface GameState {
   myHand: Card[];
   discardPileTop: Card | null;
   currentColor: CardColor;
+  activeColor?: CardColor;
   currentTurnPlayerId: string;
+
   turnDirection: TurnDirection;
   turnTimeLeft: number;
   turnDuration: number;
@@ -341,6 +351,7 @@ export type ClientMessage = ClientMessagePayload & Envelope;
 export type ServerMessage =
   | { type: 'room_joined'; roomId: string; playerId: string; reconnectToken?: string }
   | { type: 'game_state'; state: GameState }
+  | HandState
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'game_log'; log: GameLog }
   | { type: 'sound_event'; sound: 'play' | 'draw' | 'uno' | 'reverse' | 'skip' | 'wild' | 'win' | 'penalty' }

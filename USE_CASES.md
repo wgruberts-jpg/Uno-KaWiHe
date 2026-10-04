@@ -1,6 +1,6 @@
-# 📊 CASOS DE USO — UNO KAWIHE v2.1
+# 📊 CASOS DE USO — UNO KAWIHE v2.2
 
-Este documento mapeia os principais fluxos de uso, interações e cenários de testes do sistema **Uno KaWiHe**, detalhando as pré-condições, fluxos principais, cenários alternativos e comportamentos esperados.
+Este documento mapeia os principais fluxos de uso, interações e cenários de testes do sistema **Uno KaWiHe v2.2**, detalhando as pré-condições, fluxos principais, cenários alternativos e comportamentos esperados.
 
 ---
 
@@ -19,11 +19,11 @@ Este documento mapeia os principais fluxos de uso, interações e cenários de t
   2. Seleciona a aba "Cadastrar".
   3. Preenche: Usuário, Senha, Nome de Jogador (displayName), escolhe um Avatar e o Código de Convite.
   4. O sistema valida se o código de convite está ativo, se não expirou e se tem usos restantes.
-  5. O sistema valida se o Nome de Jogador é único.
-  6. A conta é criada, o convite é atualizado com um uso e o usuário é logado automaticamente.
+  5. O sistema normaliza o nome (Unicode NFKC) e valida se o Nome de Jogador é único.
+  6. A conta é criada, o convite é atualizado e gravado no disco via escrita atômica `fsyncSync`, e o usuário é logado.
 * **Fluxos Alternativos / Exceções:**
-  * *Código Incorreto ou Expirado:* O sistema barra o cadastro com mensagem amigável instruindo a pedir um novo código ao Edinho.
-  * *Nome já Existente:* Se o nome solicitado já estiver cadastrado por outro usuário, o sistema exibe: *"O nome de jogador já foi escolhido por outro usuário! Quem escolheu primeiro escolheu."*
+  * *Código Incorreto ou Expirado:* O sistema barra o cadastro com mensagem amigável.
+  * *Nome já Existente:* O sistema exibe: *"O nome de jogador já foi escolhido por outro usuário! Quem escolheu primeiro escolheu."*
 
 ---
 
@@ -35,61 +35,46 @@ Este documento mapeia os principais fluxos de uso, interações e cenários de t
   3. Cada linha mostra: Código da Sala, Nome do Anfitrião, quantidade de jogadores/limite (ex: `2/4`), tempo de turno e avatares dos jogadores na mesa.
   4. Se a sala tiver vagas disponíveis (`players < maxPlayers`), exibe o botão **`[ 🎮 Entrar na Sala ]`**.
   5. Se a sala estiver cheia ou com jogo em andamento, exibe o botão **`[ 📺 Assistir Partida ]`**.
-  6. O jogador clica no botão e entra imediatamente na sala, sincronizando os WebSockets.
+  6. O jogador clica no botão e entra imediatamente na sala, recebendo o evento `room_joined` acompanhado de um `reconnectToken` secreto.
 
 ---
 
-## 💌 Caso de Uso 3: Criação de Sala e Envio de Convites por WhatsApp
-* **Descrição:** Um anfitrião cria uma sala privada e chama amigos para jogar em tempo real.
+## 🔄 Caso de Uso 3: Reconexão de Sessão após Desconexão de Rede
+* **Descrição:** Se a conexão WebSocket do jogador oscilar ou cair temporariamente, ele reconecta sem perder a partida ou revelar suas cartas aos oponentes.
 * **Fluxo Principal:**
-  1. No lobby, o jogador define suas configurações de preferência (Tempo de Turno, limite de jogadores) e clica em "Criar Sala Privada".
-  2. A sala é criada e ele entra no lobby de espera como Anfitrião (`Host`).
-  3. Ele clica no botão verde **`[ 💌 Convidar ]`**.
-  4. Abre o modal contendo o código curto da sala (ex: `J7X2`) e um link direto para entrar.
-  5. Ele clica em **"Compartilhar Convite no WhatsApp"**.
-  6. O sistema abre o WhatsApp Web ou aplicativo com o texto de convite pronto com link de redirecionamento automático contendo a sala.
+  1. O cliente detecta a perda do socket e tenta reatar a conexão WebSocket.
+  2. O cliente envia a mensagem `sync_session` contendo o `roomId`, o `playerId` e o `reconnectToken` secreto armazenado em seu `sessionStorage`.
+  3. O servidor valida se o `reconnectToken` confere exatamente com o token registrado na sessão.
+  4. Sendo válido, o servidor reata a sessão e envia o `HandState` privado e o `GameState` atualizado.
+* **Fluxos Alternativos / Exceções:**
+  * *Token Ausente ou Inválido:* O servidor rejeita a tentativa com o código de erro `NOT_AUTHENTICATED`, impedindo que terceiros assumam a vaga do jogador.
 
 ---
 
-## 🎙️ Caso de Uso 4: Controle de Voz P2P e Eliminação de Eco
-* **Descrição:** Jogadores conversam por voz com zero lag diretamente de seus navegadores (celular/computador).
+## ⏱️ Caso de Uso 4: Jogada com Expiração do Timer de Turno
+* **Descrição:** Trata a expiração do tempo de turno de forma justa e sem duplicação de cartas.
 * **Fluxo Principal:**
-  1. Ao entrar no lobby de espera, o jogador clica no botão verde **`[ ((•)) Voz P2P ]`**.
-  2. O navegador solicita permissão de uso de microfone (com cancelamento acústico ideal). O usuário aceita.
-  3. O jogador entra na chamada e fala em tempo real com todos os conectados na sala.
-  4. Para mutar sua voz temporariamente, o jogador clica no botão **`[ 🎙️ Mutar Mic ]`** (que vira vermelho `[ 🚫 Mic Mutado ]`). A linha de RTP WebRTC é cortada fisicamente e o áudio dele zera nos outros telefones.
-  5. Para evitar eco quando estiver testando dois celulares na mesma sala física, ele clica em **`[ 🔊 Som ]`** (que vira amarelo `[ 🔇 Som Mutado ]`). Os alto-falantes dele são silenciados por software instantaneamente.
+  1. É a vez do jogador e o tempo da sala começa a decrementar.
+  2. **Cenário A (Não comprou carta):** O timer atinge 0s sem nenhuma ação. O servidor compra 1 carta automaticamente para o jogador e passa a vez.
+  3. **Cenário B (Já comprou carta na sua vez):** O jogador clicou no baralho e sacou 1 carta, mas o timer atingiu 0s sem que ele jogasse ou clicasse em passar. O servidor detecta `hasDrawnThisTurn === true`, **não saca cartas extras** e apenas encerra a vez passando para o próximo jogador.
 
 ---
 
-## 🤖 Caso de Uso 5: Modo Treino Rápido com Robôs (Bots)
-* **Descrição:** Jogador joga sozinho contra inteligências artificiais sem precisar criar conexões de rede ou esperar amigos.
+## 📢 Caso de Uso 5: Declaração e Punição de UNO com Proteção Infantil
+* **Descrição:** Gerencia o grito de UNO, acusação por oponentes e proteção automática.
 * **Fluxo Principal:**
-  1. No lobby principal, no card de "Modo Treino Rápido", o jogador escolhe contra quantos robôs quer jogar (1, 2 ou 3).
-  2. Clica em **"Iniciar Treino"**.
-  3. O jogo inicia imediatamente. Os robôs tomam decisões inteligentes baseadas nas regras oficiais, jogam cartas especiais e reagem em velocidades personalizadas (entre 1 e 3 segundos por ação).
+  1. O jogador joga uma carta e fica com apenas 1 carta restante na mão.
+  2. Se a sala possui o **Modo Infantil (`autoUnoProtection`)** ativado, o servidor aciona o grito de UNO automaticamente pelo jogador.
+  3. Se o Modo Infantil não estiver ativo:
+     - O jogador pode clicar em **`[ 📢 GRITAR UNO! ]`**.
+     - Se esquecer de gritar, fica marcado como vulnerável. Qualquer oponente pode clicar em **`[ Pegar UNO ]`** para aplicar a penalidade de 2 cartas.
+     - Se um jogador tentar clicar em pegar UNO contra si mesmo, o servidor rejeita a ação com o código `UNO_SELF_CATCH`.
 
 ---
 
-## 👑 Caso de Uso 6: Painel de Controle de Mesa Administrativa (Exclusivo ADM)
-* **Descrição:** O Administrador Edinho monitora a integridade do servidor e atende chamados de suporte de jogadores.
-* **Pré-condições:** Estar logado com conta administrativa (`role: 'admin'`).
+## 🧪 Caso de Uso 6: Execução da Suíte de Testes do Motor (`npm test`)
+* **Descrição:** Permite ao desenvolvedor ou sistema de CI/CD validar as regras do motor em milissegundos.
 * **Fluxo Principal:**
-  1. Na barra lateral fixa esquerda, o Admin visualiza os botões exclusivos: **"Gerenciar Convites"** e **"Deploy Servidor VM"**.
-  2. Ao abrir o painel de gerenciamento, o Admin pode ver uma lista de todas as salas ativas no servidor, quantidade de humanos e robôs em cada mesa.
-  3. Se houver uma sala travada ou com comportamento abusivo, o Admin pode forçar o fechamento daquela sala em tempo real com um clique.
-  4. No painel de convites, o Admin cria novos códigos promocionais (ex: `@AMIGO1`, de uso único ou múltiplos usos) para liberar acesso a novos conhecidos.
-  5. No painel de Deploy, o Admin consulta os comandos prontos para atualizações do servidor Docker e monitoramento de desempenho de rede na VM.
-
----
-
-## 💾 Caso de Uso 7: Execução de Backup Local e Atualização na VM
-* **Descrição:** O Administrador executa a rotina de segurança local na VM antes de aplicar novas atualizações de layout ou funcionalidades.
-* **Fluxo Principal:**
-  1. O Administrador acessa o terminal da Máquina Virtual no diretório do projeto (`~/Uno-KaWiHe`).
-  2. Executa o comando em lote de atualização:
-     `cd ~/Uno-KaWiHe && sudo chown -R $USER:$USER . && git tag -f -a backupanteslayout -m "Backup antes do novo layout" && mkdir -p ~/backups_kawihe && cp -r . ~/backups_kawihe/backup_$(date +%Y%m%d_%H%M%S) && git pull && docker compose up -d --build`
-  3. O sistema ajusta as permissões de arquivo do projeto.
-  4. Cria uma tag local `backupanteslayout` no repositório Git da VM.
-  5. Copia integralmente o estado atual da aplicação, histórico do Git e pasta `data` para o diretório de backups local (`~/backups_kawihe/backup_...`).
-  6. Baixa a versão mais recente (`git pull`) e reconstrói os containers Docker (`docker compose up -d --build`).
+  1. O engenheiro executa `npm test` no terminal.
+  2. O `Vitest` executa os 14 testes unitários do arquivo `tests/unoEngine.test.ts`.
+  3. Validações de 108 cartas do baralho, regras de `isCardPlayable`, rotação de turnos, reciclagem do descarte mantendo cor de cartas normais, expiração de timer e soma de pontos são verificadas com 100% de sucesso.
