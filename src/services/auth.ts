@@ -263,7 +263,7 @@ class AuthService {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.token}`,
-          'x-admin-pin': '774007',
+          'x-admin-pin': ,
         },
         body: JSON.stringify(params),
       });
@@ -283,7 +283,7 @@ class AuthService {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.token}`,
-          'x-admin-pin': '774007',
+          'x-admin-pin': ,
         },
         body: JSON.stringify({ newPassword }),
       });
@@ -301,7 +301,7 @@ class AuthService {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${this.token}`,
-          'x-admin-pin': '774007',
+          'x-admin-pin': ,
         },
       });
       return await res.json();

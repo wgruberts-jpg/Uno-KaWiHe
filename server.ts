@@ -463,7 +463,7 @@ app.post('/api/user/stats', async (req, res) => {
 // Admin Room Management Helper
 function isAdminRequest(req: any): boolean {
   const pinHeader = req.headers['x-admin-pin'];
-  if (pinHeader === '774007' || pinHeader === process.env.ADMIN_PIN) {
+  if (pinHeader ===  || pinHeader === process.env.ADMIN_PIN) {
     return true;
   }
   const authHeader = req.headers.authorization;
@@ -557,7 +557,7 @@ app.get('/api/admin/users', async (req, res) => {
       const response = await fetch(`${AUTH_SERVICE_URL}/api/admin/users`, {
         headers: {
           Authorization: req.headers.authorization || '',
-          'x-admin-pin': (req.headers['x-admin-pin'] as string) || '774007',
+          'x-admin-pin': (req.headers['x-admin-pin'] as string) || ,
         },
       });
       const data = await response.json();
@@ -665,7 +665,7 @@ app.post('/api/admin/users/create', async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: req.headers.authorization || '',
-          'x-admin-pin': (req.headers['x-admin-pin'] as string) || '774007',
+          'x-admin-pin': (req.headers['x-admin-pin'] as string) || ,
         },
         body: JSON.stringify(req.body),
       });
@@ -696,7 +696,7 @@ app.post('/api/admin/users/:id/reset-password', async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: req.headers.authorization || '',
-          'x-admin-pin': (req.headers['x-admin-pin'] as string) || '774007',
+          'x-admin-pin': (req.headers['x-admin-pin'] as string) || ,
         },
         body: JSON.stringify(req.body),
       });
@@ -727,7 +727,7 @@ app.delete('/api/admin/users/:id', async (req, res) => {
         method: 'DELETE',
         headers: {
           Authorization: req.headers.authorization || '',
-          'x-admin-pin': (req.headers['x-admin-pin'] as string) || '774007',
+          'x-admin-pin': (req.headers['x-admin-pin'] as string) || ,
         },
       });
       const data = await response.json();

@@ -6,7 +6,7 @@
 #   ./scripts/create-user.sh <usuario> <senha> [nome_exibicao] [avatar] [role] [pin_admin]
 # Exemplo:
 #   ./scripts/create-user.sh heitor 123456 "Heitor" 🦁 player
-#   ./scripts/create-user.sh admin2 segredo "Super Admin" 👑 admin 774007
+#   ./scripts/create-user.sh admin2 segredo "Super Admin" 👑 admin 
 # ==============================================================================
 set -e
 
@@ -55,7 +55,7 @@ if [ -z "$USERNAME" ]; then
     read -rp "Escolha (1 ou 2) [1]: " ROLE_CHOICE
     if [ "$ROLE_CHOICE" = "2" ]; then
       ROLE="admin"
-      read -rp "👉 Digite o PIN de Administrador (padrão é 774007): " ADMIN_PIN
+      read -rp "👉 Digite o PIN de Administrador (padrão é ): " ADMIN_PIN
     else
       ROLE="player"
     fi
@@ -72,7 +72,7 @@ else
 fi
 
 if [ "$ROLE" = "admin" ] && [ -z "$ADMIN_PIN" ]; then
-  ADMIN_PIN="774007"
+  ADMIN_PIN=
 fi
 
 # Cria a requisição JSON

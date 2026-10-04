@@ -282,7 +282,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                     type="password"
                     value={adminSecret}
                     onChange={(e) => setAdminSecret(e.target.value)}
-                    placeholder="Digite o PIN de admin (774007)"
+                    placeholder="Digite o PIN de admin ()"
                     className="w-full px-3 py-1.5 rounded-xl border border-amber-300 bg-white font-mono text-xs focus:outline-none"
                   />
                 </div>

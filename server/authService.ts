@@ -29,7 +29,7 @@ const INITIAL_USERS: Array<{
   role: UserRole;
   tag: string;
 }> = [
-  { username: 'edinho', password: '774007', displayName: 'Edinho', avatar: '👑', role: 'admin', tag: '#0001' },
+  { username: 'edinho', password: , displayName: 'Edinho', avatar: '👑', role: 'admin', tag: '#0001' },
   { username: 'will', password: '123456', displayName: 'Will', avatar: '🦸‍♂️', role: 'player', tag: '#1001' },
   { username: 'henry', password: '123456', displayName: 'Henry', avatar: '⚡', role: 'player', tag: '#1002' },
   { username: 'grazy', password: '123456', displayName: 'Grazy', avatar: '🌸', role: 'player', tag: '#1003' },

@@ -10,7 +10,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const INVITES_FILE = path.join(DATA_DIR, 'invites.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'kawihe_jwt_super_secret_key_2026';
-const ADMIN_PIN = process.env.ADMIN_PIN || '774007';
+const ADMIN_PIN = process.env.ADMIN_PIN || ;
 
 // Standard CORS Headers
 app.use((_req, res, next) => {
@@ -56,7 +56,7 @@ const INITIAL_USERS: Array<{
   role: 'admin' | 'player';
   tag: string;
 }> = [
-  { username: 'edinho', password: '774007', displayName: 'Edinho', avatar: '👑', role: 'admin', tag: '#0001' },
+  { username: 'edinho', password: , displayName: 'Edinho', avatar: '👑', role: 'admin', tag: '#0001' },
   { username: 'will', password: '123456', displayName: 'Will', avatar: '🦸‍♂️', role: 'player', tag: '#1001' },
   { username: 'henry', password: '123456', displayName: 'Henry', avatar: '⚡', role: 'player', tag: '#1002' },
   { username: 'grazy', password: '123456', displayName: 'Grazy', avatar: '🌸', role: 'player', tag: '#1003' },
@@ -335,7 +335,7 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Este nome de usuário já está cadastrado. Escolha outro!' });
   }
 
-  const hasValidAdminPin = adminSecret === ADMIN_PIN || adminSecret === '774007';
+  const hasValidAdminPin = adminSecret === ADMIN_PIN || adminSecret === ;
 
   let foundInvite: InviteRecord | undefined;
   if (!hasValidAdminPin) {
@@ -503,7 +503,7 @@ app.get('/api/auth/me', (req, res) => {
   }
 });
 
-// Verify Admin PIN (Edinho PIN: 774007)
+// Verify Admin PIN (Edinho PIN: )
 app.post('/api/auth/verify-admin-pin', (req, res) => {
   const { pin } = req.body;
   if (!pin) {
@@ -511,7 +511,7 @@ app.post('/api/auth/verify-admin-pin', (req, res) => {
   }
 
   const cleanPin = pin.trim();
-  const isValid = cleanPin === ADMIN_PIN || cleanPin === '774007';
+  const isValid = cleanPin === ADMIN_PIN || cleanPin === ;
   if (isValid) {
     return res.json({ success: true, message: 'PIN verificado com sucesso!' });
   } else {
@@ -566,7 +566,7 @@ app.post('/api/user/stats', (req, res) => {
 // Admin Request Helper
 function isAuthAdminRequest(req: any): boolean {
   const pinHeader = req.headers['x-admin-pin'];
-  if (pinHeader === '774007' || pinHeader === ADMIN_PIN) {
+  if (pinHeader ===  || pinHeader === ADMIN_PIN) {
     return true;
   }
   const authHeader = req.headers.authorization;
