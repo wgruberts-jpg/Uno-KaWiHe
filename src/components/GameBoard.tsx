@@ -411,6 +411,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         >
           {opp.cardsCount} {opp.cardsCount === 1 ? '🔥 1 CARTA' : isCompact ? 'un' : 'cartas'}
         </span>
+
+        {/* Revealed Cards Strip (Modo Treino / Modo Criança / Modo Telão) */}
+        {opp.botHand && opp.botHand.length > 0 && (
+          <div className="mt-1 flex items-center justify-center -space-x-4 max-w-[130px] overflow-x-auto py-0.5 px-1 bg-black/40 rounded-xl border border-white/50 shadow-inner">
+            {opp.botHand.map((c) => (
+              <div key={c.id} className="shrink-0 hover:z-30 hover:-translate-y-1 transition-transform">
+                <UnoCard card={c} size="xs" />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -454,28 +465,28 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         className="relative shrink-0 overflow-hidden bg-gradient-to-br from-sky-400 via-sky-300 to-indigo-400 shadow-2xl flex flex-col justify-between"
       >
         {/* ROW 0: Top Stage Header (H: 52px) */}
-        <header className="w-full h-[52px] shrink-0 px-4 flex items-center justify-between z-30 bg-white/30 backdrop-blur-md border-b border-white/40 shadow-xs">
+        <header className="w-full h-[52px] shrink-0 px-2 sm:px-4 flex items-center justify-between z-30 bg-white/30 backdrop-blur-md border-b border-white/40 shadow-xs">
           {/* Left: Brand & Room */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="text-2xl drop-shadow">🃏</span>
-              <span className="font-black text-base tracking-wider text-slate-950 drop-shadow-sm">
-                UNO <span className="text-amber-500">KaWiHe</span>
+          <div className="flex items-center gap-1.5 sm:gap-3">
+            <div className="flex items-center gap-1">
+              <span className="text-xl sm:text-2xl drop-shadow">🃏</span>
+              <span className="font-black text-xs sm:text-base tracking-wider text-slate-950 drop-shadow-sm">
+                UNO <span className="text-amber-500 hidden xs:inline">KaWiHe</span>
               </span>
             </div>
 
-            <span className="font-black text-xs text-amber-950 bg-gradient-to-r from-yellow-300 to-amber-300 px-3 py-1 rounded-2xl border-2 border-white shadow-sm flex items-center gap-1">
-              <span>🏷️</span> <span>SALA:</span> {state.roomId}
+            <span className="font-black text-[10px] sm:text-xs text-amber-950 bg-gradient-to-r from-yellow-300 to-amber-300 px-2 sm:px-3 py-1 rounded-2xl border-2 border-white shadow-sm flex items-center gap-1">
+              <span>🏷️</span> <span className="hidden sm:inline">SALA:</span> {state.roomId}
             </span>
           </div>
 
           {/* Right: Controls & Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             {sendMessage && !isSpectator && (
               <button
                 type="button"
                 onClick={handleTogglePause}
-                className={`px-3 py-1.5 rounded-2xl font-black text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow-sm border-2 ${
+                className={`p-2 sm:px-3 sm:py-1.5 rounded-2xl font-black text-xs flex items-center gap-1 cursor-pointer transition-all shadow-sm border-2 ${
                   isPaused
                     ? 'bg-emerald-500 text-white border-white animate-bounce'
                     : 'bg-white border-amber-300 text-amber-950 hover:bg-amber-50'
@@ -483,7 +494,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 title={isPaused ? 'Retomar Partida' : 'Pausar Partida'}
               >
                 {isPaused ? <Play className="w-4 h-4 fill-white" /> : <Pause className="w-4 h-4 text-amber-700" />}
-                <span>{isPaused ? 'Retomar' : 'Pausar'}</span>
+                <span className="hidden sm:inline">{isPaused ? 'Retomar' : 'Pausar'}</span>
               </button>
             )}
 
@@ -503,7 +514,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               title="Abrir Chat"
             >
               <MessageCircle className="w-4 h-4 text-sky-600" />
-              <span>Chat</span>
+              <span className="hidden sm:inline">Chat</span>
               {unreadChatCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center border border-white animate-pulse">
                   {unreadChatCount}
@@ -514,11 +525,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <button
               type="button"
               onClick={() => setIsLeaveModalOpen(true)}
-              className="px-3 py-1.5 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white border-2 border-white font-black text-xs flex items-center gap-1 cursor-pointer transition-all shadow-sm active:scale-95"
+              className="p-2 sm:px-3 sm:py-1.5 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white border-2 border-white font-black text-xs flex items-center gap-1 cursor-pointer transition-all shadow-sm active:scale-95"
               title="Sair da Sala"
             >
               <LogOut className="w-4 h-4" />
-              <span>Sair</span>
+              <span className="hidden sm:inline">Sair</span>
             </button>
 
             <button
@@ -529,6 +540,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   ? 'bg-amber-400 border-white text-slate-950 ring-2 ring-amber-300'
                   : 'bg-white border-amber-300 text-slate-800 hover:bg-yellow-50'
               }`}
+              title="Menu de Opções"
             >
               {isSideMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4 text-amber-600" />}
             </button>
@@ -1123,6 +1135,74 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   <div className="text-[10px] text-slate-500 font-medium">Conquistas e histórico pessoal</div>
                 </div>
               </div>
+            </button>
+          )}
+
+          {/* Quick Toggle: Ver Cartas dos Robôs (Modo Criança / Treino) */}
+          {sendMessage && (me?.isHost || state.players.some((p) => p.isBot)) && (
+            <button
+              type="button"
+              onClick={() => {
+                const currentVal = !!state.settings?.showBotCards;
+                sendMessage({
+                  type: 'update_settings',
+                  roomId: state.roomId,
+                  playerId: myPlayerId,
+                  settings: { showBotCards: !currentVal },
+                });
+                setFeedbackToast(!currentVal ? '👀 Visão das cartas dos robôs ativada!' : '🔒 Cartas dos robôs ocultadas!');
+                setTimeout(() => setFeedbackToast(null), 3000);
+              }}
+              className="w-full p-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-300 text-emerald-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-200 flex items-center justify-center text-emerald-800">
+                  <Eye className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Cartas dos Robôs</div>
+                  <div className="text-[10px] text-slate-500 font-medium">
+                    {state.settings?.showBotCards ? 'Visíveis (Modo Criança)' : 'Ocultas (Padrão)'}
+                  </div>
+                </div>
+              </div>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${state.settings?.showBotCards ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                {state.settings?.showBotCards ? 'ABERTAS' : 'OCULTAS'}
+              </span>
+            </button>
+          )}
+
+          {/* Quick Toggle: Revelar Cartas no Telão (Transmissão / Espectador) */}
+          {sendMessage && me?.isHost && (
+            <button
+              type="button"
+              onClick={() => {
+                const nextVal = !state.spectatorCardsRevealed;
+                sendMessage({
+                  type: 'toggle_spectator_reveal',
+                  roomId: state.roomId,
+                  playerId: myPlayerId,
+                  reveal: nextVal,
+                });
+                setFeedbackToast(nextVal ? '👁️ Cartas abertas para os espectadores!' : '🔒 Cartas ocultadas dos espectadores!');
+                setTimeout(() => setFeedbackToast(null), 3000);
+              }}
+              className="w-full p-3 rounded-2xl bg-sky-50 hover:bg-sky-100 border-2 border-sky-300 text-sky-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-sky-200 flex items-center justify-center text-sky-800">
+                  <Eye className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-black text-slate-900">Visão no Telão / TV</div>
+                  <div className="text-[10px] text-slate-500 font-medium">
+                    {state.spectatorCardsRevealed ? 'Cartas Abertas na TV' : 'Cartas Ocultas na TV'}
+                  </div>
+                </div>
+              </div>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${state.spectatorCardsRevealed ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                {state.spectatorCardsRevealed ? 'ABERTAS' : 'OCULTAS'}
+              </span>
             </button>
           )}
 

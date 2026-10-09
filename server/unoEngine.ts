@@ -81,6 +81,7 @@ export interface InternalPlayer extends Player {
 export interface RoomData {
   id: string;
   creatorName?: string;
+  ownerUserId?: string;
   settings: RoomSettings;
   status: 'waiting' | 'playing' | 'paused' | 'ended';
   players: InternalPlayer[];

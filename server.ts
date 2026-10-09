@@ -326,7 +326,7 @@ app.delete('/api/invites/:code', async (req, res) => {
 // Public Open Rooms API
 app.get('/api/rooms/open', (_req, res) => {
   const openRooms: OpenRoomSummary[] = Array.from(rooms.values())
-    .filter((r) => r.players.some((p) => !p.isBot && p.isConnected))
+    .filter((r) => !r.settings?.isPrivate && r.players.some((p) => !p.isBot && p.isConnected))
     .map((r) => {
       const host = r.players.find((p) => p.isHost && !p.isBot) || r.players.find((p) => !p.isBot) || r.players[0];
       return {
@@ -347,6 +347,26 @@ app.get('/api/rooms/open', (_req, res) => {
       };
     });
   return res.json({ success: true, rooms: openRooms });
+});
+
+app.get('/api/rooms/:id', (req, res) => {
+  const roomId = req.params.id.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
+  const room = rooms.get(roomId);
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Sala não encontrada.' });
+  }
+  const host = room.players.find((p) => p.isHost && !p.isBot) || room.players[0];
+  return res.json({
+    success: true,
+    room: {
+      id: room.id,
+      creatorName: room.creatorName || host?.name || 'Anfitrião',
+      status: room.status,
+      playersCount: room.players.filter(p => !p.isBot && p.isConnected).length,
+      maxPlayers: room.settings.maxPlayers,
+      settings: room.settings,
+    }
+  });
 });
 
 // User Career Stats storage with persistent disk file
@@ -1546,10 +1566,52 @@ function executePlayCard(
 // WebSocket setup
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-const onlinePlayers = new Map<WebSocket, { id: string; name: string; avatar: string; roomId: string | null }>();
+const onlinePlayers = new Map<WebSocket, { id: string; name: string; avatar: string; inRoom: boolean; userId?: string; roomId: string | null }>();
+const lobbyChatRateLimits = new Map<WebSocket, number[]>();
+
+interface RoomInvite {
+  inviteId: string;
+  roomId: string;
+  roomName: string;
+  inviterUserId: string;
+  inviterName: string;
+  inviterAvatar: string;
+  targetUserId: string;
+  status: 'pending' | 'accepted' | 'declined' | 'expired';
+  createdAt: number;
+  expiresAt: number;
+}
+const roomInvites = new Map<string, RoomInvite>();
+const inviteRateLimits = new Map<string, number[]>();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, inv] of roomInvites.entries()) {
+    if (inv.expiresAt < now || inv.status === 'expired') {
+      roomInvites.delete(id);
+    }
+  }
+}, 60000);
+
+function checkInviteRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const times = inviteRateLimits.get(userId) || [];
+  const recent = times.filter(t => now - t < 60000);
+  if (recent.length >= 10) return false;
+  recent.push(now);
+  inviteRateLimits.set(userId, recent);
+  return true;
+}
 
 function broadcastOnlinePlayers() {
-  const playersList = Array.from(onlinePlayers.values());
+  const playersList = Array.from(onlinePlayers.values()).map(p => ({
+    id: p.id,
+    name: p.name,
+    avatar: p.avatar,
+    inRoom: p.inRoom,
+    roomId: p.roomId,
+    userId: p.userId
+  }));
   const payload = JSON.stringify({ type: 'lobby_online_players', players: playersList });
   onlinePlayers.forEach((meta, ws) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -1564,12 +1626,13 @@ function updatePlayerRoom(ws: WebSocket, roomId: string | null) {
   const meta = onlinePlayers.get(ws);
   if (meta) {
     meta.roomId = roomId;
+    meta.inRoom = roomId !== null;
     broadcastOnlinePlayers();
   }
 }
 
 wss.on('connection', (ws: WebSocket) => {
-  const socketId = `soc-${Math.random().toString(36).substring(2, 10)}`;
+  const socketId = `soc-${crypto.randomUUID()}`;
 
   ws.on('message', (data: string) => {
     try {
@@ -1617,11 +1680,21 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'register_lobby') {
-        const pId = msg.playerId || `player-${Math.random().toString(36).substring(2, 9)}`;
+        let authUser: ReturnType<typeof getUserFromToken> | null = null;
+        if (msg.token) {
+          authUser = getUserFromToken(msg.token);
+        }
+
+        const pId = authUser ? `user-${authUser.username}` : (msg.playerId || `player-${crypto.randomUUID()}`);
+        const name = authUser ? (authUser.displayName || authUser.username) : 'Visitante';
+        const avatar = authUser ? (authUser.avatar || '👤') : '🕵️';
+
         onlinePlayers.set(ws, {
           id: pId,
-          name: msg.name,
-          avatar: msg.avatar,
+          name,
+          avatar,
+          inRoom: false,
+          userId: authUser ? authUser.username : undefined,
           roomId: null
         });
         broadcastOnlinePlayers();
@@ -1629,17 +1702,38 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'send_lobby_chat') {
+        const meta = onlinePlayers.get(ws);
+        if (!meta || !meta.userId) {
+          // Visitors cannot write in global chat (read-only)
+          return;
+        }
+
+        const text = (msg.text || '').trim().substring(0, 200);
+        if (!text) return;
+
+        const now = Date.now();
+        const times = lobbyChatRateLimits.get(ws) || [];
+        const recent = times.filter(t => now - t < 10000);
+        if (recent.length >= 5) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Muitas mensagens enviadas. Aguarde um instante.' }));
+          }
+          return;
+        }
+        recent.push(now);
+        lobbyChatRateLimits.set(ws, recent);
+
         const payload = JSON.stringify({
           type: 'lobby_chat_message',
           message: {
-            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-            name: msg.name,
-            avatar: msg.avatar,
-            text: msg.text,
+            id: `msg-${crypto.randomUUID()}`,
+            name: meta.name,
+            avatar: meta.avatar,
+            text,
             timestamp: Date.now()
           }
         });
-        onlinePlayers.forEach((meta, clientWs) => {
+        onlinePlayers.forEach((clientMeta, clientWs) => {
           if (clientWs.readyState === WebSocket.OPEN) {
             try {
               clientWs.send(payload);
@@ -1649,23 +1743,124 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      if (msg.type === 'send_lobby_invite') {
-        const payload = JSON.stringify({
-          type: 'lobby_invite_received',
-          invite: {
-            fromName: msg.name,
-            fromAvatar: msg.avatar,
-            roomId: msg.roomId,
-            timestamp: Date.now()
+      if (msg.type === 'send_room_invite') {
+        const senderMeta = onlinePlayers.get(ws);
+        if (!senderMeta || !senderMeta.userId) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Você precisa estar logado para enviar convites.' }));
           }
-        });
-        onlinePlayers.forEach((meta, clientWs) => {
-          if (clientWs !== ws && clientWs.readyState === WebSocket.OPEN) {
-            try {
-              clientWs.send(payload);
-            } catch (e) {}
+          return;
+        }
+        if (!checkInviteRateLimit(senderMeta.userId)) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Limite de convites excedido. Aguarde um minuto.' }));
           }
-        });
+          return;
+        }
+
+        const room = rooms.get((msg.roomId || '').trim().toUpperCase());
+        if (!room) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Sala não encontrada.' }));
+          }
+          return;
+        }
+
+        if (room.ownerUserId !== senderMeta.userId) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Apenas o dono da sala pode enviar convites.' }));
+          }
+          return;
+        }
+
+        const targetUserId = msg.targetUserId;
+        if (targetUserId === senderMeta.userId) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Você não pode convidar a si mesmo.' }));
+          }
+          return;
+        }
+
+        const alreadyInRoom = room.players.some(p => !p.isBot && p.isConnected && p.name.toLowerCase().includes(targetUserId.toLowerCase()));
+        if (alreadyInRoom) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Este jogador já está na sala.' }));
+          }
+          return;
+        }
+
+        let targetWs: WebSocket | null = null;
+        let targetMeta: { id: string; name: string; avatar: string; userId?: string } | null = null;
+        for (const [clientWs, meta] of onlinePlayers.entries()) {
+          if (meta.userId === targetUserId) {
+            targetWs = clientWs;
+            targetMeta = meta;
+            break;
+          }
+        }
+
+        if (!targetWs || !targetMeta) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Jogador não encontrado ou offline.' }));
+          }
+          return;
+        }
+
+        const inviteId = crypto.randomUUID();
+        const invite: RoomInvite = {
+          inviteId,
+          roomId: room.id,
+          roomName: `Sala de ${senderMeta.name}`,
+          inviterUserId: senderMeta.userId,
+          inviterName: senderMeta.name,
+          inviterAvatar: senderMeta.avatar,
+          targetUserId,
+          status: 'pending',
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 300000
+        };
+
+        roomInvites.set(inviteId, invite);
+
+        if (targetWs.readyState === WebSocket.OPEN) {
+          targetWs.send(JSON.stringify({ type: 'room_invite_received', invite }));
+        }
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'success', message: `Convite enviado para ${targetMeta.name}!` }));
+        }
+        return;
+      }
+
+      if (msg.type === 'respond_room_invite') {
+        const responderMeta = onlinePlayers.get(ws);
+        if (!responderMeta || !responderMeta.userId) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Não autenticado.' }));
+          }
+          return;
+        }
+
+        const invite = roomInvites.get(msg.inviteId);
+        if (!invite || invite.targetUserId !== responderMeta.userId || invite.status !== 'pending') {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Convite inválido ou expirado.' }));
+          }
+          return;
+        }
+
+        if (invite.expiresAt < Date.now()) {
+          invite.status = 'expired';
+          roomInvites.delete(invite.inviteId);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Este convite expirou.' }));
+          }
+          return;
+        }
+
+        invite.status = msg.accept ? 'accepted' : 'declined';
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'room_invite_response', inviteId: invite.inviteId, accepted: msg.accept }));
+        }
         return;
       }
 
@@ -1693,7 +1888,7 @@ wss.on('connection', (ws: WebSocket) => {
             maxPlayers: count + 1,
             turnDuration: duration,
             challengeUnoRule: msg.settings?.challengeUnoRule ?? true,
-            showBotCards: msg.settings?.showBotCards ?? false,
+            showBotCards: msg.settings?.showBotCards !== undefined ? msg.settings.showBotCards : true,
             botSpeedMs: msg.settings?.botSpeedMs ?? 1800,
             autoUnoProtection: msg.settings?.autoUnoProtection ?? false,
             highlightHints: msg.settings?.highlightHints ?? true,
@@ -1808,11 +2003,20 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       if (msg.type === 'create_room') {
+        const isPrivate = !!msg.settings?.isPrivate;
+        const onlineMeta = onlinePlayers.get(ws);
+        if (isPrivate && (!onlineMeta || !onlineMeta.userId)) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Visitantes não podem criar salas privadas. Faça login.' }));
+          }
+          return;
+        }
+
         const roomId = generateRoomId();
         const hostPlayer: InternalPlayer = {
-          id: `player-${Math.random().toString(36).substring(2, 9)}`,
-          name: msg.playerName.trim() || 'Jogador 1',
-          avatar: msg.avatar || '🦸‍♂️',
+          id: `player-${crypto.randomUUID()}`,
+          name: onlineMeta ? onlineMeta.name : (msg.playerName.trim() || 'Jogador 1'),
+          avatar: onlineMeta ? onlineMeta.avatar : (msg.avatar || '🦸‍♂️'),
           isHost: true,
           isBot: false,
           cardsCount: 0,
@@ -1827,6 +2031,7 @@ wss.on('connection', (ws: WebSocket) => {
         const room: RoomData = {
           id: roomId,
           creatorName: hostPlayer.name,
+          ownerUserId: onlineMeta ? onlineMeta.userId : undefined,
           settings: {
             maxPlayers: msg.settings?.maxPlayers || 4,
             turnDuration: duration,
@@ -1836,6 +2041,7 @@ wss.on('connection', (ws: WebSocket) => {
             autoUnoProtection: msg.settings?.autoUnoProtection ?? false,
             highlightHints: msg.settings?.highlightHints ?? true,
             spectatorPermission: msg.settings?.spectatorPermission ?? 'hidden_cards',
+            isPrivate,
           },
           status: 'waiting',
           players: [hostPlayer],
@@ -1921,12 +2127,32 @@ wss.on('connection', (ws: WebSocket) => {
 
         const cleanRoomId = rawRoomInput.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
         const room = rooms.get(cleanRoomId);
+        const onlineMeta = onlinePlayers.get(ws);
+
         if (!room) {
           ws.send(JSON.stringify({
             type: 'error',
-            message: `Sala #${cleanRoomId} não encontrada. Verifique se o código está correto ou se a sala já expirou.`
+            message: `Sala #${cleanRoomId} não encontrada ou acesso restrito.`
           }));
           return;
+        }
+
+        // Private Room Authorization Check
+        if (room.settings.isPrivate) {
+          const userId = onlineMeta?.userId;
+          const isOwner = userId && room.ownerUserId === userId;
+          const hasAcceptedInvite = userId && Array.from(roomInvites.values()).some(
+            inv => inv.roomId === room.id && inv.targetUserId === userId && inv.status === 'accepted' && inv.expiresAt > Date.now()
+          );
+          const isExistingPlayer = msg.existingPlayerId && room.players.some(p => p.id === msg.existingPlayerId);
+
+          if (!isOwner && !hasAcceptedInvite && !isExistingPlayer) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: `Sala #${cleanRoomId} não encontrada ou acesso restrito.`
+            }));
+            return;
+          }
         }
 
         // If explicitly joining as Spectator / Tournament Broadcast

@@ -22,6 +22,7 @@ import { StatsModal } from './components/StatsModal.js';
 import { AdminInvitesModal } from './components/AdminInvitesModal.js';
 import { AdminRoomsModal } from './components/AdminRoomsModal.js';
 import { LoginScreen } from './components/LoginScreen.js';
+import { RoomPreviewModal } from './components/RoomPreviewModal.js';
 import { sound } from './services/sound.js';
 import { auth } from './services/auth.js';
 import { statsManager } from './services/statsManager.js';
@@ -47,7 +48,7 @@ export default function App() {
   const [isAdminRoomsOpen, setIsAdminRoomsOpen] = useState(false);
   const [adminModalTab, setAdminModalTab] = useState<'rooms' | 'users' | 'messages'>('rooms');
   const [globalAnnouncement, setGlobalAnnouncement] = useState<{ message: string; sender: string } | null>(null);
-  const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; avatar: string; roomId: string | null }>>([]);
+  const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; avatar: string; roomId: string | null; userId?: string; inRoom?: boolean }>>([]);
   const [lobbyChat, setLobbyChat] = useState<Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>>([]);
   const [lobbyInvite, setLobbyInvite] = useState<{ fromName: string; fromAvatar: string; roomId: string; timestamp: number } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -55,6 +56,54 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => auth.getCurrentUser());
   const [currentAvatar, setCurrentAvatar] = useState<string>(() => localStorage.getItem('uno_avatar') || '🦸‍♂️');
   const [activeEmotes, setActiveEmotes] = useState<Record<string, ActiveEmote>>({});
+  const [pendingRoomPreview, setPendingRoomPreview] = useState<any | null>(null);
+
+  const handleJoinAsPlayerFromPreview = () => {
+    if (!pendingRoomPreview || !wsRef.current || !currentUser) return;
+    wsRef.current.send(
+      JSON.stringify({
+        type: 'join_room',
+        roomId: pendingRoomPreview.id,
+        playerName: currentUser.displayName,
+        avatar: currentUser.avatar,
+        asSpectator: false,
+      })
+    );
+    setPendingRoomPreview(null);
+  };
+
+  const handleJoinAsSpectatorFromPreview = () => {
+    if (!pendingRoomPreview || !wsRef.current || !currentUser) return;
+    wsRef.current.send(
+      JSON.stringify({
+        type: 'join_room',
+        roomId: pendingRoomPreview.id,
+        playerName: currentUser.displayName,
+        avatar: currentUser.avatar,
+        asSpectator: true,
+        spectatorRevealCards: pendingRoomPreview.settings.spectatorPermission === 'reveal_cards',
+      })
+    );
+    setPendingRoomPreview(null);
+  };
+
+  const handleClosePreview = () => {
+    setPendingRoomPreview(null);
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.delete('room');
+    window.history.replaceState({}, '', newUrl.toString());
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && currentUser) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'register_lobby',
+          playerId: currentUser.id,
+          name: currentUser.displayName,
+          avatar: currentUser.avatar,
+          token: localStorage.getItem('kawihe_auth_token') || undefined,
+        })
+      );
+    }
+  };
 
   useEffect(() => {
     auth.initSession().then((user) => {
@@ -82,16 +131,34 @@ export default function App() {
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !roomIdRef.current) {
           if (urlRoom) {
-            wsRef.current.send(
-              JSON.stringify({
-                type: 'join_room',
-                roomId: urlRoom.toUpperCase(),
-                playerName: user.displayName,
-                avatar: user.avatar,
-                asSpectator: isWatch,
-                spectatorRevealCards: isWatchOpen || urlRoom.startsWith('$'),
+            fetch(`/api/rooms/${urlRoom}`)
+              .then(res => res.json())
+              .then(data => {
+                if (data.success && data.room) {
+                  setPendingRoomPreview(data.room);
+                } else {
+                  wsRef.current?.send(
+                    JSON.stringify({
+                      type: 'join_room',
+                      roomId: urlRoom.toUpperCase(),
+                      playerName: user.displayName,
+                      avatar: user.avatar,
+                      asSpectator: false,
+                    })
+                  );
+                }
               })
-            );
+              .catch(() => {
+                wsRef.current?.send(
+                  JSON.stringify({
+                    type: 'join_room',
+                    roomId: urlRoom.toUpperCase(),
+                    playerName: user.displayName,
+                    avatar: user.avatar,
+                    asSpectator: false,
+                  })
+                );
+              });
           } else {
             wsRef.current.send(
               JSON.stringify({
@@ -99,6 +166,7 @@ export default function App() {
                 playerId: user.id,
                 name: user.displayName,
                 avatar: user.avatar,
+                token: localStorage.getItem('kawihe_auth_token') || undefined,
               })
             );
           }
@@ -873,6 +941,16 @@ export default function App() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Room Preview & Rules Modal */}
+      {pendingRoomPreview && (
+        <RoomPreviewModal
+          room={pendingRoomPreview}
+          onJoinAsPlayer={handleJoinAsPlayerFromPreview}
+          onJoinAsSpectator={handleJoinAsSpectatorFromPreview}
+          onClose={handleClosePreview}
+        />
       )}
     </div>
   );

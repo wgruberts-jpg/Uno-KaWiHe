@@ -73,7 +73,7 @@ interface LobbyProps {
   isHost: boolean;
   errorMessage: string | null;
   sendMessage?: (msg: ClientMessage) => void;
-  onlinePlayers?: Array<{ id: string; name: string; avatar: string; roomId: string | null }>;
+  onlinePlayers?: Array<{ id: string; name: string; avatar: string; roomId: string | null; userId?: string; inRoom?: boolean }>;
   lobbyChat?: Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>;
 }
 
@@ -145,6 +145,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [selectedBotCount, setSelectedBotCount] = useState<number>(1);
+  const [trainingShowBotCards, setTrainingShowBotCards] = useState<boolean>(() => localStorage.getItem('uno_show_bot_cards') !== 'false');
   const [chatInputText, setChatInputText] = useState('');
   const [inviteSentFeedback, setInviteSentFeedback] = useState(false);
   const [showLobbyScrollBottomBtn, setShowLobbyScrollBottomBtn] = useState(false);
@@ -220,15 +221,25 @@ export const Lobby: React.FC<LobbyProps> = ({
     }, 30);
   };
 
-  const handleBroadcastLobbyInvite = () => {
+  const handleBroadcastLobbyInvite = (targetUserId?: string) => {
     if (!roomId) return;
-    sendMessage?.({
-      type: 'send_lobby_invite',
-      playerId: currentUser?.id || myPlayerId,
-      name: playerName,
-      avatar: selectedAvatar,
-      roomId: roomId,
-    });
+    if (targetUserId) {
+      sendMessage?.({
+        type: 'send_room_invite',
+        roomId: roomId,
+        targetUserId,
+      });
+    } else {
+      onlinePlayers?.forEach((op) => {
+        if (op.userId && op.userId !== currentUser?.id) {
+          sendMessage?.({
+            type: 'send_room_invite',
+            roomId: roomId,
+            targetUserId: op.userId,
+          });
+        }
+      });
+    }
     setInviteSentFeedback(true);
     setTimeout(() => setInviteSentFeedback(false), 4000);
   };
@@ -245,6 +256,7 @@ export const Lobby: React.FC<LobbyProps> = ({
         playerId: currentUser?.id || myPlayerId,
         name: playerName,
         avatar: av,
+        token: localStorage.getItem('kawihe_auth_token') || undefined,
       });
     }
   };
@@ -265,6 +277,7 @@ export const Lobby: React.FC<LobbyProps> = ({
         playerId: currentUser?.id || myPlayerId,
         name: playerName.trim(),
         avatar: selectedAvatar,
+        token: localStorage.getItem('kawihe_auth_token') || undefined,
       });
     }
   };
@@ -289,7 +302,10 @@ export const Lobby: React.FC<LobbyProps> = ({
   };
 
   const handleStartSoloClick = () => {
-    onStartSolo(playerName, selectedAvatar, selectedBotCount, getSavedSettings());
+    onStartSolo(playerName, selectedAvatar, selectedBotCount, {
+      ...getSavedSettings(),
+      showBotCards: trainingShowBotCards,
+    });
   };
 
   const handleJoin = (e: React.FormEvent) => {
@@ -532,6 +548,40 @@ export const Lobby: React.FC<LobbyProps> = ({
                     <div className="text-[9px] opacity-80">{item.desc}</div>
                   </button>
                 ))}
+              </div>
+
+              {/* Bot Cards Visibility Toggle for Kids / Practice Mode */}
+              <div className="flex items-center justify-between p-2 rounded-2xl bg-white/90 border border-emerald-200 text-xs shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <span className="font-bold text-slate-800 text-[11px] block">
+                      Ver Cartas dos Robôs (Modo Criança / Treino)
+                    </span>
+                    <span className="text-[9px] text-slate-500">
+                      Mostra as cartas dos robôs abertas para aprendizagem
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !trainingShowBotCards;
+                    setTrainingShowBotCards(next);
+                    localStorage.setItem('uno_show_bot_cards', String(next));
+                  }}
+                  className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer shrink-0 border ${
+                    trainingShowBotCards ? 'bg-emerald-500 border-emerald-600' : 'bg-slate-300 border-slate-400'
+                  }`}
+                  title="Ativar/Desativar visão aberta das cartas dos robôs"
+                >
+                  <div
+                    className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transition-transform transform ${
+                      trainingShowBotCards ? 'translate-x-5' : 'translate-x-0.5'
+                    } top-0.5 absolute`}
+                  />
+                </button>
               </div>
 
               {/* Action Button */}
@@ -1210,7 +1260,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={handleBroadcastLobbyInvite}
+                  onClick={() => handleBroadcastLobbyInvite()}
                   disabled={inviteSentFeedback}
                   className="w-full mt-3 py-2 rounded-xl bg-gradient-to-b from-amber-400 to-orange-500 hover:from-yellow-300 hover:to-orange-400 disabled:opacity-75 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95"
                 >
@@ -1258,7 +1308,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                             <div className="flex items-center gap-1 mt-0.5">
                               <span className={`w-1.5 h-1.5 rounded-full ${inRoom ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400'}`} />
                               <span className="text-[9px] text-slate-500 font-bold">
-                                {inRoom ? `Jogando #${p.roomId}` : 'No Lobby'}
+                                {inRoom ? (p.roomId ? `Jogando #${p.roomId}` : 'Em partida') : 'No Lobby'}
                               </span>
                             </div>
                           </div>
@@ -1268,17 +1318,9 @@ export const Lobby: React.FC<LobbyProps> = ({
                         {roomId && !inRoom && (
                           <button
                             type="button"
-                            onClick={() => {
-                              sendMessage?.({
-                                type: 'send_lobby_invite',
-                                playerId: currentUser?.id || myPlayerId,
-                                name: playerName,
-                                avatar: selectedAvatar,
-                                roomId: roomId,
-                              });
-                            }}
+                            onClick={() => handleBroadcastLobbyInvite(p.userId || p.id)}
                             className="p-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-800 transition-colors cursor-pointer"
-                            title={`Chamar ${p.name} para a partida`}
+                            title={`Convidar ${p.name} para a partida`}
                           >
                             <span className="text-sm">🔔</span>
                           </button>

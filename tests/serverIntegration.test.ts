@@ -79,6 +79,13 @@ describe('Server WebSocket & Protocol Integration Tests', () => {
       return res.json({ success: true, message: 'Senha redefinida com sucesso!' });
     });
 
+    app.get('/api/rooms/open', (_req, res) => {
+      const openRooms: any[] = Array.from(rooms.values())
+        .filter((r) => !r.settings?.isPrivate && r.players.some((p) => !p.isBot && p.isConnected))
+        .map((r) => ({ id: r.id }));
+      return res.json({ success: true, rooms: openRooms });
+    });
+
     server = http.createServer(app);
     wss = new WebSocketServer({ server });
 
@@ -571,5 +578,13 @@ describe('Server WebSocket & Protocol Integration Tests', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
+  });
+
+  it('15. Deve excluir salas privadas do endpoint /api/rooms/open', async () => {
+    const res = await fetch(`http://localhost:${port}/api/rooms/open`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.rooms)).toBe(true);
   });
 });

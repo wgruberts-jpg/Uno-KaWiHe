@@ -166,6 +166,20 @@ export interface RoomSettings {
   spectatorPermission?: SpectatorPermission; // 'disabled' | 'hidden_cards' | 'reveal_cards'
   spectatorMode?: 'reveal_cards' | 'hidden_cards'; // Espectador pode ver as mãos ou apenas a mesa
   playAnimationDelay?: number; // 0s, 1s, 2s, 3s de elevação da carta antes de ir pro centro
+  isPrivate?: boolean; // Sala privada (somente convidados)
+}
+
+export interface RoomInvite {
+  inviteId: string;
+  roomId: string;
+  roomName: string;
+  inviterUserId: string;
+  inviterName: string;
+  inviterAvatar: string;
+  targetUserId: string;
+  status: 'pending' | 'accepted' | 'declined' | 'expired';
+  createdAt: number;
+  expiresAt: number;
 }
 
 export interface EmoteItem {
@@ -342,9 +356,10 @@ export type ClientMessagePayload =
   | { type: 'admin_force_end_game'; roomId: string; adminSecret?: string }
   | { type: 'admin_global_broadcast'; message: string; sender?: string; adminSecret?: string }
   | { type: 'get_open_rooms' }
-  | { type: 'register_lobby'; playerId: string; name: string; avatar: string }
+  | { type: 'register_lobby'; playerId: string; name: string; avatar: string; token?: string }
   | { type: 'send_lobby_chat'; playerId: string; name: string; avatar: string; text: string }
-  | { type: 'send_lobby_invite'; playerId: string; name: string; avatar: string; roomId: string };
+  | { type: 'send_room_invite'; roomId: string; targetUserId: string; playerId?: string }
+  | { type: 'respond_room_invite'; inviteId: string; accept: boolean; playerId?: string };
 
 export type ClientMessage = ClientMessagePayload & Envelope;
 
@@ -354,6 +369,7 @@ export type ServerMessage =
   | HandState
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'game_log'; log: GameLog }
+  | { type: 'room_invite_received'; invite: RoomInvite }
   | { type: 'sound_event'; sound: 'play' | 'draw' | 'uno' | 'reverse' | 'skip' | 'wild' | 'win' | 'penalty' }
   | { type: 'player_emote'; emote: ActiveEmote }
   | { type: 'rtc_offer'; fromPlayerId: string; toPlayerId: string; offer: any }

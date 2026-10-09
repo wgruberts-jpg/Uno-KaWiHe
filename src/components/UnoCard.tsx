@@ -6,7 +6,7 @@ interface UnoCardProps {
   isBack?: boolean;
   isPlayable?: boolean;
   isSelected?: boolean;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   onClick?: () => void;
   className?: string;
   badge?: string;
@@ -31,6 +31,7 @@ export const UnoCard: React.FC<UnoCardProps> = ({
   badge,
 }) => {
   const sizeClasses = {
+    xs: 'w-8 aspect-[2/3] text-[9px] rounded-lg border p-0.5 shadow-xs',
     sm: 'w-14 aspect-[2/3] text-xs rounded-xl border-2 p-1',
     md: 'w-20 aspect-[2/3] text-sm rounded-2xl border-2 p-1.5',
     lg: 'w-28 aspect-[2/3] text-base rounded-3xl border-4 p-2',
@@ -56,14 +57,14 @@ export const UnoCard: React.FC<UnoCardProps> = ({
     switch (value) {
       case 'skip':
         return (
-          <svg className={isCorner ? 'w-3.5 h-3.5' : size === 'sm' ? 'w-6 h-6' : size === 'lg' ? 'w-10 h-10' : 'w-8 h-8'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round">
+          <svg className={isCorner ? 'w-2.5 h-2.5' : size === 'xs' ? 'w-3.5 h-3.5' : size === 'sm' ? 'w-6 h-6' : size === 'lg' ? 'w-10 h-10' : 'w-8 h-8'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round">
             <circle cx="12" cy="12" r="9" />
             <line x1="5.6" y1="5.6" x2="18.4" y2="18.4" />
           </svg>
         );
       case 'reverse':
         return (
-          <svg className={isCorner ? 'w-3.5 h-3.5' : size === 'sm' ? 'w-6 h-6' : size === 'lg' ? 'w-10 h-10' : 'w-8 h-8'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <svg className={isCorner ? 'w-2.5 h-2.5' : size === 'xs' ? 'w-3.5 h-3.5' : size === 'sm' ? 'w-6 h-6' : size === 'lg' ? 'w-10 h-10' : 'w-8 h-8'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 12V8a4 4 0 0 1 4-4h8" />
             <polyline points="13 1 16 4 13 7" />
             <path d="M20 12v4a4 4 0 0 1-4 4H8" />
@@ -71,12 +72,12 @@ export const UnoCard: React.FC<UnoCardProps> = ({
           </svg>
         );
       case 'draw2':
-        return <span className={`font-black ${isCorner ? 'text-xs' : size === 'sm' ? 'text-xl' : size === 'lg' ? 'text-3xl' : 'text-2xl'}`}>+2</span>;
+        return <span className={`font-black ${isCorner ? 'text-[9px]' : size === 'xs' ? 'text-xs' : size === 'sm' ? 'text-xl' : size === 'lg' ? 'text-3xl' : 'text-2xl'}`}>+2</span>;
       case 'wild4':
         return (
           <div className="flex flex-col items-center leading-none">
-            <span className={`font-black ${isCorner ? 'text-[11px]' : size === 'sm' ? 'text-lg' : size === 'lg' ? 'text-3xl' : 'text-2xl'} text-yellow-300 drop-shadow`}>+4</span>
-            {!isCorner && (
+            <span className={`font-black ${isCorner ? 'text-[8px]' : size === 'xs' ? 'text-[10px]' : size === 'sm' ? 'text-lg' : size === 'lg' ? 'text-3xl' : 'text-2xl'} text-yellow-300 drop-shadow`}>+4</span>
+            {!isCorner && size !== 'xs' && (
               <div className="grid grid-cols-2 gap-1 mt-0.5">
                 <span className="w-2 h-2.5 bg-rose-500 rounded-xs shadow-xs"></span>
                 <span className="w-2 h-2.5 bg-sky-400 rounded-xs shadow-xs"></span>
@@ -88,7 +89,7 @@ export const UnoCard: React.FC<UnoCardProps> = ({
         );
       case 'wild':
         return (
-          <div className={isCorner ? 'w-3.5 h-3.5 rounded-full overflow-hidden grid grid-cols-2 border border-white' : size === 'sm' ? 'w-7 h-7 rounded-full overflow-hidden grid grid-cols-2 border-2 border-white shadow-lg' : size === 'lg' ? 'w-11 h-11 rounded-full overflow-hidden grid grid-cols-2 border-2 border-white shadow-lg' : 'w-9 h-9 rounded-full overflow-hidden grid grid-cols-2 border-2 border-white shadow-lg'}>
+          <div className={isCorner ? 'w-2.5 h-2.5 rounded-full overflow-hidden grid grid-cols-2 border border-white' : size === 'xs' ? 'w-4 h-4 rounded-full overflow-hidden grid grid-cols-2 border border-white shadow-xs' : size === 'sm' ? 'w-7 h-7 rounded-full overflow-hidden grid grid-cols-2 border-2 border-white shadow-lg' : size === 'lg' ? 'w-11 h-11 rounded-full overflow-hidden grid grid-cols-2 border-2 border-white shadow-lg' : 'w-9 h-9 rounded-full overflow-hidden grid grid-cols-2 border-2 border-white shadow-lg'}>
             <span className="w-full h-full bg-rose-500"></span>
             <span className="w-full h-full bg-sky-400"></span>
             <span className="w-full h-full bg-yellow-300"></span>
@@ -97,7 +98,7 @@ export const UnoCard: React.FC<UnoCardProps> = ({
         );
       default:
         return (
-          <span className={`font-black italic tracking-tighter ${isCorner ? 'text-xs' : size === 'sm' ? 'text-3xl' : size === 'lg' ? 'text-5xl' : 'text-4xl'} drop-shadow-sm`}>
+          <span className={`font-black italic tracking-tighter ${isCorner ? 'text-[9px]' : size === 'xs' ? 'text-sm' : size === 'sm' ? 'text-3xl' : size === 'lg' ? 'text-5xl' : 'text-4xl'} drop-shadow-sm`}>
             {value}
           </span>
         );
