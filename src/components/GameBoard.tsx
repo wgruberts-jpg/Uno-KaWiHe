@@ -302,13 +302,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   // Virtual Stage Calculations
   const isLandscape = viewportSize.width >= viewportSize.height;
   const virtualWidth = isLandscape ? 1280 : 420;
+  // Responsive Scale: Ensures stage fits inside viewport on BOTH dimensions
   const scale = isLandscape
     ? Math.min(viewportSize.width / 1280, viewportSize.height / 720)
-    : viewportSize.width / 420;
+    : Math.min(viewportSize.width / 420, viewportSize.height / 680);
 
+  // Virtual Height: fills viewport on tall devices without letterboxing or clipping
   const virtualHeight = isLandscape
     ? 720
-    : Math.max(720, Math.min(880, viewportSize.height / (scale || 1)));
+    : Math.max(680, viewportSize.height / (scale || 1));
 
   const isCompact = scale < (isLandscape ? 0.6 : 0.85);
 
@@ -991,8 +993,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
             {/* Bottom Player Hand + Action HUD */}
             <div className="w-full shrink-0 flex flex-col items-center z-20 pb-1">
-              <div className="w-full px-1 overflow-x-auto py-1 flex items-center justify-center">
-                <div className="flex items-center -space-x-7 py-1 px-2">
+              <div className="w-full px-1 overflow-x-auto py-1 flex scrollbar-thin">
+                <div className="flex items-center -space-x-7 py-1 px-3 mx-auto min-w-min">
                   {state.myHand.map((card, idx) => (
                     <div
                       key={card.id}

@@ -114,18 +114,18 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
         </div>
       )}
 
-      <div className="flex items-center gap-1.5 sm:gap-2">
+      <div className="flex items-center gap-1 sm:gap-1.5">
         {/* 1. Main Voice Status Button */}
         {!isJoined ? (
           <button
             type="button"
             onClick={handleJoinVoice}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs shadow-sm hover:scale-102 active:scale-95 transition-all cursor-pointer border-2 border-emerald-300"
+            className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs shadow-sm hover:scale-102 active:scale-95 transition-all cursor-pointer border-2 border-emerald-300"
             title="Entrar no Chat de Voz P2P (Sem servidor, direto entre navegadores)"
           >
             <Radio className="w-4 h-4 animate-pulse text-emerald-100" />
-            <span className="hidden xs:inline">Voz P2P</span>
-            <span className="xs:hidden">Voz</span>
+            <span className="hidden sm:inline">Voz P2P</span>
+            <span className="sm:hidden">Voz</span>
             {activeInVoiceCount > 0 && (
               <span className="bg-emerald-800 text-emerald-100 px-1.5 py-0.2 rounded-full text-[10px] font-black">
                 {activeInVoiceCount}
@@ -136,36 +136,26 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-sm active:scale-95 transition-all cursor-pointer border-2 border-emerald-300"
+            className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl sm:rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-sm active:scale-95 transition-all cursor-pointer border-2 border-emerald-300"
             title="Clique para ver participantes e configurações de áudio"
           >
             <Radio className="w-4 h-4 text-emerald-200 animate-pulse" />
-            <span className="hidden sm:inline">Voz Conectada</span>
-            <span className="sm:hidden">Voz</span>
+            <span className="hidden md:inline">Voz Conectada</span>
+            <span className="md:hidden">Voz</span>
             <span className="bg-emerald-900 text-emerald-100 px-1.5 py-0.2 rounded-full text-[10px] font-black">
               {activeInVoiceCount}
             </span>
           </button>
         )}
 
-        {/* 2. Direct Mute/Unmute Microphone Button - Always beside it! */}
-        {!isJoined ? (
-          <button
-            type="button"
-            onClick={handleJoinVoice}
-            className="p-1.5 sm:p-2 px-2 sm:px-3 rounded-xl sm:rounded-2xl bg-white border-2 border-emerald-400 text-emerald-800 hover:bg-emerald-50 cursor-pointer transition-all shadow-sm active:scale-95 flex items-center gap-1 font-black text-xs"
-            title="Ligar microfone e entrar na chamada de voz"
-          >
-            <Mic className="w-4 h-4 text-emerald-600" />
-            <span className="hidden sm:inline">Microfone</span>
-          </button>
-        ) : (
+        {/* 2. Controls when joined */}
+        {isJoined && (
           <>
             {/* Microphone Mute Toggle */}
             <button
               type="button"
               onClick={handleToggleMute}
-              className={`p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl border-2 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 font-black text-xs ${
+              className={`p-1.5 sm:p-2 px-2 sm:px-2.5 rounded-xl sm:rounded-2xl border-2 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1 font-black text-xs ${
                 isMuted
                   ? 'bg-rose-50 border-rose-500 text-rose-700 hover:bg-rose-100 ring-2 ring-rose-400/40'
                   : 'bg-white border-emerald-400 text-emerald-800 hover:bg-emerald-50'
@@ -174,7 +164,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
             >
               {/* Speaking Pulse Dot */}
               <span
-                className={`w-2.5 h-2.5 rounded-full transition-all ${
+                className={`w-2 h-2 rounded-full transition-all ${
                   isMuted
                     ? 'bg-rose-500'
                     : isSpeaking
@@ -185,12 +175,12 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
               {isMuted ? (
                 <>
                   <MicOff className="w-4 h-4 text-rose-600" />
-                  <span>Mic Mutado</span>
+                  <span className="hidden md:inline">Mutado</span>
                 </>
               ) : (
                 <>
                   <Mic className="w-4 h-4 text-emerald-600" />
-                  <span>Mutar Mic</span>
+                  <span className="hidden md:inline">Mic</span>
                 </>
               )}
             </button>
@@ -209,12 +199,12 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
               {isDeafened ? (
                 <>
                   <VolumeX className="w-4 h-4 text-amber-600" />
-                  <span className="hidden sm:inline">Som Mutado</span>
+                  <span className="hidden md:inline">Som Mutado</span>
                 </>
               ) : (
                 <>
                   <Volume2 className="w-4 h-4 text-sky-600" />
-                  <span className="hidden sm:inline">Som</span>
+                  <span className="hidden md:inline">Som</span>
                 </>
               )}
             </button>

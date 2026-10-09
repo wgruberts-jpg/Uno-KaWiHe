@@ -35,8 +35,8 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
   const isFull = room.playersCount >= room.maxPlayers;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="bg-white border-4 border-yellow-400 rounded-3xl max-w-md w-full p-6 text-slate-800 shadow-2xl relative flex flex-col my-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+      <div className="bg-white border-4 border-yellow-400 rounded-3xl max-w-md w-full p-4 sm:p-6 text-slate-800 shadow-2xl relative flex flex-col my-auto max-h-[92dvh] overflow-y-auto">
         {/* Close Button */}
         <button
           type="button"
