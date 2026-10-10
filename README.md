@@ -18,7 +18,9 @@
 - 🛡️ **Scripts de Manutenção Seguros:**
   - `scripts/create-user.sh`: Exigência estrita de `bcryptjs` (fator 12), abortando com `process.exit(1)` caso ausente (proibição absoluta de texto puro).
   - `scripts/backup.sh`: Permissões restritas (`chmod 700` no diretório e `chmod 600` nos arquivos gerados) com salvamento de `./data` e volumes Docker.
-- 🧪 **Suíte de Testes Automatizados:** 38 testes executados via Vitest (24 testes unitários de regras de jogo e 14 testes de integração e segurança de rede).
+- 🧪 **Suíte de Testes Automatizados:** 42 testes executados via Vitest (24 testes unitários de regras de jogo e 18 testes de integração e segurança de rede).
+- 👑 **Painel Administrativo & Diagnóstico de Jogadores:** Inspeção em tempo real de jogadores ativos e mensagens de chat pelo Admin, exibindo relatório detalhado de localização, IP, dispositivo e histórico, além de ações de moderação (Kick, Alerta, Desconectar, Redefinir Senha).
+- 🎙️ **Guia de Microfone no PC:** Instruções passo a passo integradas para liberação de áudio e microfone em HTTP/IP no Firefox (`about:config`) e Google Chrome (`chrome://flags`).
 
 ---
 

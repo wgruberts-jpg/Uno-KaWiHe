@@ -25,7 +25,7 @@ if [ -f "$USERS_FILE" ]; then
         console.log('-----------------------------------------------------------------');
         users.forEach((u, i) => {
           const roleBadge = u.role === 'admin' ? '👑 [ADMIN]' : '🎮 [JOGADOR]';
-          const tagBadge = u.tag ? ` [${u.tag}]` : '';
+          const tagBadge = u.tag ? \` [\${u.tag}]\` : '';
           console.log(\`#\${i + 1} \${u.avatar} \${u.displayName}\${tagBadge} (@\${u.username}) \${roleBadge}\`);
           console.log(\`   ID: \${u.id} | Cadastrado em: \${new Date(u.createdAt).toLocaleString('pt-BR')}\`);
         });

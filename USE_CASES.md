@@ -95,6 +95,6 @@ Este documento mapeia os principais fluxos de uso, interações, cenários de se
 * **Descrição:** Permite validar regras de negócio, integridade de WebSocket e políticas de segurança em menos de 2 segundos.
 * **Fluxo Principal:**
   1. O desenvolvedor executa `npx vitest run --reporter=verbose` no terminal.
-  2. O runner executa **38 testes automatizados** com 100% de aprovação:
+  2. O runner executa **42 testes automatizados** com 100% de aprovação:
      - **24 testes unitários** no `tests/unoEngine.test.ts` (108 cartas, regras de descarte, rotação, Skip/UNO, vitória, penalidades e temporizadores).
-     - **14 testes de integração e segurança** no `tests/serverIntegration.test.ts` (proteção de socket ativo da vítima, envelopes versionados, rejeição de `x-admin-pin`, bloqueio de JWT de jogador comum em rotas admin, autorização de admin via JWT, validação de tokens e rate limits).
+     - **18 testes de integração e segurança** no `tests/serverIntegration.test.ts` (proteção de socket ativo da vítima, envelopes versionados, rejeição de `x-admin-pin`, bloqueio de JWT de jogador comum em rotas admin, autorização de admin via JWT, validação de relatórios de diagnóstico de jogadores e rate limits).

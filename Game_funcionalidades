@@ -1463,12 +1463,33 @@ Ao concluir a implementação, o agente deve conseguir afirmar:
 
 Minha recomendação para você
 
-Sim, eu entregaria exatamente uma especificação desse nível para o Gemini.
+Sim, eu entregaria exatamente uma especificação desse nível para o Agente.
 
-E faria uma coisa adicional: não colocaria “faça em etapas” no documento. Deixaria o Gemini decidir internamente a ordem de implementação, como você falou.
+E faria uma coisa adicional: não colocaria “faça em etapas” no documento. Deixaria o Agente decidir internamente a ordem de implementação, como você falou.
 
-O contrato deve dizer o que o sistema precisa ser, não microgerenciar como o Gemini deve chegar lá.
+O contrato deve dizer o que o sistema precisa ser, não microgerenciar como o Agente deve chegar lá.
 
 A única instrução processual que eu manteria é esta:
 
     Antes de alterar o código, faça uma auditoria do comportamento existente e compare-o com a v2.2. Não assuma que os valores marcados como proposta correspondem ao comportamento atual.
+
+65. Relatório de Diagnóstico de Jogadores e Moderação (Admin)
+
+O sistema v2.2 introduz rotas administrativas avançadas para inspeção de usuários conectados:
+- `/api/admin/player-report/:target`: Retorna objeto estruturado contendo dados da conta (`user`), presença em tempo real (`presence` com IP, dispositivo, navegador e tempo conectado), localização na sala atual (`location` com membros da mesa, ID e status) e estatísticas históricas (`stats`).
+- Ações administrativas protegidas por JWT (`role === 'admin'`):
+  - Expulsar da sala (`/api/admin/player-action/kick-room`)
+  - Desconectar sessão WebSocket (`/api/admin/player-action/disconnect`)
+  - Enviar alerta na tela do jogador (`/api/admin/player-action/alert`)
+  - Redefinir senha de usuário (`/api/admin/users/:id/reset-password`)
+
+66. Guia de Liberação de Microfone no PC (Firefox & Chrome via HTTP/IP)
+
+Para suportar ambientes de desenvolvimento e VMs acessadas via IP direto em HTTP (sem SSL), a plataforma providencia guias integrados:
+- **Firefox:** Ajustes em `about:config` alterando `media.devices.insecure.enabled` e `media.getusermedia.insecure.enabled` de `false` para `true`.
+- **Google Chrome / Edge:** Acesso a `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, definindo como `Enabled` e adicionando a origem/IP.
+
+67. Suíte de Testes Automatizados e Confiabilidade (42 Testes)
+
+A suíte de testes do Uno KaWiHe v2.2 foi expandida para 42 testes executados via Vitest (`tests/unoEngine.test.ts` e `tests/serverIntegration.test.ts`), cobrindo 100% dos requisitos de regras de jogo, proteção anti-fraude, isolamento de sockets e validação de rotas administrativas. O servidor de desenvolvimento gerencia o middleware do Vite com estabilidade de HMR e tratamento de falhas de transporte.
+

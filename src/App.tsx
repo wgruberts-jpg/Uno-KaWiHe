@@ -458,12 +458,15 @@ export default function App() {
     };
 
     socket.onclose = () => {
-      console.log('Socket closed, reconnecting in 2s...');
-      setTimeout(connectWebSocket, 2000);
+      console.log('Socket closed, reconnecting in 3s...');
+      // Use a flag to avoid multiple reconnections
+      if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+        setTimeout(connectWebSocket, 3000);
+      }
     };
 
-    socket.onerror = (err) => {
-      console.error('WebSocket error:', err);
+    socket.onerror = () => {
+      // WebSocket error event objects in browsers only show { isTrusted: true } when logged directly.
     };
   }, []);
 

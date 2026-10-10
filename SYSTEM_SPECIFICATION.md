@@ -10,7 +10,7 @@ O **Uno KaWiHe v2.2** é uma plataforma full-stack de jogo de cartas UNO multipl
 ### Pilhas de Tecnologia (Tech Stack)
 * **Frontend:** React 19, Vite, TypeScript, Tailwind CSS, Lucide Icons.
 * **Backend:** Node.js, Express, WebSockets (`ws`), TypeScript.
-* **Testes Automatizados:** Vitest (38 testes automatizados: 24 unitários cobrindo o motor de jogo `unoEngine` e 14 de integração e segurança em `serverIntegration`).
+* **Testes Automatizados:** Vitest (42 testes automatizados: 24 unitários cobrindo o motor de jogo `unoEngine` e 18 de integração e segurança em `serverIntegration`).
 * **Segurança & Autenticação:** JWT (JSON Web Tokens) com verificação estrita de assinatura e perfil (`role: 'admin' | 'player'`), Rate Limiting composto em memória com suporte a Cloudflare (`CF-Connecting-IP` e `trust proxy`), e criptografia nativa `crypto` (`randomUUID`, `randomInt`, `randomBytes`).
 * **Comunicação em Tempo Real:** WebSockets (sincronização de estado da partida, chat da sala e lobbies) e WebRTC (voz P2P direta com sinalização sanitizada via WebSocket).
 * **Persistência Atômica:** Disco local (`data/users.json`, `data/invites.json`, `data/stats.json`) com sincronização física `fsyncSync` + `renameSync` e cache em memória.

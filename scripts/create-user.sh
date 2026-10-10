@@ -18,7 +18,6 @@ PASSWORD="$2"
 DISPLAY_NAME="$3"
 AVATAR="$4"
 ROLE="$5"
-INVITE_CODE="${6:-@KWH1}"
 
 # Se não passou os argumentos, pergunta de forma interativa e amigável:
 if [ -z "$USERNAME" ]; then

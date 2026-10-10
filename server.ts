@@ -1872,6 +1872,7 @@ interface OnlinePlayerSession {
 
 const onlinePlayers = new Map<WebSocket, OnlinePlayerSession>();
 const lobbyChatRateLimits = new Map<WebSocket, number[]>();
+const startSoloRateLimits = new Map<WebSocket, number>();
 
 interface RoomInvite {
   inviteId: string;
@@ -2189,6 +2190,15 @@ wss.on('connection', (ws: WebSocket, req: any) => {
       }
 
       if (msg.type === 'start_solo') {
+        const lastSolo = startSoloRateLimits.get(ws) || 0;
+        if (Date.now() - lastSolo < 2000) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Aguarde um instante para iniciar outra partida.' }));
+          }
+          return;
+        }
+        startSoloRateLimits.set(ws, Date.now());
+
         const roomId = generateRoomId();
         const hostPlayer: InternalPlayer = {
           id: `player-${Math.random().toString(36).substring(2, 9)}`,

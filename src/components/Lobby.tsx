@@ -157,6 +157,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   const isAdmin = currentUser?.role === 'admin' || currentUser?.username?.toLowerCase() === 'edinho';
   const [inspectedPlayer, setInspectedPlayer] = useState<OnlinePlayerSummary | { id: string; name: string; avatar?: string; username?: string; roomId?: string | null } | null>(null);
   const [isPlayerReportOpen, setIsPlayerReportOpen] = useState(false);
+  const [isStartingSolo, setIsStartingSolo] = useState(false);
 
   const handleOpenPlayerReport = (p: OnlinePlayerSummary | { id: string; name: string; avatar?: string; username?: string; roomId?: string | null }) => {
     if (!isAdmin) return;
@@ -315,10 +316,13 @@ export const Lobby: React.FC<LobbyProps> = ({
   };
 
   const handleStartSoloClick = () => {
+    if (isStartingSolo) return;
+    setIsStartingSolo(true);
     onStartSolo(playerName, selectedAvatar, selectedBotCount, {
       ...getSavedSettings(),
       showBotCards: trainingShowBotCards,
     });
+    setTimeout(() => setIsStartingSolo(false), 3000);
   };
 
   const handleJoin = (e: React.FormEvent) => {
@@ -715,9 +719,11 @@ export const Lobby: React.FC<LobbyProps> = ({
               <button
                 type="button"
                 onClick={handleStartSoloClick}
-                className="w-full py-2.5 rounded-2xl bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#15803d] active:shadow-[0_1px_0_#15803d] active:translate-y-0.5 border-2 border-white transition-all"
+                disabled={isStartingSolo}
+                className="w-full py-2.5 rounded-2xl bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#15803d] active:shadow-[0_1px_0_#15803d] active:translate-y-0.5 border-2 border-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Play className="w-4 h-4 fill-white" /> Iniciar Treino com {selectedBotCount} {selectedBotCount === 1 ? 'Robô' : 'Robôs'}
+                <Play className="w-4 h-4 fill-white" />
+                <span>{isStartingSolo ? 'Iniciando Treino...' : `Iniciar Treino com ${selectedBotCount} ${selectedBotCount === 1 ? 'Robô' : 'Robôs'}`}</span>
               </button>
             </div>
 
