@@ -12,12 +12,12 @@ Como este projeto é um ambiente de jogo real-time, Agentes devem seguir rigoros
    - Utilize sempre recursos nativos, locais, self-hosted ou planos gratuitos (ex: persistência atômica em arquivos JSON locais, WebSockets integrados no Node.js e WebRTC P2P para voz).
    - Na dúvida se algo requer pagamento ou suporte no AI Studio, adote a alternativa gratuita local ou pergunte.
 2. **O Servidor é a Única Autoridade:** O cliente apenas envia intenções. Toda validação (regras de UNO, identidade, contagem de cartas, penalidades) ocorre estritamente no `server.ts` e `server/unoEngine.ts`.
-2. **Segurança em Primeiro Lugar:**
+3. **Segurança em Primeiro Lugar:**
    - Nunca hardcode segredos.
    - Use apenas as rotas de autenticação via JWT.
    - Scripts de manutenção (na pasta `/scripts/`) devem ser executados com cautela e em ambiente seguro.
-3. **Contrato Funcional:** Antes de qualquer alteração, consulte `/Game_funcionalidades`. Se o comportamento real do código divergir deste contrato, priorize a correção do código e, posteriormente, a atualização do contrato.
-4. **Validar antes de Confirmar:**
+4. **Contrato Funcional:** Antes de qualquer alteração, consulte `/Game_funcionalidades`. Se o comportamento real do código divergir deste contrato, priorize a correção do código e, posteriormente, a atualização do contrato.
+5. **Validar antes de Confirmar:**
    - Sempre execute `npm test` antes de assumir que o sistema está saudável.
    - Se uma tarefa resultar em mudanças estruturais, execute `npx tsc --noEmit` e `npm run build` para garantir a integridade.
 

@@ -1,6 +1,6 @@
 # 08 — Protocolo de passagem entre Agentes
 
-Objetivo: qualquer Agente assume o projeto lendo os arquivos em `docs/`, trabalha, e deixa tudo registrado para o próximo.
+Objetivo: qualquer Agente assume o projeto lendo os arquivos na raiz, trabalha, e deixa tudo registrado para o próximo.
 
 ## Bloco HANDOFF
 ```
