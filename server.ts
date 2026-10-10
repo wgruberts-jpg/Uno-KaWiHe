@@ -895,6 +895,294 @@ app.post('/api/admin/broadcast', (req, res) => {
   return res.json({ success: true, message: 'Aviso global transmitido a todas as salas com sucesso.' });
 });
 
+// Helper to parse user agent for admin diagnostic
+function parseUserAgentInfo(ua: string): { device: 'mobile' | 'desktop' | 'tablet' | 'unknown'; browser: string } {
+  if (!ua) return { device: 'unknown', browser: 'Desconhecido' };
+  const isMobile = /mobile|iphone|ipod|android.*mobile|blackberry|iemobile/i.test(ua);
+  const isTablet = /tablet|ipad|android(?!.*mobile)/i.test(ua);
+  const device: 'mobile' | 'desktop' | 'tablet' | 'unknown' = isTablet ? 'tablet' : isMobile ? 'mobile' : 'desktop';
+
+  let browser = 'Navegador Web';
+  if (/chrome|crios/i.test(ua) && !/edg|opr/i.test(ua)) browser = isMobile ? 'Chrome Mobile' : 'Google Chrome';
+  else if (/safari/i.test(ua) && !/chrome|crios/i.test(ua)) browser = isMobile ? 'Mobile Safari' : 'Apple Safari';
+  else if (/firefox|fxios/i.test(ua)) browser = isMobile ? 'Firefox Mobile' : 'Mozilla Firefox';
+  else if (/edg/i.test(ua)) browser = 'Microsoft Edge';
+  else if (/opr|opera/i.test(ua)) browser = 'Opera';
+
+  return { device, browser };
+}
+
+// Admin: Get Comprehensive Player Report
+app.get('/api/admin/player-report/:target', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  const target = (req.params.target || '').trim();
+  const targetLower = target.toLowerCase();
+
+  // 1. Find user in persistent users store
+  const allUsers = getAllUsers();
+  const matchedUser = allUsers.find(
+    (u) =>
+      u.id === target ||
+      u.username.toLowerCase() === targetLower ||
+      u.displayName.toLowerCase() === targetLower
+  );
+
+  // 2. Find online session in onlinePlayers map
+  let matchedMeta: any = null;
+  let targetWs: WebSocket | null = null;
+  for (const [ws, meta] of onlinePlayers.entries()) {
+    if (
+      meta.id === target ||
+      (meta.userId && meta.userId.toLowerCase() === targetLower) ||
+      meta.name.toLowerCase() === targetLower ||
+      (matchedUser && meta.name.toLowerCase() === matchedUser.displayName.toLowerCase())
+    ) {
+      matchedMeta = meta;
+      targetWs = ws;
+      break;
+    }
+  }
+
+  // 3. Find if player is currently in any room
+  let currentRoom: RoomData | null = null;
+  let playerInRoom: InternalPlayer | null = null;
+  let isSpectator = false;
+
+  const targetRoomId = matchedMeta?.roomId;
+  if (targetRoomId) {
+    currentRoom = rooms.get(targetRoomId.toUpperCase()) || null;
+  }
+
+  if (!currentRoom) {
+    for (const r of rooms.values()) {
+      const p = r.players.find(
+        (pl) =>
+          pl.id === target ||
+          pl.name.toLowerCase() === targetLower ||
+          (matchedUser && pl.name.toLowerCase() === matchedUser.displayName.toLowerCase())
+      );
+      if (p) {
+        currentRoom = r;
+        playerInRoom = p;
+        break;
+      }
+      const s = (r.spectators || []).find(
+        (sp) =>
+          sp.id === target ||
+          sp.name.toLowerCase() === targetLower ||
+          (matchedUser && sp.name.toLowerCase() === matchedUser.displayName.toLowerCase())
+      );
+      if (s) {
+        currentRoom = r;
+        isSpectator = true;
+        break;
+      }
+    }
+  } else {
+    playerInRoom =
+      currentRoom.players.find(
+        (pl) =>
+          pl.id === target ||
+          pl.name.toLowerCase() === targetLower ||
+          (matchedUser && pl.name.toLowerCase() === matchedUser.displayName.toLowerCase())
+      ) || null;
+    if (!playerInRoom && (currentRoom.spectators || []).some((s) => s.id === target || s.name.toLowerCase() === targetLower)) {
+      isSpectator = true;
+    }
+  }
+
+  // 4. Retrieve Career Stats
+  const allStats = getAllStats();
+  const userStats = matchedUser
+    ? allStats[matchedUser.id] || allStats[matchedUser.username.toLowerCase()] || null
+    : null;
+  const gamesPlayed = userStats?.gamesPlayed || 0;
+  const gamesWon = userStats?.gamesWon || 0;
+  const gamesLost = userStats?.gamesLost || 0;
+  const winRate = gamesPlayed > 0 ? Math.round((gamesWon / gamesPlayed) * 100) : 0;
+
+  // 5. Connection timing & User Agent
+  const connectedAt = matchedMeta?.connectedAt || (matchedUser ? Date.now() - 60000 : undefined);
+  const now = Date.now();
+  const connectedDurationSeconds = connectedAt ? Math.max(0, Math.floor((now - connectedAt) / 1000)) : 0;
+  const uaInfo = parseUserAgentInfo(matchedMeta?.userAgent || '');
+
+  const report = {
+    user: {
+      id: matchedUser?.id || matchedMeta?.id || target,
+      username: matchedUser?.username || matchedMeta?.userId || (matchedMeta ? matchedMeta.name.toLowerCase().replace(/\s+/g, '') : target),
+      displayName: matchedUser?.displayName || matchedMeta?.name || target,
+      avatar: matchedUser?.avatar || matchedMeta?.avatar || '👤',
+      role: matchedUser?.role || (matchedMeta?.role === 'admin' ? 'admin' : matchedMeta ? 'player' : 'visitor'),
+      tag: matchedUser?.tag || matchedMeta?.tag || '#0000',
+      createdAt: matchedUser?.createdAt,
+      isRegistered: !!matchedUser,
+    },
+    presence: {
+      isOnline: !!matchedMeta && (!targetWs || targetWs.readyState === WebSocket.OPEN),
+      connectedAt,
+      connectedDurationSeconds,
+      ip: matchedMeta?.ip || '127.0.0.1',
+      userAgent: matchedMeta?.userAgent || 'Desconhecido',
+      device: uaInfo.device,
+      browser: uaInfo.browser,
+      socketId: matchedMeta?.socketId || 'N/A',
+    },
+    location: {
+      inRoom: !!currentRoom,
+      roomId: currentRoom ? currentRoom.id : null,
+      roomName: currentRoom ? `Mesa #${currentRoom.id}${currentRoom.settings.isPrivate ? ' (Privada)' : ' (Pública)'}` : null,
+      isPrivate: currentRoom ? !!currentRoom.settings.isPrivate : false,
+      gameStatus: currentRoom ? currentRoom.status : null,
+      isHost: playerInRoom ? !!playerInRoom.isHost : false,
+      isSpectator,
+      cardsCount: playerInRoom ? playerInRoom.cardsCount : 0,
+      score: playerInRoom ? playerInRoom.score : 0,
+      members: currentRoom
+        ? currentRoom.players.map((p) => ({
+            id: p.id,
+            name: p.name,
+            avatar: p.avatar,
+            isHost: !!p.isHost,
+            isBot: !!p.isBot,
+            isConnected: !!p.isConnected,
+            cardsCount: p.cardsCount,
+            score: p.score,
+          }))
+        : [],
+    },
+    stats: {
+      gamesPlayed,
+      gamesWon,
+      gamesLost,
+      winRate,
+      currentStreak: userStats?.currentStreak || 0,
+      bestStreak: userStats?.bestStreak || 0,
+      totalPoints: userStats?.totalPoints || 0,
+      unoCallsSuccess: userStats?.unoCallsSuccess || 0,
+      cardsPlayed: userStats?.cardsPlayed || 0,
+    },
+  };
+
+  return res.json({ success: true, report });
+});
+
+// Admin: Disconnect Player WebSocket
+app.post('/api/admin/player-action/disconnect', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+  const { targetId, reason = 'Você foi desconectado pelo Administrador.' } = req.body;
+  if (!targetId) return res.status(400).json({ success: false, error: 'ID do jogador obrigatório.' });
+
+  let disconnected = false;
+  for (const [ws, meta] of onlinePlayers.entries()) {
+    if (meta.id === targetId || meta.userId === targetId || meta.name === targetId) {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: 'error', message: `⚠️ ${reason}` }));
+          ws.close(1000, reason);
+        } catch {}
+      }
+      onlinePlayers.delete(ws);
+      disconnected = true;
+      break;
+    }
+  }
+
+  broadcastOnlinePlayers();
+  return res.json({
+    success: true,
+    message: disconnected ? 'Jogador desconectado com sucesso.' : 'Jogador não encontrado entre os clientes online.',
+  });
+});
+
+// Admin: Kick Player from Room
+app.post('/api/admin/player-action/kick-room', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+  const { targetId, roomId, reason = 'Você foi retirado da sala pelo Administrador.' } = req.body;
+  let targetRoom: RoomData | undefined;
+  if (roomId) {
+    targetRoom = rooms.get(roomId.toUpperCase());
+  } else {
+    for (const r of rooms.values()) {
+      if (r.players.some((p) => p.id === targetId || p.name === targetId)) {
+        targetRoom = r;
+        break;
+      }
+    }
+  }
+
+  if (!targetRoom) {
+    return res.status(404).json({ success: false, error: 'Sala ou jogador não encontrado.' });
+  }
+
+  const pIdx = targetRoom.players.findIndex((p) => p.id === targetId || p.name === targetId);
+  if (pIdx === -1) {
+    return res.status(404).json({ success: false, error: 'Jogador não está nesta sala.' });
+  }
+
+  const removed = targetRoom.players.splice(pIdx, 1)[0];
+  clientConnections.forEach((meta, ws) => {
+    if (meta.playerId === removed.id && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'player_kicked', reason }));
+      clientConnections.delete(ws);
+      const onlineMeta = onlinePlayers.get(ws);
+      if (onlineMeta) {
+        onlineMeta.inRoom = false;
+        onlineMeta.roomId = null;
+      }
+    }
+  });
+
+  broadcastLog(targetRoom, `🚫 ${removed.name} foi retirado da sala pelo Administrador.`, 'system');
+  syncRoomState(targetRoom);
+  broadcastOnlinePlayers();
+
+  return res.json({ success: true, message: `${removed.name} foi retirado da sala com sucesso.` });
+});
+
+// Admin: Direct Alert / Message to Player
+app.post('/api/admin/player-action/alert', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+  const { targetId, message } = req.body;
+  if (!message || !message.trim()) {
+    return res.status(400).json({ success: false, error: 'Mensagem obrigatória.' });
+  }
+
+  let sent = false;
+  for (const [ws, meta] of onlinePlayers.entries()) {
+    if (meta.id === targetId || meta.userId === targetId || meta.name === targetId) {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(
+            JSON.stringify({
+              type: 'global_announcement',
+              message: `🔔 Mensagem do Administrador: ${message.trim()}`,
+              sender: '👑 Administração',
+              timestamp: Date.now(),
+            })
+          );
+          sent = true;
+        } catch {}
+      }
+      break;
+    }
+  }
+
+  return res.json({
+    success: true,
+    message: sent ? 'Alerta enviado diretamente na tela do jogador!' : 'Jogador offline ou não encontrado.',
+  });
+});
+
 // In-memory rooms repository
 const rooms = new Map<string, RoomData>();
 
@@ -1566,7 +1854,23 @@ function executePlayCard(
 // WebSocket setup
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-const onlinePlayers = new Map<WebSocket, { id: string; name: string; avatar: string; inRoom: boolean; userId?: string; roomId: string | null }>();
+interface OnlinePlayerSession {
+  id: string;
+  name: string;
+  avatar: string;
+  inRoom: boolean;
+  userId?: string;
+  roomId: string | null;
+  connectedAt?: number;
+  ip?: string;
+  userAgent?: string;
+  socketId?: string;
+  role?: string;
+  tag?: string;
+  createdAt?: string;
+}
+
+const onlinePlayers = new Map<WebSocket, OnlinePlayerSession>();
 const lobbyChatRateLimits = new Map<WebSocket, number[]>();
 
 interface RoomInvite {
@@ -1610,7 +1914,11 @@ function broadcastOnlinePlayers() {
     avatar: p.avatar,
     inRoom: p.inRoom,
     roomId: p.roomId,
-    userId: p.userId
+    userId: p.userId,
+    connectedAt: p.connectedAt,
+    tag: p.tag,
+    role: p.role,
+    createdAt: p.createdAt
   }));
   const payload = JSON.stringify({ type: 'lobby_online_players', players: playersList });
   onlinePlayers.forEach((meta, ws) => {
@@ -1631,8 +1939,12 @@ function updatePlayerRoom(ws: WebSocket, roomId: string | null) {
   }
 }
 
-wss.on('connection', (ws: WebSocket) => {
+wss.on('connection', (ws: WebSocket, req: any) => {
   const socketId = `soc-${crypto.randomUUID()}`;
+  const rawIp = (req?.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req?.socket?.remoteAddress || '127.0.0.1';
+  const cleanIp = rawIp.replace(/^::ffff:/, '');
+  const userAgent = (req?.headers?.['user-agent'] as string) || '';
+  const connectedAt = Date.now();
 
   ws.on('message', (data: string) => {
     try {
@@ -1683,19 +1995,31 @@ wss.on('connection', (ws: WebSocket) => {
         let authUser: ReturnType<typeof getUserFromToken> | null = null;
         if (msg.token) {
           authUser = getUserFromToken(msg.token);
+        } else if (msg.playerId && msg.playerId.startsWith('usr_')) {
+          authUser = getAllUsers().find(u => u.id === msg.playerId) || null;
+        } else if (msg.name && msg.name !== 'Visitante' && msg.name !== '🕵️') {
+          authUser = getAllUsers().find(u => u.displayName.toLowerCase() === msg.name.toLowerCase() || u.username.toLowerCase() === msg.name.toLowerCase()) || null;
         }
 
         const pId = authUser ? `user-${authUser.username}` : (msg.playerId || `player-${crypto.randomUUID()}`);
-        const name = authUser ? (authUser.displayName || authUser.username) : 'Visitante';
-        const avatar = authUser ? (authUser.avatar || '👤') : '🕵️';
+        const name = authUser ? (authUser.displayName || authUser.username) : (msg.name && msg.name !== 'Visitante' ? msg.name : 'Visitante');
+        const avatar = authUser ? (authUser.avatar || '👤') : (msg.avatar && msg.avatar !== '🕵️' ? msg.avatar : '🕵️');
 
+        const existing = onlinePlayers.get(ws);
         onlinePlayers.set(ws, {
           id: pId,
           name,
           avatar,
           inRoom: false,
-          userId: authUser ? authUser.username : undefined,
-          roomId: null
+          userId: authUser ? authUser.username : (msg.name && msg.name !== 'Visitante' ? msg.name.toLowerCase().replace(/\s+/g, '') : undefined),
+          roomId: null,
+          connectedAt: existing?.connectedAt || connectedAt,
+          ip: cleanIp,
+          userAgent,
+          socketId,
+          role: authUser ? authUser.role : (msg.name && msg.name !== 'Visitante' ? 'player' : 'visitor'),
+          tag: authUser?.tag,
+          createdAt: authUser?.createdAt
         });
         broadcastOnlinePlayers();
         return;
@@ -2910,7 +3234,10 @@ async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -2923,7 +3250,9 @@ async function startServer() {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`UNO Multiplayer Server running on port ${PORT}`);
+    console.log(`  ➜  Local:   http://localhost:${PORT}/`);
+    console.log(`  ➜  Network: http://0.0.0.0:${PORT}/`);
+    console.log(`UNO Multiplayer Server running on http://localhost:${PORT}/`);
   });
 }
 

@@ -230,20 +230,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </button>
 
-          {/* 6. Quick Rules */}
+          {/* 6. Como Jogar & Ajuda */}
           <button
             type="button"
             onClick={onOpenRules}
             className={`w-full flex items-center rounded-2xl transition-all cursor-pointer ${
               isExpanded ? 'p-2.5 gap-3' : 'p-2.5 justify-center'
             } text-slate-700 hover:bg-slate-100 hover:text-slate-900`}
-            title="Regras Rápidas do Uno"
+            title="Como Jogar e Ajuda do Uno"
           >
             <HelpCircle className="w-5 h-5 shrink-0 text-slate-500" />
             {isExpanded && (
               <div className="text-left font-black text-xs">
-                <div>Regras do Jogo</div>
-                <div className="text-[10px] text-slate-400 font-medium">Como jogar e pontuar</div>
+                <div>Como Jogar</div>
+                <div className="text-[10px] text-slate-400 font-medium">Regras e microfone no PC</div>
               </div>
             )}
           </button>

@@ -12,6 +12,32 @@
     <meta property="og:description" content="Uno KaWiHe - Jogo de cartas multiplayer com matchmaking em tempo real, salas, chat e modo criança." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Runtime constraint: HMR is disabled in AI Studio. Ignore Vite HMR WebSocket errors.
+      window.addEventListener('unhandledrejection', function (event) {
+        var str = String(event.reason || '') + String(event.reason && event.reason.stack || '');
+        if (
+          str.indexOf('createWebSocketModuleRunnerTransport') !== -1 ||
+          str.indexOf('@vite/client') !== -1 ||
+          str.indexOf('vite-hmr') !== -1
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      });
+      window.addEventListener('error', function (event) {
+        var msg = String(event.message || '') + String(event.filename || '') + String(event.error && event.error.stack || '');
+        if (
+          msg.indexOf('createWebSocketModuleRunnerTransport') !== -1 ||
+          msg.indexOf('@vite/client') !== -1 ||
+          msg.indexOf('vite-hmr') !== -1
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return true;
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

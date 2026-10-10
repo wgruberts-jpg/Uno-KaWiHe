@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Radio, Users, PhoneOff, PhoneCall, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Radio, Users, PhoneOff, PhoneCall, Sparkles, HelpCircle } from 'lucide-react';
 import { voiceChat } from '../services/voiceChat.js';
+import { HowToPlayModal } from './HowToPlayModal.js';
 import { ClientMessage, VoicePeerState, Player } from '../types/uno.js';
 
 interface VoiceControlsProps {
@@ -24,6 +25,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [pushToTalkMode, setPushToTalkMode] = useState(false);
+  const [isMicGuideOpen, setIsMicGuideOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = voiceChat.subscribe({
@@ -106,11 +108,17 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
 
   return (
     <div className="relative">
-      {/* Error notification */}
+      {/* Error notification with quick help trigger */}
       {errorToast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-rose-600 text-white text-xs font-black px-4 py-2 rounded-2xl shadow-2xl border-2 border-white animate-bounce flex items-center gap-2">
-          <span>⚠️</span>
-          <span>{errorToast}</span>
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-rose-600 text-white text-xs font-black px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-white animate-bounce flex items-center gap-2.5 max-w-md text-center flex-wrap justify-center">
+          <span>⚠️ {errorToast}</span>
+          <button
+            type="button"
+            onClick={() => setIsMicGuideOpen(true)}
+            className="px-2.5 py-1 rounded-xl bg-white text-rose-700 hover:bg-rose-100 text-[11px] font-black cursor-pointer shadow-sm transition-colors"
+          >
+            💡 Como Liberar no PC
+          </button>
         </div>
       )}
 
@@ -315,6 +323,17 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
               })}
           </div>
 
+          <div className="pt-1 flex items-center justify-between text-[10px]">
+            <button
+              type="button"
+              onClick={() => setIsMicGuideOpen(true)}
+              className="text-sky-300 hover:text-sky-100 flex items-center gap-1 font-bold cursor-pointer"
+            >
+              <HelpCircle className="w-3 h-3 text-sky-400" />
+              <span>Como liberar microfone no PC</span>
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={handleLeaveVoice}
@@ -325,6 +344,13 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
           </button>
         </div>
       )}
+
+      {/* Mic Guide Modal */}
+      <HowToPlayModal
+        isOpen={isMicGuideOpen}
+        onClose={() => setIsMicGuideOpen(false)}
+        initialTab="mic"
+      />
     </div>
   );
 };

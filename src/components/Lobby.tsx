@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { RoomSettings, Player, UserProfile, SpectatorPermission, ClientMessage } from '../types/uno.js';
+import { RoomSettings, Player, UserProfile, SpectatorPermission, ClientMessage, OnlinePlayerSummary } from '../types/uno.js';
 import { VoiceControls } from './VoiceControls.js';
 import { Sidebar } from './Sidebar.js';
 import { AvatarSelectModal } from './AvatarSelectModal.js';
 import { OpenRoomsModal } from './OpenRoomsModal.js';
 import { InviteShareModal } from './InviteShareModal.js';
+import { PlayerReportModal } from './PlayerReportModal.js';
+import { HowToPlayModal } from './HowToPlayModal.js';
 import { auth } from '../services/auth.js';
 import {
   Users,
@@ -39,7 +41,8 @@ import {
   Layers,
   MessageSquare,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  Mic
 } from 'lucide-react';
 
 interface LobbyProps {
@@ -73,7 +76,7 @@ interface LobbyProps {
   isHost: boolean;
   errorMessage: string | null;
   sendMessage?: (msg: ClientMessage) => void;
-  onlinePlayers?: Array<{ id: string; name: string; avatar: string; roomId: string | null; userId?: string; inRoom?: boolean }>;
+  onlinePlayers?: OnlinePlayerSummary[];
   lobbyChat?: Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>;
 }
 
@@ -144,12 +147,22 @@ export const Lobby: React.FC<LobbyProps> = ({
   const [maxPlayers, setMaxPlayers] = useState<number>(4);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [rulesTab, setRulesTab] = useState<'rules' | 'mic'>('rules');
+  const [isHowToPlayModalOpen, setIsHowToPlayModalOpen] = useState(false);
   const [selectedBotCount, setSelectedBotCount] = useState<number>(1);
   const [trainingShowBotCards, setTrainingShowBotCards] = useState<boolean>(() => localStorage.getItem('uno_show_bot_cards') !== 'false');
   const [chatInputText, setChatInputText] = useState('');
   const [inviteSentFeedback, setInviteSentFeedback] = useState(false);
   const [showLobbyScrollBottomBtn, setShowLobbyScrollBottomBtn] = useState(false);
   const isAdmin = currentUser?.role === 'admin' || currentUser?.username?.toLowerCase() === 'edinho';
+  const [inspectedPlayer, setInspectedPlayer] = useState<OnlinePlayerSummary | { id: string; name: string; avatar?: string; username?: string; roomId?: string | null } | null>(null);
+  const [isPlayerReportOpen, setIsPlayerReportOpen] = useState(false);
+
+  const handleOpenPlayerReport = (p: OnlinePlayerSummary | { id: string; name: string; avatar?: string; username?: string; roomId?: string | null }) => {
+    if (!isAdmin) return;
+    setInspectedPlayer(p as OnlinePlayerSummary);
+    setIsPlayerReportOpen(true);
+  };
 
   const lobbyChatContainerRef = useRef<HTMLDivElement>(null);
   const isLobbyNearBottomRef = useRef(true);
@@ -389,6 +402,20 @@ export const Lobby: React.FC<LobbyProps> = ({
               <span>Salas Abertas</span>
             </button>
 
+            {/* Como Jogar & Ajuda */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowRules(true);
+                setIsHowToPlayModalOpen(true);
+              }}
+              className="px-3.5 py-2 rounded-2xl bg-white border-2 border-amber-400 hover:bg-amber-50 text-amber-950 font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+              title="Regras do UNO e ajuda sobre microfone no PC (Firefox & Chrome)"
+            >
+              <HelpCircle className="w-4 h-4 text-amber-600" />
+              <span>Como Jogar</span>
+            </button>
+
             {isAdmin && (
               <button
                 type="button"
@@ -403,28 +430,128 @@ export const Lobby: React.FC<LobbyProps> = ({
           </div>
         </div>
 
-        {/* Rules Accordion */}
+        {/* Como Jogar & Ajuda Accordion */}
         {showRules && (
-          <div className="w-full max-w-4xl mb-4 bg-white/95 border-3 border-amber-400 rounded-3xl p-5 text-xs text-slate-700 space-y-2 shadow-2xl backdrop-blur-md z-10">
-            <div className="flex items-center justify-between">
-              <h3 className="font-black text-amber-900 flex items-center gap-2 text-sm uppercase tracking-wide">
-                <Sparkles className="w-4 h-4 text-amber-500" /> Regras Rápidas do UNO:
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowRules(false)}
-                className="text-slate-400 hover:text-slate-700 text-xs font-black cursor-pointer"
-              >
-                ✕ Fechar
-              </button>
+          <div className="w-full max-w-4xl mb-4 bg-white/95 border-3 border-amber-400 rounded-3xl p-5 text-xs text-slate-700 space-y-3 shadow-2xl backdrop-blur-md z-10 animate-in fade-in">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <h3 className="font-black text-amber-900 text-sm uppercase tracking-wide">
+                  Como Jogar & Ajuda:
+                </h3>
+                <div className="flex items-center gap-1.5 ml-1">
+                  <button
+                    type="button"
+                    onClick={() => setRulesTab('rules')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                      rulesTab === 'rules'
+                        ? 'bg-amber-400 text-slate-950 shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    🃏 Regras do UNO
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRulesTab('mic')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                      rulesTab === 'mic'
+                        ? 'bg-sky-500 text-white shadow-xs'
+                        : 'bg-sky-50 text-sky-800 hover:bg-sky-100 border border-sky-200'
+                    }`}
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>Microfone no PC</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsHowToPlayModalOpen(true)}
+                  className="px-2.5 py-1 rounded-xl text-sky-700 bg-sky-50 hover:bg-sky-100 text-[11px] font-bold border border-sky-200 cursor-pointer"
+                  title="Abrir em janela completa"
+                >
+                  Janela Completa ⛶
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRules(false)}
+                  className="px-2.5 py-1 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-xs font-black cursor-pointer transition-colors"
+                >
+                  ✕ Fechar
+                </button>
+              </div>
             </div>
-            <ul className="list-disc pl-5 space-y-1 text-slate-700 font-medium">
-              <li><strong>Correspondência:</strong> Jogue cartas com a mesma cor ou mesmo número/símbolo da carta descartada.</li>
-              <li><strong>Coringa / +4:</strong> Podem ser jogados sobre qualquer carta. Ao jogar, você escolhe a nova cor.</li>
-              <li><strong>+2 e +4:</strong> Fazem o próximo jogador comprar cartas e perder a vez.</li>
-              <li><strong>Reverso:</strong> Inverte o sentido do jogo (com 2 jogadores, age como pular).</li>
-              <li><strong>Gritar UNO:</strong> Quando ficar com 1 carta, clique no botão <strong>GRITAR UNO</strong> antes de passar! (Ou ative a Proteção Infantil nas configurações ⚙️).</li>
-            </ul>
+
+            {rulesTab === 'rules' ? (
+              <ul className="list-disc pl-5 space-y-1.5 text-slate-700 font-medium leading-relaxed">
+                <li><strong>Correspondência:</strong> Jogue cartas com a mesma cor ou mesmo número/símbolo da carta descartada.</li>
+                <li><strong>Coringa / +4:</strong> Podem ser jogados sobre qualquer carta. Ao jogar, você escolhe a nova cor.</li>
+                <li><strong>+2 e +4:</strong> Fazem o próximo jogador comprar cartas e perder a vez.</li>
+                <li><strong>Reverso:</strong> Inverte o sentido do jogo (com 2 jogadores, age como pular).</li>
+                <li><strong>Gritar UNO:</strong> Quando ficar com 1 carta, clique no botão <strong>GRITAR UNO</strong> antes de passar! (Ou ative a Proteção Infantil nas configurações ⚙️).</li>
+              </ul>
+            ) : (
+              <div className="space-y-3 pt-1">
+                {/* Firefox Guide */}
+                <div className="p-3.5 bg-orange-50/90 rounded-2xl border-2 border-orange-200 space-y-2">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-orange-200">
+                    <span className="font-black text-orange-950 flex items-center gap-1.5 text-xs">
+                      🦊 Como liberar no Firefox para PC:
+                    </span>
+                    <span className="text-[10px] font-bold text-orange-800 bg-orange-200/70 px-2 py-0.5 rounded-full">
+                      Passo a Passo
+                    </span>
+                  </div>
+                  <ol className="list-decimal pl-4 space-y-1.5 text-slate-800 leading-relaxed font-medium">
+                    <li>Abra o <strong>Firefox</strong> no computador.</li>
+                    <li className="flex flex-wrap items-center gap-1.5">
+                      <span>Na barra de endereços (onde digita o nome dos sites), digite</span>
+                      <code className="px-1.5 py-0.5 bg-white border border-orange-300 rounded font-mono font-bold text-orange-900 select-all">about:config</code>
+                      <span>e pressione Enter.</span>
+                    </li>
+                    <li>O navegador exibirá um aviso de segurança. Clique no botão <strong>"Aceitar o risco e continuar"</strong>.</li>
+                    <li className="flex flex-wrap items-center gap-1.5">
+                      <span>No campo de busca localizado no topo da página, digite:</span>
+                      <code className="px-1.5 py-0.5 bg-white border border-orange-300 rounded font-mono font-bold text-orange-900 select-all">media.devices.insecure.enabled</code>
+                    </li>
+                    <li>O resultado aparecerá logo abaixo. Clique no <strong>botão de alternar</strong> (duas setas em direções opostas ⇄) no canto direito para mudar o valor de <code>false</code> para <strong><code>true</code></strong>.</li>
+                    <li className="flex flex-wrap items-center gap-1.5">
+                      <span>Em seguida, limpe a barra de pesquisa interna e busque por:</span>
+                      <code className="px-1.5 py-0.5 bg-white border border-orange-300 rounded font-mono font-bold text-orange-900 select-all">media.getusermedia.insecure.enabled</code>
+                    </li>
+                    <li>Da mesma forma, mude o valor dela de <code>false</code> para <strong><code>true</code></strong>.</li>
+                    <li><strong>Reinicie o Firefox</strong> para garantir que as alterações façam efeito.</li>
+                  </ol>
+                </div>
+
+                {/* Google Chrome Guide */}
+                <div className="p-3.5 bg-blue-50/90 rounded-2xl border-2 border-blue-200 space-y-2">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-blue-200">
+                    <span className="font-black text-blue-950 flex items-center gap-1.5 text-xs">
+                      🌐 O que fazer no Google Chrome do PC?
+                    </span>
+                    <span className="text-[10px] font-black text-blue-800 bg-blue-200/70 px-2 py-0.5 rounded-full">
+                      Chrome Flags
+                    </span>
+                  </div>
+                  <p className="text-slate-800 leading-relaxed font-medium">
+                    Caso mude de ideia e queira aplicar no Chrome do computador, o passo a passo funciona perfeitamente:
+                  </p>
+                  <div className="p-2.5 bg-white rounded-xl border border-blue-200 space-y-1.5 text-slate-800 font-medium">
+                    <p className="flex flex-wrap items-center gap-1.5">
+                      <span>1. Acesse o endereço no Chrome:</span>
+                      <code className="px-1.5 py-0.5 bg-blue-50 border border-blue-300 rounded font-mono font-bold text-blue-950 select-all break-all">chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>
+                    </p>
+                    <p>2. Mude a opção para <strong>Enabled</strong>.</p>
+                    <p>3. Digite o <strong>IP ou URL</strong> da sua VM/site no campo de texto exibido.</p>
+                    <p>4. Clique no botão <strong>Relaunch</strong> no rodapé para reiniciar o navegador.</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1280,30 +1407,58 @@ export const Lobby: React.FC<LobbyProps> = ({
               </div>
 
               <div className="flex-1 overflow-y-auto mt-2.5 space-y-2.5 pr-1 max-h-[220px]">
-                {onlinePlayers.length <= 1 ? (
+                {onlinePlayers.length === 0 ? (
                   <div className="text-[11px] text-slate-400 font-bold text-center py-6">
-                    Apenas você está conectado.
+                    Nenhum jogador conectado no momento.
                   </div>
                 ) : (
                   onlinePlayers.map((p) => {
-                    const isMe = p.id === currentUser?.id;
+                    const isMe = p.id === currentUser?.id || (currentUser?.username && p.userId === currentUser.username);
                     const inRoom = p.roomId !== null;
-
-                    // Don't show me in the other players list
-                    if (isMe) return null;
 
                     return (
                       <div
                         key={p.id}
-                        className="flex items-center justify-between p-2 rounded-2xl border border-slate-100 bg-slate-50/70 transition-all hover:bg-slate-100/50"
+                        onClick={() => {
+                          if (isAdmin) handleOpenPlayerReport(p);
+                        }}
+                        className={`flex items-center justify-between p-2 rounded-2xl border transition-all ${
+                          isMe
+                            ? 'border-sky-200 bg-sky-50/70'
+                            : 'border-slate-100 bg-slate-50/70 hover:bg-slate-100/60'
+                        } ${
+                          isAdmin
+                            ? 'cursor-pointer hover:border-sky-400 hover:shadow-xs group'
+                            : ''
+                        }`}
+                        title={
+                          isAdmin
+                            ? `👑 Inspecionar ${p.name} (Relatório de Administrador)`
+                            : undefined
+                        }
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-lg shadow-xs shrink-0">
+                          <div className="w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-lg shadow-xs shrink-0 relative">
                             {p.avatar}
+                            {isAdmin && (
+                              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center text-[8px] font-black shadow-xs opacity-80 group-hover:opacity-100">
+                                👑
+                              </span>
+                            )}
                           </div>
                           <div className="min-w-0">
-                            <div className="text-xs font-black text-slate-900 truncate">
-                              {p.name}
+                            <div className="text-xs font-black text-slate-900 truncate flex items-center gap-1.5">
+                              <span>{p.name}</span>
+                              {isMe && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-sky-200 text-sky-800 font-bold">
+                                  Você
+                                </span>
+                              )}
+                              {isAdmin && (
+                                <span className="text-[9px] font-bold text-sky-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  🔍
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1 mt-0.5">
                               <span className={`w-1.5 h-1.5 rounded-full ${inRoom ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400'}`} />
@@ -1314,17 +1469,37 @@ export const Lobby: React.FC<LobbyProps> = ({
                           </div>
                         </div>
 
-                        {/* Invite Button for active host waiting inside a room */}
-                        {roomId && !inRoom && (
-                          <button
-                            type="button"
-                            onClick={() => handleBroadcastLobbyInvite(p.userId || p.id)}
-                            className="p-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-800 transition-colors cursor-pointer"
-                            title={`Convidar ${p.name} para a partida`}
-                          >
-                            <span className="text-sm">🔔</span>
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {/* Admin quick inspect action */}
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenPlayerReport(p);
+                              }}
+                              className="p-1.5 rounded-xl bg-sky-100 hover:bg-sky-200 text-sky-800 transition-colors cursor-pointer"
+                              title={`Abrir Relatório do Administrador para ${p.name}`}
+                            >
+                              <Shield className="w-3.5 h-3.5 text-sky-700" />
+                            </button>
+                          )}
+
+                          {/* Invite Button for active host waiting inside a room */}
+                          {roomId && !inRoom && !isMe && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleBroadcastLobbyInvite(p.userId || p.id);
+                              }}
+                              className="p-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-800 transition-colors cursor-pointer"
+                              title={`Convidar ${p.name} para a partida`}
+                            >
+                              <span className="text-sm">🔔</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })
@@ -1357,12 +1532,30 @@ export const Lobby: React.FC<LobbyProps> = ({
                     const timeStr = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     return (
                       <div key={msg.id} className="flex gap-2">
-                        <div className="w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-xs shadow-xs shrink-0 self-start">
+                        <div
+                          onClick={() => {
+                            if (isAdmin) handleOpenPlayerReport({ id: msg.name, name: msg.name, avatar: msg.avatar, roomId: null });
+                          }}
+                          className={`w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-xs shadow-xs shrink-0 self-start ${
+                            isAdmin ? 'cursor-pointer hover:border-indigo-400 hover:scale-105 transition-all' : ''
+                          }`}
+                          title={isAdmin ? `👑 Inspecionar ${msg.name} (Admin)` : undefined}
+                        >
                           {msg.avatar}
                         </div>
                         <div className="flex-1 bg-slate-100/80 rounded-2xl px-2.5 py-1.5 border border-slate-100 leading-tight">
                           <div className="flex justify-between items-baseline gap-1.5">
-                            <span className="text-[10px] font-black text-indigo-900">{msg.name}</span>
+                            <span
+                              onClick={() => {
+                                if (isAdmin) handleOpenPlayerReport({ id: msg.name, name: msg.name, avatar: msg.avatar, roomId: null });
+                              }}
+                              className={`text-[10px] font-black text-indigo-900 ${
+                                isAdmin ? 'cursor-pointer hover:underline' : ''
+                              }`}
+                              title={isAdmin ? `👑 Inspecionar ${msg.name} (Admin)` : undefined}
+                            >
+                              {msg.name}
+                            </span>
                             <span className="text-[8px] text-slate-400 font-bold">{timeStr}</span>
                           </div>
                           <p className="text-xs font-medium text-slate-700 mt-0.5 break-words">
@@ -1439,6 +1632,34 @@ export const Lobby: React.FC<LobbyProps> = ({
         onClose={() => setIsInviteShareModalOpen(false)}
         roomId={roomId}
         hostName={playerName}
+      />
+    )}
+
+    {/* How To Play & PC Mic Guide Modal */}
+    <HowToPlayModal
+      isOpen={isHowToPlayModalOpen}
+      onClose={() => setIsHowToPlayModalOpen(false)}
+      initialTab={rulesTab}
+    />
+
+    {/* Admin Player Diagnostic Report Modal */}
+    {isAdmin && (
+      <PlayerReportModal
+        isOpen={isPlayerReportOpen}
+        onClose={() => {
+          setIsPlayerReportOpen(false);
+          setInspectedPlayer(null);
+        }}
+        targetPlayer={inspectedPlayer}
+        currentUser={currentUser}
+        onJoinRoomAsAdmin={(targetRoomId) => {
+          setIsPlayerReportOpen(false);
+          onJoinRoom(targetRoomId, playerName, selectedAvatar, false);
+        }}
+        onWatchRoom={(targetRoomId, revealCards) => {
+          setIsPlayerReportOpen(false);
+          onJoinRoom(targetRoomId, playerName, selectedAvatar, true, revealCards);
+        }}
       />
     )}
   </div>

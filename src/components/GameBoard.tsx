@@ -7,6 +7,7 @@ import { TableDirectionArrows } from './TableDirectionArrows.js';
 import { EmoteBubble } from './EmoteBubble.js';
 import { EmotePicker } from './EmotePicker.js';
 import { TableScoreboardModal } from './TableScoreboardModal.js';
+import { HowToPlayModal } from './HowToPlayModal.js';
 import { VoiceControls } from './VoiceControls.js';
 import { voiceChat } from '../services/voiceChat.js';
 import { statsManager } from '../services/statsManager.js';
@@ -32,7 +33,8 @@ import {
   X,
   Play,
   Pause,
-  Bot
+  Bot,
+  HelpCircle
 } from 'lucide-react';
 import { sound } from '../services/sound.js';
 
@@ -107,6 +109,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [isTableScoreboardOpen, setIsTableScoreboardOpen] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
+  const [isHowToPlayOpen, setIsHowToPlayOpen] = useState(false);
   const [peerVoiceStates, setPeerVoiceStates] = useState<Record<string, VoicePeerState>>({});
 
   // Monitor real container dimensions with ResizeObserver
@@ -1229,6 +1232,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </button>
           )}
 
+          {/* Como Jogar & Microfone no PC */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsSideMenuOpen(false);
+              setIsHowToPlayOpen(true);
+            }}
+            className="w-full p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 border-2 border-amber-300 text-amber-950 font-black text-xs flex items-center justify-between cursor-pointer transition-all active:scale-98 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-200 flex items-center justify-center text-amber-800">
+                <HelpCircle className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">Como Jogar & Microfone</div>
+                <div className="text-[10px] text-slate-500 font-medium">Regras e liberar mic no Firefox/Chrome</div>
+              </div>
+            </div>
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -1386,6 +1409,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         fastestSeconds={state.tableFastestSeconds}
         myPlayerId={myPlayerId}
         roomId={state.roomId}
+      />
+
+      {/* Como Jogar & Microfone Guide Modal */}
+      <HowToPlayModal
+        isOpen={isHowToPlayOpen}
+        onClose={() => setIsHowToPlayOpen(false)}
       />
     </div>
   );

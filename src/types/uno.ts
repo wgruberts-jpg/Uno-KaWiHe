@@ -220,6 +220,75 @@ export interface AuthResponse {
   error?: string;
 }
 
+export interface OnlinePlayerSummary {
+  id: string;
+  name: string;
+  avatar: string;
+  roomId: string | null;
+  userId?: string;
+  inRoom?: boolean;
+  connectedAt?: number;
+  tag?: string;
+  role?: string;
+  createdAt?: string;
+}
+
+export interface PlayerReportData {
+  user: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatar: string;
+    role: 'admin' | 'player' | 'visitor';
+    tag: string;
+    createdAt?: string;
+    isRegistered: boolean;
+  };
+  presence: {
+    isOnline: boolean;
+    connectedAt?: number;
+    connectedDurationSeconds?: number;
+    ip?: string;
+    userAgent?: string;
+    device?: 'mobile' | 'desktop' | 'tablet' | 'unknown';
+    browser?: string;
+    socketId?: string;
+  };
+  location: {
+    inRoom: boolean;
+    roomId: string | null;
+    roomName: string | null;
+    isPrivate: boolean;
+    gameStatus: string | null;
+    isHost: boolean;
+    isSpectator: boolean;
+    cardsCount: number;
+    score: number;
+    members: Array<{
+      id: string;
+      name: string;
+      avatar: string;
+      isHost: boolean;
+      isBot: boolean;
+      isConnected: boolean;
+      isSpectator?: boolean;
+      cardsCount: number;
+      score: number;
+    }>;
+  };
+  stats?: {
+    gamesPlayed: number;
+    gamesWon: number;
+    gamesLost: number;
+    winRate: number;
+    currentStreak: number;
+    bestStreak: number;
+    totalPoints: number;
+    unoCallsSuccess: number;
+    cardsPlayed: number;
+  };
+}
+
 export interface ActiveEmote {
   id: string;
   playerId: string;
@@ -381,7 +450,7 @@ export type ServerMessage =
   | { type: 'player_kicked'; reason: string }
   | { type: 'left_room_confirmed'; roomId?: string }
   | { type: 'global_announcement'; message: string; sender: string; timestamp: number }
-  | { type: 'lobby_online_players'; players: Array<{ id: string; name: string; avatar: string; roomId: string | null }> }
+  | { type: 'lobby_online_players'; players: Array<{ id: string; name: string; avatar: string; roomId: string | null; userId?: string; inRoom?: boolean; connectedAt?: number; tag?: string; role?: string; createdAt?: string }> }
   | { type: 'lobby_chat_message'; message: { id: string; name: string; avatar: string; text: string; timestamp: number } }
   | { type: 'lobby_invite_received'; invite: { fromName: string; fromAvatar: string; roomId: string; timestamp: number } }
   | { type: 'action_ack'; messageId: string }

@@ -79,6 +79,70 @@ describe('Server WebSocket & Protocol Integration Tests', () => {
       return res.json({ success: true, message: 'Senha redefinida com sucesso!' });
     });
 
+    app.get('/api/admin/player-report/:target', (req, res) => {
+      if (!testIsAdminRequest(req)) {
+        return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+      }
+      return res.json({
+        success: true,
+        report: {
+          user: {
+            id: 'usr_test',
+            username: req.params.target,
+            displayName: 'Test Player',
+            avatar: '🦸‍♂️',
+            role: 'player',
+            tag: '#1001',
+            createdAt: new Date().toISOString(),
+            isRegistered: true,
+          },
+          presence: {
+            isOnline: true,
+            connectedAt: Date.now() - 600000,
+            connectedDurationSeconds: 600,
+            ip: '127.0.0.1',
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0',
+            device: 'desktop',
+            browser: 'Google Chrome',
+            socketId: 'soc-test-123',
+          },
+          location: {
+            inRoom: true,
+            roomId: 'TEST99',
+            roomName: 'Mesa #TEST99',
+            isPrivate: false,
+            gameStatus: 'playing',
+            isHost: true,
+            isSpectator: false,
+            cardsCount: 5,
+            score: 0,
+            members: [
+              { id: 'usr_test', name: 'Test Player', avatar: '🦸‍♂️', isHost: true, isBot: false, isConnected: true, cardsCount: 5, score: 0 },
+              { id: 'usr_bot1', name: 'Bot Rex', avatar: '🤖', isHost: false, isBot: true, isConnected: true, cardsCount: 4, score: 0 }
+            ],
+          },
+          stats: {
+            gamesPlayed: 10,
+            gamesWon: 6,
+            gamesLost: 4,
+            winRate: 60,
+            currentStreak: 2,
+            bestStreak: 4,
+            totalPoints: 120,
+            unoCallsSuccess: 5,
+            cardsPlayed: 85,
+          },
+        },
+      });
+    });
+
+    app.post('/api/admin/player-action/disconnect', (req, res) => {
+      if (!testIsAdminRequest(req)) {
+        return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+      }
+      return res.json({ success: true, message: 'Jogador desconectado com sucesso.' });
+    });
+
     app.get('/api/rooms/open', (_req, res) => {
       const openRooms: any[] = Array.from(rooms.values())
         .filter((r) => !r.settings?.isPrivate && r.players.some((p) => !p.isBot && p.isConnected))
@@ -586,5 +650,44 @@ describe('Server WebSocket & Protocol Integration Tests', () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(Array.isArray(body.rooms)).toBe(true);
+  });
+
+  it('16. Deve bloquear /api/admin/player-report sem credencial de admin (HTTP 403)', async () => {
+    const res = await fetch(`http://localhost:${port}/api/admin/player-report/jogador_comum`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+  });
+
+  it('17. Deve permitir /api/admin/player-report com JWT de admin e retornar diagnóstico completo', async () => {
+    const res = await fetch(`http://localhost:${port}/api/admin/player-report/jogador_comum`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.report).toBeDefined();
+    expect(body.report.user).toBeDefined();
+    expect(body.report.location).toBeDefined();
+    expect(body.report.presence).toBeDefined();
+    expect(body.report.stats).toBeDefined();
+    expect(body.report.location.inRoom).toBe(true);
+    expect(body.report.location.members.length).toBe(2);
+  });
+
+  it('18. Deve bloquear /api/admin/player-action/disconnect para jogador comum (HTTP 403)', async () => {
+    const res = await fetch(`http://localhost:${port}/api/admin/player-action/disconnect`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${playerToken}`,
+      },
+      body: JSON.stringify({ targetId: 'usr_test' }),
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.success).toBe(false);
   });
 });

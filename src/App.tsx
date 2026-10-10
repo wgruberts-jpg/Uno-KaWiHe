@@ -8,7 +8,7 @@ import {
   GameState,
   HandState,
   RoomSettings,
-
+  OnlinePlayerSummary,
   ServerMessage
 } from './types/uno.js';
 import { Lobby } from './components/Lobby.js';
@@ -48,7 +48,7 @@ export default function App() {
   const [isAdminRoomsOpen, setIsAdminRoomsOpen] = useState(false);
   const [adminModalTab, setAdminModalTab] = useState<'rooms' | 'users' | 'messages'>('rooms');
   const [globalAnnouncement, setGlobalAnnouncement] = useState<{ message: string; sender: string } | null>(null);
-  const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; avatar: string; roomId: string | null; userId?: string; inRoom?: boolean }>>([]);
+  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerSummary[]>([]);
   const [lobbyChat, setLobbyChat] = useState<Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>>([]);
   const [lobbyInvite, setLobbyInvite] = useState<{ fromName: string; fromAvatar: string; roomId: string; timestamp: number } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -264,6 +264,7 @@ export default function App() {
             playerId: user.id,
             name: user.displayName,
             avatar: user.avatar,
+            token: localStorage.getItem('kawihe_auth_token') || auth.getToken() || undefined,
           })
         );
       }
@@ -290,6 +291,7 @@ export default function App() {
                 playerId: user.id,
                 name: user.displayName,
                 avatar: user.avatar,
+                token: localStorage.getItem('kawihe_auth_token') || auth.getToken() || undefined,
               })
             );
           }

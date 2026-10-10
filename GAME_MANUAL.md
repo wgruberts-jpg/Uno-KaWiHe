@@ -72,3 +72,27 @@ Ao final de cada partida, os pontos são computados e salvos permanentemente no 
 * **Coringas (🎨, ➕4):** Valem **50 pontos** cada.
 
 Suas vitórias totais e pontuação histórica são exibidas como troféus dourados no menu **"Troféus & Estatísticas"** da sua barra lateral! O motor de regras do Uno KaWiHe v2.2 é 100% testado por uma suíte de testes unitários automatizados (`Vitest`).
+
+---
+
+## 🎙️ 8. Como Liberar o Microfone no PC (Firefox & Chrome via HTTP/IP)
+
+Navegadores modernos exigem conexão segura (HTTPS) para liberar o microfone. Ao acessar o Uno KaWiHe diretamente pelo IP da sua VM em HTTP, o navegador bloqueia o microfone por padrão. Veja como liberar em poucos cliques:
+
+### 🦊 Como liberar no Firefox para PC
+1. Abra o **Firefox** no computador.
+2. Na barra de endereços (onde digita o nome dos sites), digite `about:config` e pressione Enter.
+3. O navegador exibirá um aviso de segurança. Clique no botão **"Aceitar o risco e continuar"**.
+4. No campo de busca localizado no topo da página, digite: `media.devices.insecure.enabled`
+5. O resultado aparecerá logo abaixo. Clique no botão de alternar (duas setas em direções opostas) no canto direito para mudar o valor de `false` para **`true`**.
+6. Em seguida, limpe a barra de pesquisa interna e busque por: `media.getusermedia.insecure.enabled`
+7. Da mesma forma, mude o valor dela de `false` para **`true`**.
+8. **Reinicie o Firefox** para garantir que as alterações façam efeito.
+
+### 🌐 O que fazer no Google Chrome do PC?
+Caso mude de ideia e queira aplicar no Chrome do computador, o passo a passo funciona perfeitamente:
+1. Acesse o endereço no Chrome: `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
+2. Mude a opção para **Enabled**.
+3. Digite o **IP ou URL** da sua VM/site no campo de texto exibido (ex: `http://SEU_IP:3000`).
+4. Clique no botão **Relaunch** no rodapé para reiniciar o Chrome.
+
