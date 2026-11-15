@@ -35,6 +35,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Radio,
   Eye,
   EyeOff,
@@ -137,6 +138,12 @@ export const Lobby: React.FC<LobbyProps> = ({
 
   // New Collapsible Sidebar state (matching docked icon rail reference)
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+
+  // Accordion state for Lobby main actions (all collapsed by default, mutually exclusive)
+  const [expandedLobbySection, setExpandedLobbySection] = useState<'solo' | 'create' | 'join' | null>(null);
+  const toggleLobbySection = (section: 'solo' | 'create' | 'join') => {
+    setExpandedLobbySection((prev) => (prev === section ? null : section));
+  };
 
   // Modal dialog states
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
@@ -649,354 +656,416 @@ export const Lobby: React.FC<LobbyProps> = ({
                 <ChevronRight className="w-5 h-5 text-white/80 group-hover:translate-x-1 transition-transform" />
               </button>
 
-            {/* Quick Practice Solo Mode */}
-            <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 rounded-3xl border-3 border-emerald-300 shadow-sm space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md font-black text-sm">
-                    🤖
-                  </div>
-                  <div>
-                    <h3 className="font-black text-sm text-emerald-950">
-                      Modo Treino Rápido (Jogar contra Robôs)
-                    </h3>
-                    <p className="text-[11px] text-emerald-800 font-semibold">
-                      Inicie na hora sem precisar criar sala ou esperar amigos
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mode switch for training: 1v1 vs 2v2 Duplas */}
-              <div className="grid grid-cols-2 gap-1.5 p-1 bg-emerald-100/80 rounded-2xl border border-emerald-300">
+            {/* Vertical Accordion Stack: Modo Treino -> Criar Sala -> Entrar em Sala */}
+            <div className="space-y-3 pt-1">
+              {/* 1. Quick Practice Solo Mode (Accordion) */}
+              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 rounded-3xl border-3 border-emerald-300 shadow-sm overflow-hidden transition-all">
                 <button
                   type="button"
-                  onClick={() => setSoloGameMode('standard')}
-                  className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    soloGameMode === 'standard'
-                      ? 'bg-emerald-600 text-white shadow-sm border border-emerald-700'
-                      : 'text-emerald-950 hover:bg-white/50'
-                  }`}
+                  onClick={() => toggleLobbySection('solo')}
+                  className="w-full p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-emerald-100/50 transition-colors text-left"
                 >
-                  <span>🎮</span> Individual (Padrão)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSoloGameMode('team_2v2')}
-                  className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    soloGameMode === 'team_2v2'
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm border border-blue-700'
-                      : 'text-emerald-950 hover:bg-white/50'
-                  }`}
-                >
-                  <span>🤝</span> Duplas 2v2 (Equipes)
-                </button>
-              </div>
-
-              {/* Bot Quantity Selector (only if individual) */}
-              {soloGameMode === 'standard' ? (
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { count: 1, label: '1 Robô', desc: '1 contra 1' },
-                    { count: 2, label: '2 Robôs', desc: '3 jogadores' },
-                    { count: 3, label: '3 Robôs', desc: 'Mesa cheia (4)' },
-                  ].map((item) => (
-                    <button
-                      key={item.count}
-                      type="button"
-                      onClick={() => setSelectedBotCount(item.count)}
-                      className={`py-1.5 px-2 rounded-2xl border-2 text-center transition-all cursor-pointer ${
-                        selectedBotCount === item.count
-                          ? 'bg-gradient-to-r from-yellow-300 to-amber-400 border-white text-slate-950 font-black shadow-md scale-102'
-                          : 'bg-white border-emerald-200 text-slate-700 hover:bg-emerald-100 font-bold'
-                      }`}
-                    >
-                      <div className="text-xs">{item.label}</div>
-                      <div className="text-[9px] opacity-80">{item.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-2.5 bg-blue-50/90 rounded-2xl border border-blue-200 text-xs flex items-center gap-2">
-                  <span className="text-xl">🤝</span>
-                  <div>
-                    <span className="font-black text-blue-950 block text-[11px]">
-                      Modo 2v2 (Você + 1 Robô vs 2 Robôs)
-                    </span>
-                    <span className="text-[10px] text-blue-700">
-                      Você verá a mão do seu robô parceiro. A rodada encerra assim que um membro da dupla zerar!
-                    </span>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md font-black text-base shrink-0">
+                      🤖
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-black text-sm text-emerald-950 truncate">
+                        Modo Treino
+                      </h3>
+                      <p className="text-[11px] text-emerald-800 font-semibold truncate">
+                        Jogar na hora contra robôs (1v1 ou Duplas 2v2)
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
-
-              {/* Bot Cards Visibility Toggle for Kids / Practice Mode */}
-              <div className="flex items-center justify-between p-2 rounded-2xl bg-white/90 border border-emerald-200 text-xs shadow-2xs">
-                <div className="flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <div>
-                    <span className="font-bold text-slate-800 text-[11px] block">
-                      Ver Cartas dos Robôs (Modo Criança / Treino)
-                    </span>
-                    <span className="text-[9px] text-slate-500">
-                      Mostra as cartas dos robôs abertas para aprendizagem
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !trainingShowBotCards;
-                    setTrainingShowBotCards(next);
-                    localStorage.setItem('uno_show_bot_cards', String(next));
-                  }}
-                  className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer shrink-0 border ${
-                    trainingShowBotCards ? 'bg-emerald-500 border-emerald-600' : 'bg-slate-300 border-slate-400'
-                  }`}
-                  title="Ativar/Desativar visão aberta das cartas dos robôs"
-                >
-                  <div
-                    className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transition-transform transform ${
-                      trainingShowBotCards ? 'translate-x-5' : 'translate-x-0.5'
-                    } top-0.5 absolute`}
-                  />
+                  <span className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/90 border border-emerald-300 text-emerald-900 font-black text-[11px] shadow-2xs">
+                    <span>{expandedLobbySection === 'solo' ? 'Recolher' : 'Expandir'}</span>
+                    {expandedLobbySection === 'solo' ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </span>
                 </button>
-              </div>
 
-              {/* Action Button */}
-              <button
-                type="button"
-                onClick={handleStartSoloClick}
-                disabled={isStartingSolo}
-                className="w-full py-2.5 rounded-2xl bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#15803d] active:shadow-[0_1px_0_#15803d] active:translate-y-0.5 border-2 border-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Play className="w-4 h-4 fill-white" />
-                <span>{isStartingSolo ? 'Iniciando Treino...' : `Iniciar Treino com ${selectedBotCount} ${selectedBotCount === 1 ? 'Robô' : 'Robôs'}`}</span>
-              </button>
-            </div>
-
-            {/* Split options: Create Room or Join Room */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1 border-t-2 border-slate-100">
-              {/* Option 1: Create Room */}
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 sm:p-5 rounded-3xl border-3 border-blue-200 flex flex-col justify-between shadow-sm">
-                <div>
-                  <h3 className="font-black text-sm sm:text-base text-blue-950 mb-1 flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-blue-600" /> Criar Sala com Amigos
-                  </h3>
-                  <p className="text-xs text-slate-600 mb-3 font-semibold">
-                    Gere uma sala privada para jogar com amigos ou bots.
-                  </p>
-
-                  <div className="space-y-3 mb-3 text-xs">
-                    {/* Game Mode Selector */}
-                    <div>
-                      <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
-                        <span>👥</span> Modo de Jogo:
-                      </span>
-                      <div className="grid grid-cols-2 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setCreatorGameMode('standard')}
-                          className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
-                            creatorGameMode === 'standard'
-                              ? 'bg-amber-400 text-slate-950 border-white shadow-sm ring-1 ring-amber-400'
-                              : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
-                          }`}
-                        >
-                          <div>🎮 Individual</div>
-                          <div className="text-[8px] opacity-80">Todos contra todos</div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCreatorGameMode('team_2v2')}
-                          className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
-                            creatorGameMode === 'team_2v2'
-                              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-white shadow-sm ring-1 ring-blue-500'
-                              : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
-                          }`}
-                        >
-                          <div>🤝 Duplas 2v2</div>
-                          <div className="text-[8px] opacity-80">Ver cartas parceiro</div>
-                        </button>
-                      </div>
+                {expandedLobbySection === 'solo' && (
+                  <div className="px-4 pb-4 pt-1 space-y-2.5 border-t border-emerald-200/80 animate-in fade-in duration-200">
+                    {/* Mode switch for training: 1v1 vs 2v2 Duplas */}
+                    <div className="grid grid-cols-2 gap-1.5 p-1 bg-emerald-100/80 rounded-2xl border border-emerald-300 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => setSoloGameMode('standard')}
+                        className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                          soloGameMode === 'standard'
+                            ? 'bg-emerald-600 text-white shadow-sm border border-emerald-700'
+                            : 'text-emerald-950 hover:bg-white/50'
+                        }`}
+                      >
+                        <span>🎮</span> Individual (Padrão)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSoloGameMode('team_2v2')}
+                        className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                          soloGameMode === 'team_2v2'
+                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm border border-blue-700'
+                            : 'text-emerald-950 hover:bg-white/50'
+                        }`}
+                      >
+                        <span>🤝</span> Duplas 2v2 (Equipes)
+                      </button>
                     </div>
 
-                    {/* Turn duration */}
-                    <div>
-                      <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
-                        <Clock className="w-3.5 h-3.5 text-amber-500" /> Tempo de Turno:
-                      </span>
-                      <div className="grid grid-cols-2 gap-1">
+                    {/* Bot Quantity Selector (only if individual) */}
+                    {soloGameMode === 'standard' ? (
+                      <div className="grid grid-cols-3 gap-2">
                         {[
-                          { sec: 30, label: '30s (Rápido)' },
-                          { sec: 90, label: '1m30s (Padrão ⭐)' },
+                          { count: 1, label: '1 Robô', desc: '1 contra 1' },
+                          { count: 2, label: '2 Robôs', desc: '3 jogadores' },
+                          { count: 3, label: '3 Robôs', desc: 'Mesa cheia (4)' },
                         ].map((item) => (
                           <button
-                            key={item.sec}
+                            key={item.count}
                             type="button"
-                            onClick={() => setTurnDuration(item.sec)}
-                            className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
-                              turnDuration === item.sec
-                                ? 'bg-gradient-to-r from-yellow-300 to-amber-400 text-amber-950 border-white shadow-sm ring-1 ring-amber-400'
-                                : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
+                            onClick={() => setSelectedBotCount(item.count)}
+                            className={`py-1.5 px-2 rounded-2xl border-2 text-center transition-all cursor-pointer ${
+                              selectedBotCount === item.count
+                                ? 'bg-gradient-to-r from-yellow-300 to-amber-400 border-white text-slate-950 font-black shadow-md scale-102'
+                                : 'bg-white border-emerald-200 text-slate-700 hover:bg-emerald-100 font-bold'
                             }`}
                           >
-                            {item.label}
+                            <div className="text-xs">{item.label}</div>
+                            <div className="text-[9px] opacity-80">{item.desc}</div>
                           </button>
                         ))}
                       </div>
+                    ) : (
+                      <div className="p-2.5 bg-blue-50/90 rounded-2xl border border-blue-200 text-xs flex items-center gap-2">
+                        <span className="text-xl">🤝</span>
+                        <div>
+                          <span className="font-black text-blue-950 block text-[11px]">
+                            Modo 2v2 (Você + 1 Robô vs 2 Robôs)
+                          </span>
+                          <span className="text-[10px] text-blue-700">
+                            Você verá a mão do seu robô parceiro. A rodada encerra assim que um membro da dupla zerar!
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bot Cards Visibility Toggle for Kids / Practice Mode */}
+                    <div className="flex items-center justify-between p-2 rounded-2xl bg-white/90 border border-emerald-200 text-xs shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <div>
+                          <span className="font-bold text-slate-800 text-[11px] block">
+                            Ver Cartas dos Robôs (Modo Criança / Treino)
+                          </span>
+                          <span className="text-[9px] text-slate-500">
+                            Mostra as cartas dos robôs abertas para aprendizagem
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !trainingShowBotCards;
+                          setTrainingShowBotCards(next);
+                          localStorage.setItem('uno_show_bot_cards', String(next));
+                        }}
+                        className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer shrink-0 border ${
+                          trainingShowBotCards ? 'bg-emerald-500 border-emerald-600' : 'bg-slate-300 border-slate-400'
+                        }`}
+                        title="Ativar/Desativar visão aberta das cartas dos robôs"
+                      >
+                        <div
+                          className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transition-transform transform ${
+                            trainingShowBotCards ? 'translate-x-5' : 'translate-x-0.5'
+                          } top-0.5 absolute`}
+                        />
+                      </button>
                     </div>
 
-                    {/* Creator Spectator Permission Rule */}
-                    <div className="pt-1">
-                      <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
-                        <Radio className="w-3.5 h-3.5 text-indigo-600" /> Permitir Espectadores?
-                      </span>
-                      <div className="grid grid-cols-3 gap-1">
-                        {[
-                          { id: 'disabled', label: '🚫 Não', desc: 'Privada' },
-                          { id: 'hidden_cards', label: '🔒 Só Mesa', desc: 'Torneio' },
-                          { id: 'reveal_cards', label: '👀 Aberto', desc: 'Modo TV' },
-                        ].map((opt) => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => setCreatorSpectatorPermission(opt.id as SpectatorPermission)}
-                            className={`py-1 px-1 rounded-xl text-[10px] font-black cursor-pointer transition-all border-2 text-center ${
-                              creatorSpectatorPermission === opt.id
-                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
-                                : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
-                            }`}
-                          >
-                            <div>{opt.label}</div>
-                            <div className="text-[8px] opacity-80">{opt.desc}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    {/* Action Button */}
+                    <button
+                      type="button"
+                      onClick={handleStartSoloClick}
+                      disabled={isStartingSolo}
+                      className="w-full py-2.5 rounded-2xl bg-gradient-to-b from-emerald-400 to-green-600 hover:from-emerald-300 hover:to-green-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#15803d] active:shadow-[0_1px_0_#15803d] active:translate-y-0.5 border-2 border-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Play className="w-4 h-4 fill-white" />
+                      <span>{isStartingSolo ? 'Iniciando Treino...' : `Iniciar Treino com ${selectedBotCount} ${selectedBotCount === 1 ? 'Robô' : 'Robôs'}`}</span>
+                    </button>
                   </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleCreate}
-                  className="w-full py-2.5 rounded-2xl bg-gradient-to-b from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#3730a3] active:shadow-[0_1px_0_#3730a3] active:translate-y-0.5 border-2 border-white transition-all"
-                >
-                  <Plus className="w-4 h-4" /> Criar Sala
-                </button>
+                )}
               </div>
 
-              {/* Option 2: Join Room */}
-              <form
-                onSubmit={handleJoin}
-                className="bg-gradient-to-br from-amber-50 to-yellow-50 p-4 sm:p-5 rounded-3xl border-3 border-amber-200 flex flex-col justify-between shadow-sm"
-              >
-                <div>
-                  <h3 className="font-black text-sm sm:text-base text-amber-950 mb-1 flex items-center gap-1.5">
-                    <Play className="w-4 h-4 text-amber-600" /> Entrar em Sala
-                  </h3>
-                  <p className="text-xs text-slate-600 mb-2.5 font-semibold">
-                    Digite o código da sala para jogar ou assistir.
-                  </p>
-
-                  {/* Mode Selector: Play vs Watch */}
-                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-amber-200/60 rounded-2xl border border-amber-300 mb-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setJoinMode('play')}
-                      className={`py-1 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                        joinMode === 'play'
-                          ? 'bg-amber-400 text-slate-950 shadow-sm border border-white'
-                          : 'text-amber-950 hover:bg-white/50'
-                      }`}
-                    >
-                      <span>🎮</span> Jogador
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setJoinMode('watch_hidden')}
-                      className={`py-1 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                        joinMode !== 'play'
-                          ? 'bg-sky-500 text-white shadow-sm border border-white'
-                          : 'text-amber-950 hover:bg-white/50'
-                      }`}
-                    >
-                      <span>👁️</span> Assistir (TV)
-                    </button>
+              {/* 2. Create Room (Accordion) */}
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-3xl border-3 border-blue-200 shadow-sm overflow-hidden transition-all">
+                <button
+                  type="button"
+                  onClick={() => toggleLobbySection('create')}
+                  className="w-full p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-blue-100/50 transition-colors text-left"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shrink-0">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-black text-sm text-blue-950 truncate">
+                        Criar Sala
+                      </h3>
+                      <p className="text-[11px] text-slate-600 font-semibold truncate">
+                        Gere uma sala privada para jogar com amigos ou bots
+                      </p>
+                    </div>
                   </div>
+                  <span className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/90 border border-blue-200 text-blue-900 font-black text-[11px] shadow-2xs">
+                    <span>{expandedLobbySection === 'create' ? 'Recolher' : 'Expandir'}</span>
+                    {expandedLobbySection === 'create' ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </span>
+                </button>
 
-                  {/* Spectator Sub-options */}
-                  {joinMode !== 'play' && (
-                    <div className="p-2 bg-sky-50 rounded-2xl border-2 border-sky-200 mb-2 space-y-1 animate-in fade-in">
-                      <div className="text-[9px] font-black text-sky-900 uppercase">
-                        Transmissão de Espectador:
+                {expandedLobbySection === 'create' && (
+                  <div className="px-4 pb-4 pt-2 border-t border-blue-200/80 animate-in fade-in duration-200">
+                    <div className="space-y-3 mb-3 text-xs">
+                      {/* Game Mode Selector */}
+                      <div>
+                        <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
+                          <span>👥</span> Modo de Jogo:
+                        </span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setCreatorGameMode('standard')}
+                            className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
+                              creatorGameMode === 'standard'
+                                ? 'bg-amber-400 text-slate-950 border-white shadow-sm ring-1 ring-amber-400'
+                                : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
+                            }`}
+                          >
+                            <div>🎮 Individual</div>
+                            <div className="text-[8px] opacity-80">Todos contra todos</div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCreatorGameMode('team_2v2')}
+                            className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
+                              creatorGameMode === 'team_2v2'
+                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-white shadow-sm ring-1 ring-blue-500'
+                                : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
+                            }`}
+                          >
+                            <div>🤝 Duplas 2v2</div>
+                            <div className="text-[8px] opacity-80">Ver cartas parceiro</div>
+                          </button>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setJoinMode('watch_hidden')}
-                          className={`p-1 rounded-xl border text-left text-[10px] font-black cursor-pointer transition-all ${
-                            joinMode === 'watch_hidden'
-                              ? 'bg-sky-500 text-white border-sky-600 shadow-sm'
-                              : 'bg-white text-slate-700 border-sky-200 hover:bg-sky-100'
-                          }`}
-                        >
-                          <div>🔒 Só a Mesa</div>
-                          <div className="text-[8px] opacity-80">Mãos ocultas</div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setJoinMode('watch_open')}
-                          className={`p-1 rounded-xl border text-left text-[10px] font-black cursor-pointer transition-all ${
-                            joinMode === 'watch_open'
-                              ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm font-black'
-                              : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100 font-bold'
-                          }`}
-                        >
-                          <div>👀 Cartas Abertas</div>
-                          <div className="text-[8px] opacity-80">Modo Juiz / TV</div>
-                        </button>
+
+                      {/* Turn duration */}
+                      <div>
+                        <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
+                          <Clock className="w-3.5 h-3.5 text-amber-500" /> Tempo de Turno:
+                        </span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { sec: 30, label: '30s (Rápido)' },
+                            { sec: 90, label: '1m30s (Padrão ⭐)' },
+                          ].map((item) => (
+                            <button
+                              key={item.sec}
+                              type="button"
+                              onClick={() => setTurnDuration(item.sec)}
+                              className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
+                                turnDuration === item.sec
+                                  ? 'bg-gradient-to-r from-yellow-300 to-amber-400 text-amber-950 border-white shadow-sm ring-1 ring-amber-400'
+                                  : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Creator Spectator Permission Rule */}
+                      <div className="pt-1">
+                        <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
+                          <Radio className="w-3.5 h-3.5 text-indigo-600" /> Permitir Espectadores?
+                        </span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'disabled', label: '🚫 Não', desc: 'Privada' },
+                            { id: 'hidden_cards', label: '🔒 Só Mesa', desc: 'Torneio' },
+                            { id: 'reveal_cards', label: '👀 Aberto', desc: 'Modo TV' },
+                          ].map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setCreatorSpectatorPermission(opt.id as SpectatorPermission)}
+                              className={`py-1 px-1 rounded-xl text-[10px] font-black cursor-pointer transition-all border-2 text-center ${
+                                creatorSpectatorPermission === opt.id
+                                  ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                  : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
+                              }`}
+                            >
+                              <div>{opt.label}</div>
+                              <div className="text-[8px] opacity-80">{opt.desc}</div>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  )}
 
-                  <div className="mb-2">
-                    <input
-                      type="text"
-                      placeholder="Ex: K89X ou @K89X"
-                      value={joinCodeInput}
-                      onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                      maxLength={6}
-                      className="w-full uppercase font-mono tracking-widest text-center text-xl font-black bg-white border-3 border-amber-300 rounded-2xl py-1.5 text-amber-900 focus:outline-none focus:border-amber-500 shadow-inner"
-                    />
+                    <button
+                      type="button"
+                      onClick={handleCreate}
+                      className="w-full py-2.5 rounded-2xl bg-gradient-to-b from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_0_#3730a3] active:shadow-[0_1px_0_#3730a3] active:translate-y-0.5 border-2 border-white transition-all"
+                    >
+                      <Plus className="w-4 h-4" /> Criar Sala
+                    </button>
                   </div>
+                )}
+              </div>
 
-                  <div className="text-[9px] text-slate-500 font-bold mb-2 bg-amber-100/70 p-1.5 rounded-xl border border-amber-200 leading-tight">
-                    💡 <strong>Prefixos:</strong> <code>@CÓDIGO</code> ou <code>*CÓDIGO</code> (Mesa), ou <code>$CÓDIGO</code> (Cartas Abertas).
-                  </div>
-                </div>
-
+              {/* 3. Join Room (Accordion) */}
+              <div className="bg-gradient-to-br from-amber-50 to-yellow-50 rounded-3xl border-3 border-amber-200 shadow-sm overflow-hidden transition-all">
                 <button
-                  type="submit"
-                  disabled={!joinCodeInput.trim()}
-                  className={`w-full py-2.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer border-2 border-white transition-all ${
-                    joinMode === 'play'
-                      ? 'bg-gradient-to-b from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c]'
-                      : 'bg-gradient-to-b from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-[0_4px_0_#1e40af] active:shadow-[0_1px_0_#1e40af]'
-                  } disabled:opacity-40 active:translate-y-0.5`}
+                  type="button"
+                  onClick={() => toggleLobbySection('join')}
+                  className="w-full p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-amber-100/60 transition-colors text-left"
                 >
-                  {joinMode === 'play' ? (
-                    <>
-                      <ArrowRight className="w-4 h-4" /> Entrar para Jogar
-                    </>
-                  ) : (
-                    <>
-                      <span>👁️</span> Assistir Transmissão
-                    </>
-                  )}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md shrink-0">
+                      <Play className="w-4 h-4 fill-white" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-black text-sm text-amber-950 truncate">
+                        Entrar em Sala
+                      </h3>
+                      <p className="text-[11px] text-slate-600 font-semibold truncate">
+                        Digite o código da sala para jogar ou assistir
+                      </p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/90 border border-amber-300 text-amber-950 font-black text-[11px] shadow-2xs">
+                    <span>{expandedLobbySection === 'join' ? 'Recolher' : 'Expandir'}</span>
+                    {expandedLobbySection === 'join' ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </span>
                 </button>
-              </form>
+
+                {expandedLobbySection === 'join' && (
+                  <form
+                    onSubmit={handleJoin}
+                    className="px-4 pb-4 pt-2 border-t border-amber-200/80 animate-in fade-in duration-200"
+                  >
+                    {/* Mode Selector: Play vs Watch */}
+                    <div className="grid grid-cols-2 gap-1.5 p-1 bg-amber-200/60 rounded-2xl border border-amber-300 mb-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setJoinMode('play')}
+                        className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                          joinMode === 'play'
+                            ? 'bg-amber-400 text-slate-950 shadow-sm border border-white'
+                            : 'text-amber-950 hover:bg-white/50'
+                        }`}
+                      >
+                        <span>🎮</span> Jogador
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setJoinMode('watch_hidden')}
+                        className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                          joinMode !== 'play'
+                            ? 'bg-sky-500 text-white shadow-sm border border-white'
+                            : 'text-amber-950 hover:bg-white/50'
+                        }`}
+                      >
+                        <span>👁️</span> Assistir (TV)
+                      </button>
+                    </div>
+
+                    {/* Spectator Sub-options */}
+                    {joinMode !== 'play' && (
+                      <div className="p-2 bg-sky-50 rounded-2xl border-2 border-sky-200 mb-2 space-y-1 animate-in fade-in">
+                        <div className="text-[9px] font-black text-sky-900 uppercase">
+                          Transmissão de Espectador:
+                        </div>
+                        <div className="grid grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setJoinMode('watch_hidden')}
+                            className={`p-1 rounded-xl border text-left text-[10px] font-black cursor-pointer transition-all ${
+                              joinMode === 'watch_hidden'
+                                ? 'bg-sky-500 text-white border-sky-600 shadow-sm'
+                                : 'bg-white text-slate-700 border-sky-200 hover:bg-sky-100'
+                            }`}
+                          >
+                            <div>🔒 Só a Mesa</div>
+                            <div className="text-[8px] opacity-80">Mãos ocultas</div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setJoinMode('watch_open')}
+                            className={`p-1 rounded-xl border text-left text-[10px] font-black cursor-pointer transition-all ${
+                              joinMode === 'watch_open'
+                                ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm font-black'
+                                : 'bg-white text-slate-700 border-amber-200 hover:bg-amber-100 font-bold'
+                            }`}
+                          >
+                            <div>👀 Cartas Abertas</div>
+                            <div className="text-[8px] opacity-80">Modo Juiz / TV</div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mb-2">
+                      <input
+                        type="text"
+                        placeholder="Ex: K89X ou @K89X"
+                        value={joinCodeInput}
+                        onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+                        maxLength={6}
+                        className="w-full uppercase font-mono tracking-widest text-center text-xl font-black bg-white border-3 border-amber-300 rounded-2xl py-1.5 text-amber-900 focus:outline-none focus:border-amber-500 shadow-inner"
+                      />
+                    </div>
+
+                    <div className="text-[9px] text-slate-500 font-bold mb-2.5 bg-amber-100/70 p-1.5 rounded-xl border border-amber-200 leading-tight">
+                      💡 <strong>Prefixos:</strong> <code>@CÓDIGO</code> ou <code>*CÓDIGO</code> (Mesa), ou <code>$CÓDIGO</code> (Cartas Abertas).
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!joinCodeInput.trim()}
+                      className={`w-full py-2.5 rounded-2xl text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer border-2 border-white transition-all ${
+                        joinMode === 'play'
+                          ? 'bg-gradient-to-b from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 shadow-[0_4px_0_#c2410c] active:shadow-[0_1px_0_#c2410c]'
+                          : 'bg-gradient-to-b from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-[0_4px_0_#1e40af] active:shadow-[0_1px_0_#1e40af]'
+                      } disabled:opacity-40 active:translate-y-0.5`}
+                    >
+                      {joinMode === 'play' ? (
+                        <>
+                          <ArrowRight className="w-4 h-4" /> Entrar para Jogar
+                        </>
+                      ) : (
+                        <>
+                          <span>👁️</span> Assistir Transmissão
+                        </>
+                      )}
+                    </button>
+                  </form>
+                )}
+              </div>
             </div>
           </div>
         ) : (
