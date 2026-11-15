@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # 🚀 UNO KAWIHE - ORACLE CLOUD VM DEPLOY & CHECKPOINT ORCHESTRATOR
-# Versão: v2.2.1
+# Versão: v2.2.2
 # ==============================================================================
 # Executa o deploy em etapas com testes automáticos e suporte a retomada.
 # Se qualquer etapa falhar, o script para e mantém o ponto de parada.
@@ -9,7 +9,7 @@
 
 set -Eeuo pipefail
 
-DEPLOY_VERSION="v2.2.1"
+DEPLOY_VERSION="v2.2.2"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -199,9 +199,13 @@ EOF
     chmod 600 "$INSTALL_DIR/.env"
   fi
 
-  log_info "Construindo e iniciando containers (pode levar alguns minutos na VM Micro)..."
+  log_info "Parando containers antigos para liberar RAM antes do build..."
   sudo docker compose down --remove-orphans || true
-  sudo docker compose up -d --build
+
+  log_info "Construindo serviços sequencialmente (otimizado para VM Micro 1GB RAM)..."
+  sudo docker compose build kawihe-auth
+  sudo docker compose build uno-game
+  sudo docker compose up -d --no-build
 
   if [ "$(sudo docker compose ps -q | wc -l)" -gt 0 ]; then
     log_succ "Teste Etapa 5 OK: Containers ativos no Docker Compose."
@@ -254,7 +258,9 @@ main() {
 
   [ "$CURRENT_STEP" -lt 1 ] && step_1_system_prep
   [ "$CURRENT_STEP" -lt 2 ] && step_2_docker_install
-  [ "$CURRENT_STEP" -lt 3 ] && step_3_git_sync
+  if [ "$CURRENT_STEP" -lt 3 ] || [ -d "$INSTALL_DIR/.git" ]; then
+    step_3_git_sync
+  fi
   [ "$CURRENT_STEP" -lt 4 ] && step_4_firewall
   [ "$CURRENT_STEP" -lt 5 ] && step_5_docker_build
   [ "$CURRENT_STEP" -lt 6 ] && step_6_health_check
