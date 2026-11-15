@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # 🚀 UNO KAWIHE - ORACLE CLOUD VM DEPLOY & CHECKPOINT ORCHESTRATOR
+# Versão: v2.2.1
 # ==============================================================================
 # Executa o deploy em etapas com testes automáticos e suporte a retomada.
 # Se qualquer etapa falhar, o script para e mantém o ponto de parada.
 # ==============================================================================
 
 set -Eeuo pipefail
+
+DEPLOY_VERSION="v2.2.1"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -117,8 +120,11 @@ step_3_git_sync() {
     log_info "Atualizando repositório existente em $INSTALL_DIR..."
     cd "$INSTALL_DIR"
     git config --global --add safe.directory "$INSTALL_DIR" || true
-    git fetch origin
-    git pull origin main || git pull origin master
+    git config core.fileMode false || true
+    git fetch origin --tags
+    git checkout -- *.sh scripts/*.sh Dockerfile 2>/dev/null || true
+    git pull --ff-only origin main || git pull --ff-only origin master || git reset --hard origin/main || git reset --hard origin/master
+    log_info "Commit ativo: $(git rev-parse --short HEAD) ($(git describe --tags --always 2>/dev/null || echo "${DEPLOY_VERSION}"))"
   else
     if [ -d "$INSTALL_DIR" ]; then
       log_warn "Diretório $INSTALL_DIR existe sem repositório Git válido. Limpando para clonar..."
@@ -225,8 +231,10 @@ step_6_health_check() {
 
   if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 304 ] || [ "$HTTP_STATUS" -eq 404 ]; then
     PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org || echo "<IP_DA_SUA_VM>")
-    log_succ "🎉 DEPLOY CONCLUÍDO COM SUCESSO! HTTP Status: $HTTP_STATUS"
+    APP_PKG_VERSION=$(jq -r '.version // "2.2.1"' "$INSTALL_DIR/package.json" 2>/dev/null || echo "${DEPLOY_VERSION}")
+    log_succ "🎉 DEPLOY ${DEPLOY_VERSION} (App v${APP_PKG_VERSION}) CONCLUÍDO COM SUCESSO! HTTP Status: $HTTP_STATUS"
     echo "===================================================================="
+    echo "🏷️  Versão do Deploy: ${DEPLOY_VERSION} | App: v${APP_PKG_VERSION}"
     echo "🌐 Acesse o jogo em: http://${PUBLIC_IP}:3000"
     echo "📂 Instalado em: ${INSTALL_DIR}"
     echo "⚠️  Na Oracle Cloud, lembre-se de liberar TCP 3000 na Ingress Rule (VCN)."
@@ -242,7 +250,7 @@ step_6_health_check() {
 
 main() {
   CURRENT_STEP=$(get_current_step)
-  log_info "Iniciando/Retomando deploy a partir da etapa: $CURRENT_STEP/6"
+  log_info "🚀 Uno KaWiHe Deploy ${DEPLOY_VERSION} — Iniciando/Retomando da etapa: $CURRENT_STEP/6"
 
   [ "$CURRENT_STEP" -lt 1 ] && step_1_system_prep
   [ "$CURRENT_STEP" -lt 2 ] && step_2_docker_install

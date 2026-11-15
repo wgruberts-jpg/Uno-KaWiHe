@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Script de Implantação Segura (Deploy) com Backup Automático
+# Versão: v2.2.1
 # 1. Faz backup da versão atual que está rodando.
 # 2. Atualiza o código via git pull.
 # 3. Reconstrói os containers do Docker.
@@ -8,11 +9,12 @@
 # ==============================================================================
 set -e
 
+DEPLOY_VERSION="v2.2.1"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${PROJECT_DIR}"
 
 echo "================================================================="
-echo "🚀 INICIANDO ATUALIZAÇÃO SEGURA DO UNO KAWiHe"
+echo "🚀 INICIANDO ATUALIZAÇÃO SEGURA DO UNO KAWiHe (${DEPLOY_VERSION})"
 echo "================================================================="
 
 # Passo 1: Backup de Segurança antes de alterar qualquer coisa
