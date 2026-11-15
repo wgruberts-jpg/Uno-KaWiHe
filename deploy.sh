@@ -36,7 +36,7 @@ set_current_step() {
 
 trap 'on_error $? $LINENO' ERR
 on_error() {
-  log_err "Falha na linha $2 (Código: $1). Corrija e reexecute ./deploy.sh"
+  log_err "Falha na linha $2 (Código: $1). Corrija e reexecute o comando."
   exit "$1"
 }
 
@@ -96,13 +96,15 @@ step_3_git_sync() {
     cd "$INSTALL_DIR"
     git pull origin main || git pull origin master || true
   else
+    log_info "Limpando diretório se não for um repositório git..."
+    rm -rf "$INSTALL_DIR/*" 2>/dev/null || true
     log_info "Clonando repositório oficial em $INSTALL_DIR..."
     git clone "$REPO_URL" "$INSTALL_DIR"
     cd "$INSTALL_DIR"
   fi
 
   # Teste rigoroso da Etapa 3
-  if [ -f "package.json" ] && [ -f "Dockerfile" ]; then
+  if [ -f "$INSTALL_DIR/package.json" ] && [ -f "$INSTALL_DIR/Dockerfile" ]; then
     log_succ "Teste Etapa 3 OK: package.json e Dockerfile encontrados."
   else
     log_err "Teste Etapa 3 Falhou: Arquivos essenciais não encontrados no diretório de instalação."
