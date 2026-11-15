@@ -20,8 +20,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '0.35'
+          memory: 160M
 
   # JOGO 1: UNO Multiplayer
   uno-game:
@@ -47,9 +47,9 @@ services:
       resources:
         limits:
           cpus: '0.75'
-          memory: 512M
+          memory: 384M
         reservations:
-          memory: 128M
+          memory: 96M
 
 volumes:
   auth-data:

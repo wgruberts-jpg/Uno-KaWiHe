@@ -11,11 +11,11 @@ ENV NODE_OPTIONS="--max-old-space-size=512"
 COPY package.json ./
 RUN npm install --legacy-peer-deps --no-audit --no-fund --maxsockets=3
 
-# Copy source code and build Vite frontend, then prune devDependencies
+# Copy source code, build Vite frontend + bundle server.mjs, then prune devDependencies
 COPY . .
-RUN npm run build && npm prune --omit=dev --legacy-peer-deps
+RUN npm run build && npx --no-install esbuild server.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/server.mjs && npm prune --omit=dev --legacy-peer-deps
 
-# Stage 2: Production Runner
+# Stage 2: Production Runner (Pure Node, zero tsx/esbuild overhead in RAM)
 FROM node:22-slim AS runner
 
 WORKDIR /app
@@ -23,22 +23,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Copy built frontend, pruned node_modules, and server files from builder (serializes stage after builder)
+# Copy built frontend, compiled server bundle, and pruned node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/server.ts ./server.ts
-COPY --from=builder /app/server ./server
-COPY --from=builder /app/src/types ./src/types
-COPY --from=builder /app/src/utils ./src/utils
-COPY --from=builder /app/tsconfig.json ./tsconfig.json
-
-# Install only lightweight tsx runner globally
-RUN npm install -g tsx --no-audit --no-fund
+COPY --from=builder /app/dist-server ./dist-server
 
 # Use non-root node user for security
 USER node
 
 EXPOSE 3000
 
-CMD ["tsx", "server.ts"]
+CMD ["node", "--max-old-space-size=256", "dist-server/server.mjs"]

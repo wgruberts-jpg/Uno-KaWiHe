@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # 🚀 UNO KAWIHE - ORACLE CLOUD VM DEPLOY & CHECKPOINT ORCHESTRATOR
-# Versão: v2.2.2
+# Versão: v2.2.3
 # ==============================================================================
 # Executa o deploy em etapas com testes automáticos e suporte a retomada.
 # Se qualquer etapa falhar, o script para e mantém o ponto de parada.
@@ -9,7 +9,7 @@
 
 set -Eeuo pipefail
 
-DEPLOY_VERSION="v2.2.2"
+DEPLOY_VERSION="v2.2.3"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
