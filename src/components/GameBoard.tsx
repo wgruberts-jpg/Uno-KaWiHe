@@ -105,12 +105,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [selectedWildCard, setSelectedWildCard] = useState<Card | null>(null);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
   const [flyingCardId, setFlyingCardId] = useState<string | null>(null);
+  const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const lastPointerTypeRef = useRef<string>('mouse');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTableScoreboardOpen, setIsTableScoreboardOpen] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [isHowToPlayOpen, setIsHowToPlayOpen] = useState(false);
   const [peerVoiceStates, setPeerVoiceStates] = useState<Record<string, VoicePeerState>>({});
+
+  // Clear selected/hovered card if it is no longer in the player's hand
+  useEffect(() => {
+    const handIds = new Set(state.myHand.map((c) => c.id));
+    if (selectedCardId && !handIds.has(selectedCardId)) {
+      setSelectedCardId(null);
+    }
+    if (hoveredCardId && !handIds.has(hoveredCardId)) {
+      setHoveredCardId(null);
+    }
+  }, [state.myHand, selectedCardId, hoveredCardId]);
 
   // Monitor real container dimensions with ResizeObserver
   useEffect(() => {
@@ -259,9 +273,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     setFeedbackToast(null);
     setFlyingCardId(card.id);
+    setHoveredCardId(null);
+    setSelectedCardId(null);
     statsManager.recordCardPlayed(card);
     onPlayCard(card.id);
     setTimeout(() => setFlyingCardId(null), 400);
+  };
+
+  const handleHandCardClick = (card: Card) => {
+    if (lastPointerTypeRef.current === 'touch' && selectedCardId !== card.id) {
+      setSelectedCardId(card.id);
+      return;
+    }
+    setSelectedCardId(null);
+    handleCardClick(card);
   };
 
   const handleColorPicked = (color: CardColor) => {
@@ -490,6 +515,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   return (
     <div
       ref={containerRef}
+      onPointerDown={(e) => {
+        if (!(e.target as HTMLElement).closest('[data-hand-card]')) {
+          setSelectedCardId(null);
+        }
+      }}
       className="relative w-full h-[100dvh] overflow-hidden bg-slate-950 flex items-center justify-center select-none"
     >
       {/* ========================================================================= */}
@@ -836,7 +866,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <div className="w-full col-span-3 shrink-0 flex flex-col items-center z-20 pb-1">
               {/* Catch UNO Alert Banner (do not allow catching teammate) */}
               {state.unoVulnerablePlayerId && (!is2v2 || !myTeam || state.players.find((p) => p.id === state.unoVulnerablePlayerId)?.team !== myTeam) && (
-                <div className="w-full max-w-md my-1 animate-bounce z-30">
+                <div className="w-full max-w-md my-1 animate-bounce z-40">
                   <button
                     type="button"
                     onClick={() => handleCatchUno(state.unoVulnerablePlayerId!)}
@@ -850,7 +880,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
               {/* 2v2 Teammate Hand Cards Strip Only */}
               {is2v2 && teammate && !isSpectator && teammateHand.length > 0 && (
-                <div className="w-full max-w-lg px-2 py-1 mb-1 rounded-2xl bg-black/40 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center -space-x-3 overflow-x-auto z-30">
+                <div className="w-full max-w-lg px-2 py-1 mb-1 rounded-2xl bg-black/40 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center -space-x-3 overflow-x-auto z-40">
                   {teammateHand.map((c) => (
                     <div key={c.id} className="shrink-0 hover:z-30 hover:-translate-y-1 transition-transform">
                       <UnoCard card={c} size="xs" />
@@ -868,9 +898,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="w-full max-w-6xl px-4 overflow-x-auto overflow-y-visible py-6 flex items-center justify-center scrollbar-thin">
+                <div className="relative z-30 w-full max-w-6xl px-4 overflow-x-auto -mt-10 flex items-center scrollbar-thin">
                   <div
-                    className={`flex items-center ${
+                    className={`flex items-center mx-auto min-w-min pt-20 pb-3 px-8 ${
                       state.myHand.length > 22
                         ? '-space-x-12 sm:-space-x-14'
                         : state.myHand.length > 16
@@ -882,24 +912,46 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         : state.myHand.length > 4
                         ? '-space-x-5'
                         : '-space-x-3'
-                    } hover:-space-x-2 transition-all duration-300 py-6 px-4`}
+                    } transition-all duration-300`}
                   >
                     {state.myHand.map((card, idx) => {
                       const playable = isPlayable(card);
                       const isFlying = flyingCardId === card.id;
+                      const isFront = hoveredCardId === card.id || selectedCardId === card.id;
 
                       return (
                         <div
                           key={card.id}
-                          className={`transform transition-all duration-300 group hover:z-50 focus-within:z-50 ${
+                          data-hand-card="true"
+                          onPointerEnter={(e) => {
+                            if (e.pointerType !== 'touch') {
+                              setHoveredCardId(card.id);
+                            }
+                          }}
+                          onPointerLeave={(e) => {
+                            if (e.pointerType !== 'touch') {
+                              setHoveredCardId((prev) => (prev === card.id ? null : prev));
+                            }
+                          }}
+                          onPointerDown={(e) => {
+                            lastPointerTypeRef.current = e.pointerType || 'mouse';
+                          }}
+                          onFocus={() => setHoveredCardId(card.id)}
+                          onBlur={() => setHoveredCardId((prev) => (prev === card.id ? null : prev))}
+                          onDragEnd={() => {
+                            setHoveredCardId(null);
+                            setSelectedCardId(null);
+                          }}
+                          className={`relative pointer-events-auto transform transition-all duration-200 ${
                             isFlying ? '-translate-y-48 scale-75 opacity-20 pointer-events-none' : ''
                           }`}
-                          style={{ zIndex: isFlying ? 100 : idx }}
+                          style={{ zIndex: isFlying ? 1000 : isFront ? 999 : idx }}
                         >
                           <UnoCard
                             card={card}
                             isPlayable={playable}
-                            onClick={() => handleCardClick(card)}
+                            isSelected={isFront}
+                            onClick={() => handleHandCardClick(card)}
                             size="md"
                           />
                         </div>
@@ -1082,7 +1134,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <div className="w-full shrink-0 flex flex-col items-center z-20 pb-1">
               {/* 2v2 Teammate Hand Cards Strip Only in Portrait */}
               {is2v2 && teammate && !isSpectator && teammateHand.length > 0 && (
-                <div className="w-full max-w-sm px-2 py-1 mb-1 rounded-xl bg-black/40 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center -space-x-3 overflow-x-auto z-30">
+                <div className="w-full max-w-sm px-2 py-1 mb-1 rounded-xl bg-black/40 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center -space-x-3 overflow-x-auto z-40">
                   {teammateHand.map((c) => (
                     <div key={c.id} className="shrink-0 hover:z-30 hover:-translate-y-1 transition-transform">
                       <UnoCard card={c} size="xs" />
@@ -1091,9 +1143,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 </div>
               )}
 
-              <div className="w-full px-1 overflow-x-auto py-1 flex scrollbar-thin">
+              <div className="relative z-30 w-full px-1 overflow-x-auto -mt-10 flex scrollbar-thin">
                 <div
-                  className={`flex items-center ${
+                  className={`flex items-center mx-auto min-w-min pt-20 pb-3 px-6 ${
                     state.myHand.length > 20
                       ? '-space-x-12 sm:-space-x-14'
                       : state.myHand.length > 15
@@ -1103,22 +1155,51 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       : state.myHand.length > 6
                       ? '-space-x-7'
                       : '-space-x-5'
-                  } py-1 px-3 mx-auto min-w-min hover:-space-x-2 transition-all`}
+                  } transition-all duration-300`}
                 >
-                  {state.myHand.map((card, idx) => (
-                    <div
-                      key={card.id}
-                      className="transform transition-all duration-200 hover:-translate-y-3"
-                      style={{ zIndex: idx }}
-                    >
-                      <UnoCard
-                        card={card}
-                        isPlayable={isPlayable(card)}
-                        onClick={() => handleCardClick(card)}
-                        size="md"
-                      />
-                    </div>
-                  ))}
+                  {state.myHand.map((card, idx) => {
+                    const playable = isPlayable(card);
+                    const isFlying = flyingCardId === card.id;
+                    const isFront = hoveredCardId === card.id || selectedCardId === card.id;
+
+                    return (
+                      <div
+                        key={card.id}
+                        data-hand-card="true"
+                        onPointerEnter={(e) => {
+                          if (e.pointerType !== 'touch') {
+                            setHoveredCardId(card.id);
+                          }
+                        }}
+                        onPointerLeave={(e) => {
+                          if (e.pointerType !== 'touch') {
+                            setHoveredCardId((prev) => (prev === card.id ? null : prev));
+                          }
+                        }}
+                        onPointerDown={(e) => {
+                          lastPointerTypeRef.current = e.pointerType || 'mouse';
+                        }}
+                        onFocus={() => setHoveredCardId(card.id)}
+                        onBlur={() => setHoveredCardId((prev) => (prev === card.id ? null : prev))}
+                        onDragEnd={() => {
+                          setHoveredCardId(null);
+                          setSelectedCardId(null);
+                        }}
+                        className={`relative pointer-events-auto transform transition-all duration-200 ${
+                          isFlying ? '-translate-y-48 scale-75 opacity-20 pointer-events-none' : ''
+                        }`}
+                        style={{ zIndex: isFlying ? 1000 : isFront ? 999 : idx }}
+                      >
+                        <UnoCard
+                          card={card}
+                          isPlayable={playable}
+                          isSelected={isFront}
+                          onClick={() => handleHandCardClick(card)}
+                          size="md"
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

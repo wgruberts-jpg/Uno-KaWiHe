@@ -110,6 +110,11 @@ export const UnoCard: React.FC<UnoCardProps> = ({
   const ovalBg = card.color === 'wild' ? 'bg-indigo-950' : 'bg-white';
   const centerContentColor = card.color === 'wild' ? 'text-white' : isYellow ? 'text-amber-500' : card.color === 'red' ? 'text-rose-600' : card.color === 'blue' ? 'text-blue-600' : 'text-emerald-600';
 
+  const isInteractive = !!onClick;
+  const activeRing = isPlayable
+    ? 'ring-4 ring-yellow-300 ring-offset-2 ring-offset-sky-300'
+    : 'ring-4 ring-white/95 ring-offset-2 ring-offset-sky-300';
+
   return (
     <button
       type="button"
@@ -118,13 +123,17 @@ export const UnoCard: React.FC<UnoCardProps> = ({
         e.dataTransfer.setData('text/plain', card.id);
       }}
       onClick={onClick}
-      className={`relative ${sizeClasses} border-white select-none flex flex-col justify-between shadow-xl transition-all duration-300 transform-gpu origin-bottom cursor-pointer opacity-100 ${
+      className={`relative ${sizeClasses} border-white select-none flex flex-col justify-between shadow-xl transition-all duration-200 transform-gpu origin-bottom opacity-100 ${
         colorBgMap[card.color]
-      } ${
-        isPlayable
-          ? 'hover:-translate-y-14 hover:scale-125 hover:shadow-2xl hover:brightness-110 ring-4 ring-yellow-300 ring-offset-2 ring-offset-sky-300 focus:-translate-y-14 focus:scale-125 active:-translate-y-14 active:scale-125 hover:z-50 focus:z-50 active:z-50 z-20'
-          : 'brightness-95 hover:brightness-105 hover:-translate-y-12 hover:scale-125 focus:-translate-y-12 focus:scale-125 active:-translate-y-12 active:scale-125 hover:z-50 focus:z-50 active:z-50'
-      } ${isSelected ? '-translate-y-14 scale-125 ring-4 ring-yellow-300 z-50 shadow-2xl' : ''} ${className}`}
+      } ${isInteractive ? 'cursor-pointer' : ''} ${
+        isSelected
+          ? `-translate-y-9 scale-125 shadow-2xl brightness-110 ${activeRing}`
+          : isPlayable
+          ? 'ring-4 ring-yellow-300 ring-offset-2 ring-offset-sky-300 hover:-translate-y-9 hover:scale-125 hover:shadow-2xl hover:brightness-110 focus-visible:-translate-y-9 focus-visible:scale-125'
+          : isInteractive
+          ? 'brightness-95 hover:brightness-110 hover:-translate-y-9 hover:scale-125 hover:shadow-2xl focus-visible:-translate-y-9 focus-visible:scale-125'
+          : ''
+      } ${className}`}
     >
       {/* Top Left Mini Value */}
       <div className={`flex items-center justify-start leading-none font-bold ${textColor}`}>
