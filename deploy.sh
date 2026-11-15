@@ -1,299 +1,256 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# UNO KAWIHE - SCRIPT DE GESTÃO E DEPLOY EM PRODUÇÃO (VM)
+# 🚀 UNO KAWIHE - ORACLE CLOUD VM DEPLOY & CHECKPOINT ORCHESTRATOR
 # ==============================================================================
-# Este script foi projetado para execução direta na Máquina Virtual (VM).
-# Ele gerencia todo o ciclo de vida: Backup Automático -> Deploy Git -> Docker -> Health Check
-#
-# Uso:
-#   ./deploy.sh                  # Executa Deploy Completo (com auto-backup prévio)
-#   ./deploy.sh deploy           # Executa Deploy Completo
-#   ./deploy.sh backup [tag]     # Cria um backup manual sob demanda
-#   ./deploy.sh restore [tag]    # Restaura o último backup ou tag específica
-#   ./deploy.sh logs             # Acompanha logs dos contêineres em tempo real
-#   ./deploy.sh status           # Exibe o status dos serviços e uso de recursos
+# Executa o deploy em etapas com testes automáticos e suporte a retomada.
+# Se qualquer etapa falhar, o script para, permitindo correção e retomada posterior.
 # ==============================================================================
-set -e
 
-# Cores para saída no terminal
+set -Eeuo pipefail
+
+# Cores para logs
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKUP_DIR="${HOME}/backups/uno-kawihe"
-BRANCH="${GIT_BRANCH:-main}"
-ACTION="${1:-deploy}"
-PARAM="${2:-}"
+STATE_FILE=".deploy_state"
+REPO_URL="https://github.com/wgruberts/unokawihe.git"
+INSTALL_DIR="/opt/unokawihe"
 
-cd "${PROJECT_DIR}"
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_succ() { echo -e "${GREEN}[SUCC]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_err()  { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# ------------------------------------------------------------------------------
-# FUNÇÃO DE BACKUP
-# ------------------------------------------------------------------------------
-do_backup() {
-  local tag="$1"
-  local timestamp
-  timestamp=$(date +"%Y%m%d_%H%M%S")
-  local tag_clean=""
-  local backup_file=""
-
-  mkdir -p "${BACKUP_DIR}"
-  chmod 700 "${BACKUP_DIR}"
-
-  if [ -n "${tag}" ]; then
-    tag_clean=$(echo "${tag}" | sed 's/^#//' | tr -cd '[:alnum:]_-')
-    backup_file="${BACKUP_DIR}/uno_backup_${tag_clean}_${timestamp}.tar.gz"
-    echo -e "${CYAN}🏷️  Criando backup com Tag #${tag_clean}...${NC}"
+# Funções de Controle de Estado (Checkpoints)
+get_current_step() {
+  if [ -f "$STATE_FILE" ]; then
+    cat "$STATE_FILE"
   else
-    backup_file="${BACKUP_DIR}/uno_backup_${timestamp}.tar.gz"
-    echo -e "${CYAN}📦 Criando backup preventivo de segurança...${NC}"
+    echo "0"
   fi
-
-  # 1. Salva volume Docker auth-data se existir
-  if command -v docker >/dev/null 2>&1 && docker volume inspect auth-data >/dev/null 2>&1; then
-    docker run --rm -v auth-data:/data -v "${BACKUP_DIR}":/backup alpine \
-      tar -czf "/backup/auth_volume_${timestamp}.tar.gz" -C /data . >/dev/null 2>&1 || true
-    chmod 600 "${BACKUP_DIR}/auth_volume_${timestamp}.tar.gz" 2>/dev/null || true
-    echo -e "   ${GREEN}✓ Volume Docker 'auth-data' salvo com sucesso.${NC}"
-  fi
-
-  # 2. Salva diretório local ./data se existir
-  if [ -d "${PROJECT_DIR}/data" ]; then
-    tar -czf "${BACKUP_DIR}/data_dir_${timestamp}.tar.gz" -C "${PROJECT_DIR}" data 2>/dev/null || true
-    chmod 600 "${BACKUP_DIR}/data_dir_${timestamp}.tar.gz" 2>/dev/null || true
-    echo -e "   ${GREEN}✓ Diretório de contas 'data/' salvo com sucesso.${NC}"
-  fi
-
-  # 3. Compacta aplicação e arquivos de configuração (excluindo node_modules pesados e dist)
-  tar --exclude="node_modules" \
-      --exclude=".git/objects" \
-      --exclude="dist" \
-      -czf "${backup_file}" -C "${PROJECT_DIR}" . 2>/dev/null || true
-
-  chmod 600 "${backup_file}" 2>/dev/null || true
-
-  # Atualiza ponteiro do último backup
-  echo "${backup_file}" > "${BACKUP_DIR}/LATEST_BACKUP.txt"
-  if [ -n "${tag_clean}" ]; then
-    echo "${backup_file}" > "${BACKUP_DIR}/LATEST_BACKUP_${tag_clean}.txt"
-  fi
-
-  local size
-  size=$(du -h "${backup_file}" | cut -f1)
-  echo -e "   ${GREEN}✓ Arquivo de backup:${NC} ${backup_file} (${size})"
 }
 
-# ------------------------------------------------------------------------------
-# FUNÇÃO DE RESTORE
-# ------------------------------------------------------------------------------
-do_restore() {
-  local target="$1"
-  local backup_file=""
+set_current_step() {
+  echo "$1" > "$STATE_FILE"
+}
 
-  echo -e "${YELLOW}=================================================================${NC}"
-  echo -e "${YELLOW}🔄 INICIANDO PROCESSO DE RESTAURAÇÃO DE BACKUP${NC}"
-  echo -e "${YELLOW}=================================================================${NC}"
+# Tratamento de Erros
+trap 'on_error $? $LINENO' ERR
 
-  if [ -n "${target}" ]; then
-    local target_clean
-    target_clean=$(echo "${target}" | sed 's/^#//' | tr -cd '[:alnum:]_-')
-    if [ -f "${BACKUP_DIR}/LATEST_BACKUP_${target_clean}.txt" ]; then
-      backup_file=$(cat "${BACKUP_DIR}/LATEST_BACKUP_${target_clean}.txt")
-    elif [ -f "${target}" ]; then
-      backup_file="${target}"
-    fi
+on_error() {
+  local exit_code=$1
+  local line_no=$2
+  log_err "Falha na execução na linha ${line_no} (Código de saída: ${exit_code})."
+  log_warn "O deploy foi pausado. Corrija o problema e execute './deploy.sh' novamente para continuar do ponto de parada."
+  exit "$exit_code"
+}
+
+# ==============================================================================
+# ETAPA 1: Preparação do Sistema & Swap (Otimizado para 1GB RAM - OCI Micro)
+# ==============================================================================
+step_1_system_prep() {
+  log_info "=== [ETAPA 1/6] Preparação do Sistema Operacional & Swap ==="
+  
+  if [ "$(id -u)" -ne 0 ]; then
+    log_warn "Recomenda-se executar como root (sudo) para instalar dependências do sistema."
   fi
 
-  if [ -z "${backup_file}" ] && [ -f "${BACKUP_DIR}/LATEST_BACKUP.txt" ]; then
-    backup_file=$(cat "${BACKUP_DIR}/LATEST_BACKUP.txt")
+  # Atualizar pacotes básicos
+  sudo apt-get update -y
+  sudo apt-get install -y curl git ufw jq rsync
+
+  # Configurar Swap de 2GB se não existir (Vital para 1GB RAM)
+  if [ ! -f /swapfile ] && [ "$(swapon --show | wc -l)" -eq 0 ]; then
+    log_info "Criando arquivo Swap de 2GB para evitar OOM Killer..."
+    sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+    log_succ "Swap de 2GB configurado com sucesso."
+  else
+    log_info "Swap já configurado ou ativo."
   fi
 
-  if [ -z "${backup_file}" ] || [ ! -f "${backup_file}" ]; then
-    echo -e "${RED}❌ Erro: Nenhum arquivo de backup válido foi encontrado em ${BACKUP_DIR}.${NC}"
+  # Teste da Etapa 1
+  if [ -f /swapfile ] || [ "$(swapon --show | wc -l)" -gt 0 ]; then
+    log_succ "Teste Etapa 1 OK: Sistema pronto e memória virtual ativa."
+  else
+    log_err "Teste Etapa 1 Falhou: Swap não detectado."
     exit 1
   fi
 
-  echo -e "${CYAN}📦 Restaurando a partir de: ${backup_file}${NC}"
-
-  # Para os contêineres antes de extrair
-  if command -v docker >/dev/null 2>&1 && [ -f "docker-compose.yml" ]; then
-    echo -e "${YELLOW}🛑 Parando contêineres Docker...${NC}"
-    docker compose down || true
-  fi
-
-  # Extrai os arquivos do backup
-  tar -xzf "${backup_file}" -C "${PROJECT_DIR}"
-
-  # Restaura banco de dados local se houver cópia dedicada
-  local latest_data_archive
-  latest_data_archive=$(ls -t "${BACKUP_DIR}"/data_dir_*.tar.gz 2>/dev/null | head -n 1 || true)
-  if [ -n "${latest_data_archive}" ] && [ -f "${latest_data_archive}" ]; then
-    tar -xzf "${latest_data_archive}" -C "${PROJECT_DIR}" 2>/dev/null || true
-  fi
-
-  # Restaura volume Docker auth-data se aplicável
-  local latest_vol_archive
-  latest_vol_archive=$(ls -t "${BACKUP_DIR}"/auth_volume_*.tar.gz 2>/dev/null | head -n 1 || true)
-  if [ -n "${latest_vol_archive}" ] && [ -f "${latest_vol_archive}" ] && command -v docker >/dev/null 2>&1; then
-    docker volume create auth-data >/dev/null 2>&1 || true
-    docker run --rm -v auth-data:/data -v "${BACKUP_DIR}":/backup alpine \
-      sh -c "tar -xzf /backup/$(basename "${latest_vol_archive}") -C /data" >/dev/null 2>&1 || true
-  fi
-
-  # Reconstrói e sobe os contêineres
-  if command -v docker >/dev/null 2>&1 && [ -f "docker-compose.yml" ]; then
-    echo -e "${CYAN}🚀 Reconstruindo e iniciando contêineres...${NC}"
-    docker compose up -d --build
-  fi
-
-  echo -e "${GREEN}=================================================================${NC}"
-  echo -e "${GREEN}✅ RESTAURAÇÃO CONCLUÍDA COM SUCESSO!${NC}"
-  echo -e "${GREEN}=================================================================${NC}"
+  set_current_step 1
 }
 
-# ------------------------------------------------------------------------------
-# FUNÇÃO DE DEPLOY COMPLETO
-# ------------------------------------------------------------------------------
-do_deploy() {
-  echo -e "${CYAN}${BOLD}=================================================================${NC}"
-  echo -e "${CYAN}${BOLD}🚀 UNO KAWIHE - INICIANDO PROCESSO DE DEPLOY NA VM${NC}"
-  echo -e "${CYAN}${BOLD}=================================================================${NC}"
+# ==============================================================================
+# ETAPA 2: Instalação do Docker & Docker Compose
+# ==============================================================================
+step_2_docker_install() {
+  log_info "=== [ETAPA 2/6] Instalação do Docker e Docker Compose ==="
 
-  # 1. Backup Automático Preventivo
-  echo -e "\n${BOLD}[1/6] 💾 Executando Backup Automático Preventivo...${NC}"
-  do_backup "auto_pre_deploy"
-
-  # 2. Preserva cópia temporária de segurança de data/ e .env na memória/disco
-  echo -e "\n${BOLD}[2/6] 🛡️  Preservando arquivos de banco de dados e variáveis...${NC}"
-  TMP_DATA_BACKUP="/tmp/uno_kawihe_data_$(date +%s)"
-  mkdir -p "${TMP_DATA_BACKUP}"
-  if [ -d "${PROJECT_DIR}/data" ]; then
-    cp -r "${PROJECT_DIR}/data" "${TMP_DATA_BACKUP}/"
-  fi
-  if [ -f "${PROJECT_DIR}/.env" ]; then
-    cp "${PROJECT_DIR}/.env" "${TMP_DATA_BACKUP}/.env"
+  if ! command -v docker &> /dev/null; then
+    log_info "Instalando Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    sudo usermod -aG docker $USER
+    rm get-docker.sh
+  else
+    log_info "Docker já está instalado."
   fi
 
-  # 3. Parada graciosa dos contêineres
-  echo -e "\n${BOLD}[3/6] 🛑 Parando contêineres em execução...${NC}"
-  if command -v docker >/dev/null 2>&1 && [ -f "docker-compose.yml" ]; then
-    sed -i 's/\${JWT_SECRET:?.*}/\${JWT_SECRET:-kawihe_default_secure_secret_production}/g' docker-compose.yml 2>/dev/null || true
-    docker compose down 2>/dev/null || true
+  if ! docker compose version &> /dev/null; then
+    log_info "Instalando Docker Compose Plugin..."
+    sudo apt-get install -y docker-compose-plugin
+  else
+    log_info "Docker Compose já está instalado."
   fi
 
-  # 4. Atualização a partir do repositório Git
-  echo -e "\n${BOLD}[4/6] 📥 Baixando atualizações mais recentes do GitHub (branch: ${BRANCH})...${NC}"
+  # Teste da Etapa 2
+  if docker --version && docker compose version; then
+    log_succ "Teste Etapa 2 OK: Docker e Docker Compose operacionais."
+  else
+    log_err "Teste Etapa 2 Falhou: Binários do Docker não respondem."
+    exit 1
+  fi
+
+  set_current_step 2
+}
+
+# ==============================================================================
+# ETAPA 3: Obtenção / Atualização do Código do Jogo (Git)
+# ==============================================================================
+step_3_git_sync() {
+  log_info "=== [ETAPA 3/6] Sincronização do Código (Git) ==="
+
   if [ -d ".git" ]; then
-    git fetch origin "${BRANCH}"
-    git reset --hard "origin/${BRANCH}"
-    echo -e "   ${GREEN}✓ Código sincronizado com origin/${BRANCH}.${NC}"
+    log_info "Repositório local detectado. Executando git pull..."
+    git pull origin main || git pull origin master || true
   else
-    echo -e "   ${YELLOW}⚠️  Diretório .git não encontrado. Prosseguindo com arquivos locais.${NC}"
-  fi
-
-  # Auto-correção defensiva de sintaxe YAML se vier do git antigo
-  if [ -f "docker-compose.yml" ]; then
-    sed -i 's/\${JWT_SECRET:?.*}/\${JWT_SECRET:-kawihe_default_secure_secret_production}/g' docker-compose.yml 2>/dev/null || true
-  fi
-
-  # 5. Restauração e Blindagem do banco de dados e do .env
-  echo -e "\n${BOLD}[5/6] 🔒 Reintegrando base de dados de contas e ambiente...${NC}"
-  if [ -d "${TMP_DATA_BACKUP}/data" ]; then
-    mkdir -p "${PROJECT_DIR}/data"
-    cp -r "${TMP_DATA_BACKUP}/data/"* "${PROJECT_DIR}/data/" 2>/dev/null || true
-    echo -e "   ${GREEN}✓ Base de dados de usuários mantida intacta.${NC}"
-  fi
-  if [ -f "${TMP_DATA_BACKUP}/.env" ] && [ ! -f "${PROJECT_DIR}/.env" ]; then
-    cp "${TMP_DATA_BACKUP}/.env" "${PROJECT_DIR}/.env"
-    echo -e "   ${GREEN}✓ Arquivo .env restaurado.${NC}"
-  fi
-  rm -rf "${TMP_DATA_BACKUP}"
-
-  # Validação do arquivo .env
-  if [ ! -f ".env" ]; then
-    if [ -f ".env.example" ]; then
-      echo -e "   ${YELLOW}⚠️  Arquivo .env não encontrado. Criando a partir de .env.example...${NC}"
-      cp .env.example .env
-      # Gera um JWT_SECRET aleatório seguro caso esteja vazio
-      local gen_secret
-      gen_secret=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
-      sed -i "s/JWT_SECRET=.*/JWT_SECRET=${gen_secret}/g" .env 2>/dev/null || true
-      echo -e "   ${GREEN}✓ Chave JWT_SECRET segura gerada automaticamente no .env.${NC}"
+    log_info "Configurando diretório de instalação em $INSTALL_DIR..."
+    if [ ! -d "$INSTALL_DIR" ]; then
+      sudo mkdir -p "$INSTALL_DIR"
+      sudo chown -R $USER:$USER "$INSTALL_DIR"
+    fi
+    if [ "$(pwd)" != "$INSTALL_DIR" ]; then
+      log_info "Copiando arquivos atuais para $INSTALL_DIR..."
+      rsync -av --exclude 'node_modules' --exclude '.git' ./ "$INSTALL_DIR/"
+      cd "$INSTALL_DIR"
     fi
   fi
 
-  # 6. Build e Inicialização dos Contêineres
-  echo -e "\n${BOLD}[6/6] 🐳 Construindo e iniciando serviços no Docker...${NC}"
-  if command -v docker >/dev/null 2>&1 && [ -f "docker-compose.yml" ]; then
-    docker compose up -d --build
-    echo -e "   ${GREEN}✓ Contêineres iniciados com sucesso.${NC}"
-
-    # Health check de confirmação
-    echo -e "\n${CYAN}🔍 Verificando integridade da aplicação...${NC}"
-    sleep 3
-    if docker compose ps | grep -q "Up"; then
-      echo -e "${GREEN}=================================================================${NC}"
-      echo -e "${GREEN}${BOLD}✅ DEPLOY CONCLUÍDO COM SUCESSO EM PRODUÇÃO!${NC}"
-      echo -e "${GREEN}=================================================================${NC}"
-      docker compose ps
-    else
-      echo -e "${RED}⚠️  Atenção: Os contêineres podem não ter subido corretamente.${NC}"
-      docker compose logs --tail=30
-    fi
+  # Teste da Etapa 3
+  if [ -f "package.json" ] && [ -f "Dockerfile" ]; then
+    log_succ "Teste Etapa 3 OK: Arquivos do projeto verificados."
   else
-    echo -e "${YELLOW}Docker ou docker-compose.yml não encontrados no ambiente.${NC}"
+    log_err "Teste Etapa 3 Falhou: package.json ou Dockerfile ausentes."
+    exit 1
+  fi
+
+  set_current_step 3
+}
+
+# ==============================================================================
+# ETAPA 4: Configuração de Firewall & Portas (Porta 3000)
+# ==============================================================================
+step_4_firewall() {
+  log_info "=== [ETAPA 4/6] Configuração de Portas e Firewall (UFW) ==="
+
+  if command -v ufw &> /dev/null; then
+    sudo ufw allow 22/tcp || true
+    sudo ufw allow 80/tcp || true
+    sudo ufw allow 443/tcp || true
+    sudo ufw allow 3000/tcp || true
+    sudo ufw --force enable || true
+    log_succ "Regras de firewall aplicadas (Portas 22, 80, 443, 3000 abertas)."
+  else
+    log_warn "UFW não encontrado, pulando configuração de firewall local."
+  fi
+
+  set_current_step 4
+}
+
+# ==============================================================================
+# ETAPA 5: Build & Execução via Docker Compose
+# ==============================================================================
+step_5_docker_build() {
+  log_info "=== [ETAPA 5/6] Build e Inicialização dos Containers ==="
+
+  chmod +x *.sh scripts/*.sh 2>/dev/null || true
+
+  log_info "Construindo e subindo container otimizado para 1GB RAM..."
+  docker compose down --remove-orphans || true
+  docker compose up -d --build
+
+  # Teste da Etapa 5
+  if [ "$(docker compose ps -q | wc -l)" -gt 0 ]; then
+    log_succ "Teste Etapa 5 OK: Container Docker iniciado com sucesso."
+  else
+    log_err "Teste Etapa 5 Falhou: Nenhum container ativo no Docker Compose."
+    exit 1
+  fi
+
+  set_current_step 5
+}
+
+# ==============================================================================
+# ETAPA 6: Health Check Final (Teste HTTP na porta 3000)
+# ==============================================================================
+step_6_health_check() {
+  log_info "=== [ETAPA 6/6] Verificação de Saúde (Health Check) ==="
+
+  log_info "Aguardando 5 segundos para inicialização do servidor Node..."
+  sleep 5
+
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 || echo "000")
+
+  if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 304 ] || [ "$HTTP_STATUS" -eq 404 ]; then
+    log_succ "🎉 DEPLOY CONCLUÍDO COM SUCESSO! O servidor respondeu com status HTTP $HTTP_STATUS."
+    echo "===================================================================="
+    echo "🌐 Acesse o seu jogo em: http://<IP_DA_SUA_VM>:3000"
+    echo "===================================================================="
+    set_current_step 6
+    rm -f "$STATE_FILE"
+  else
+    log_err "Teste Etapa 6 Falhou: O servidor na porta 3000 retornou HTTP status $HTTP_STATUS."
+    log_info "Execute 'docker compose logs --tail=50' para inspecionar o erro."
+    exit 1
   fi
 }
 
-# ------------------------------------------------------------------------------
-# ROTEAMENTO DE COMANDOS
-# ------------------------------------------------------------------------------
-case "${ACTION}" in
-  deploy)
-    do_deploy
-    ;;
-  backup)
-    do_backup "${PARAM}"
-    ;;
-  restore)
-    do_restore "${PARAM}"
-    ;;
-  logs)
-    if command -v docker >/dev/null 2>&1; then
-      docker compose logs -f --tail=100
-    else
-      echo "Docker não disponível ou não instalado no ambiente atual."
-    fi
-    ;;
-  status)
-    echo -e "${CYAN}${BOLD}📊 STATUS DOS SERVIÇOS DO UNO KAWIHE:${NC}"
-    if command -v docker >/dev/null 2>&1; then
-      docker compose ps
-    else
-      echo "Docker não disponível ou contêineres gerenciados fora do docker-compose."
-    fi
-    echo -e "\n${CYAN}${BOLD}💾 USO DE DISCO DO BANCO DE DADOS:${NC}"
-    du -sh data/ 2>/dev/null || echo "Diretório data/ ainda não inicializado."
-    echo -e "\n${CYAN}${BOLD}📁 ÚLTIMO BACKUP REGISTRADO:${NC}"
-    if [ -f "${BACKUP_DIR}/LATEST_BACKUP.txt" ]; then
-      cat "${BACKUP_DIR}/LATEST_BACKUP.txt"
-    else
-      echo "Nenhum backup registrado ainda."
-    fi
-    ;;
-  *)
-    echo -e "${RED}Comando não reconhecido: '${ACTION}'${NC}"
-    echo "Uso:"
-    echo "  ./deploy.sh                # Executa Deploy Completo (com auto-backup)"
-    echo "  ./deploy.sh backup [tag]   # Cria um backup manual"
-    echo "  ./deploy.sh restore [tag]  # Restaura backup"
-    echo "  ./deploy.sh logs           # Exibe logs em tempo real"
-    echo "  ./deploy.sh status         # Exibe status dos contêineres"
-    exit 1
-    ;;
-esac
+# ==============================================================================
+# ORQUESTRADOR PRINCIPAL (COM SUPORTE A RETOMADA / RESUME)
+# ==============================================================================
+main() {
+  CURRENT_STEP=$(get_current_step)
+  log_info "Iniciando orquestrador de deploy. Etapa atual salva: $CURRENT_STEP/6"
+
+  if [ "$CURRENT_STEP" -lt 1 ]; then
+    step_1_system_prep
+  fi
+
+  if [ "$CURRENT_STEP" -lt 2 ]; then
+    step_2_docker_install
+  fi
+
+  if [ "$CURRENT_STEP" -lt 3 ]; then
+    step_3_git_sync
+  fi
+
+  if [ "$CURRENT_STEP" -lt 4 ]; then
+    step_4_firewall
+  fi
+
+  if [ "$CURRENT_STEP" -lt 5 ]; then
+    step_5_docker_build
+  fi
+
+  if [ "$CURRENT_STEP" -lt 6 ]; then
+    step_6_health_check
+  fi
+}
+
+main "$@"
