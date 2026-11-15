@@ -16,6 +16,7 @@ import { GameBoard } from './components/GameBoard.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { GameOverModal } from './components/GameOverModal.js';
 import { VmGuideModal } from './components/VmGuideModal.js';
+import { VmMonitorModal } from './components/VmMonitorModal.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import { AuthModal } from './components/AuthModal.js';
 import { StatsModal } from './components/StatsModal.js';
@@ -41,6 +42,7 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isVmGuideOpen, setIsVmGuideOpen] = useState(false);
+  const [isVmMonitorOpen, setIsVmMonitorOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
@@ -737,6 +739,7 @@ export default function App() {
             onStartGame={handleStartGame}
             onResetRoom={handleResetRoom}
             onOpenVmGuide={() => setIsVmGuideOpen(true)}
+            onOpenVmMonitor={() => setIsVmMonitorOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenStats={() => setIsStatsOpen(true)}
             onOpenInvites={() => setIsAdminInvitesOpen(true)}
@@ -851,6 +854,12 @@ export default function App() {
       <VmGuideModal
         isOpen={isVmGuideOpen}
         onClose={() => setIsVmGuideOpen(false)}
+      />
+
+      {/* Oracle VM Real-Time Resource Monitor */}
+      <VmMonitorModal
+        isOpen={isVmMonitorOpen}
+        onClose={() => setIsVmMonitorOpen(false)}
       />
 
       {/* KaWiHe Central Authentication Modal */}

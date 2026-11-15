@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -566,6 +567,313 @@ app.get('/api/admin/cli-status', (req, res) => {
 
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   return res.send(output);
+});
+
+// ============================================================================
+// VM RESOURCE MONITOR (CPU, RAM, Swap, Container cgroup, Network I/O, Disk)
+// ============================================================================
+let prevCpuSample: { total: number; active: number; timestamp: number } | null = null;
+let prevProcCpuSample: { usage: NodeJS.CpuUsage; hrTime: bigint } | null = null;
+let prevNetSample: { rxBytes: number; txBytes: number; timestamp: number } | null = null;
+
+function readCpuTimesSample(): { total: number; active: number } {
+  try {
+    const stat = fs.readFileSync('/proc/stat', 'utf8');
+    const cpuLine = stat.split('\n').find((l) => l.startsWith('cpu '));
+    if (cpuLine) {
+      const parts = cpuLine.trim().split(/\s+/).slice(1).map((n) => Number(n) || 0);
+      const user = parts[0] || 0;
+      const nice = parts[1] || 0;
+      const system = parts[2] || 0;
+      const idle = parts[3] || 0;
+      const iowait = parts[4] || 0;
+      const irq = parts[5] || 0;
+      const softirq = parts[6] || 0;
+      const steal = parts[7] || 0;
+      const active = user + nice + system + irq + softirq + steal;
+      const total = active + idle + iowait;
+      return { total, active };
+    }
+  } catch {
+    // Fallback to os.cpus()
+  }
+  const cpus = os.cpus();
+  let total = 0;
+  let active = 0;
+  for (const cpu of cpus) {
+    const t = cpu.times;
+    const cpuActive = t.user + t.nice + t.sys + t.irq;
+    const cpuTotal = cpuActive + t.idle;
+    active += cpuActive;
+    total += cpuTotal;
+  }
+  return { total, active };
+}
+
+function readMemAndSwapInfo() {
+  const fallbackTotal = os.totalmem();
+  const fallbackFree = os.freemem();
+  let memTotalBytes = fallbackTotal;
+  let memAvailableBytes = fallbackFree;
+  let swapTotalBytes = 0;
+  let swapFreeBytes = 0;
+
+  try {
+    const meminfo = fs.readFileSync('/proc/meminfo', 'utf8');
+    const map: Record<string, number> = {};
+    for (const line of meminfo.split('\n')) {
+      const match = line.match(/^([^:]+):\s+(\d+)\s*kB/i);
+      if (match) {
+        map[match[1]] = Number(match[2]) * 1024;
+      }
+    }
+    if (map.MemTotal) memTotalBytes = map.MemTotal;
+    if (typeof map.MemAvailable === 'number') {
+      memAvailableBytes = map.MemAvailable;
+    } else if (typeof map.MemFree === 'number') {
+      memAvailableBytes = map.MemFree + (map.Buffers || 0) + (map.Cached || 0);
+    }
+    swapTotalBytes = map.SwapTotal || 0;
+    swapFreeBytes = map.SwapFree || 0;
+  } catch {
+    // Keep os fallback
+  }
+
+  const memUsedBytes = Math.max(0, memTotalBytes - memAvailableBytes);
+  const swapUsedBytes = Math.max(0, swapTotalBytes - swapFreeBytes);
+
+  return {
+    totalBytes: memTotalBytes,
+    usedBytes: memUsedBytes,
+    availableBytes: memAvailableBytes,
+    usedPercent: memTotalBytes > 0 ? Number(((memUsedBytes / memTotalBytes) * 100).toFixed(1)) : 0,
+    swapTotalBytes,
+    swapUsedBytes,
+    swapFreeBytes,
+    swapPercent: swapTotalBytes > 0 ? Number(((swapUsedBytes / swapTotalBytes) * 100).toFixed(1)) : 0,
+  };
+}
+
+function readCgroupMemoryInfo(hostTotalBytes: number) {
+  let usageBytes: number | null = null;
+  let limitBytes: number | null = null;
+  try {
+    // cgroup v2
+    if (fs.existsSync('/sys/fs/cgroup/memory.current')) {
+      usageBytes = Number(fs.readFileSync('/sys/fs/cgroup/memory.current', 'utf8').trim()) || null;
+      if (fs.existsSync('/sys/fs/cgroup/memory.max')) {
+        const rawMax = fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim();
+        if (rawMax !== 'max') {
+          const parsed = Number(rawMax);
+          if (parsed > 0 && parsed <= hostTotalBytes * 2) limitBytes = parsed;
+        }
+      }
+    } else if (fs.existsSync('/sys/fs/cgroup/memory/memory.usage_in_bytes')) {
+      // cgroup v1
+      usageBytes = Number(fs.readFileSync('/sys/fs/cgroup/memory/memory.usage_in_bytes', 'utf8').trim()) || null;
+      if (fs.existsSync('/sys/fs/cgroup/memory/memory.limit_in_bytes')) {
+        const parsed = Number(fs.readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf8').trim());
+        if (parsed > 0 && parsed <= hostTotalBytes * 2) limitBytes = parsed;
+      }
+    }
+  } catch {
+    // Ignore when not running in cgroup-restricted container
+  }
+  return { usageBytes, limitBytes };
+}
+
+function readNetworkStats() {
+  let rxBytes = 0;
+  let txBytes = 0;
+  const interfaces: Array<{ name: string; rxBytes: number; txBytes: number }> = [];
+
+  try {
+    const raw = fs.readFileSync('/proc/net/dev', 'utf8');
+    const lines = raw.split('\n').slice(2);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const [ifacePart, statsPart] = trimmed.split(':');
+      if (!ifacePart || !statsPart) continue;
+      const name = ifacePart.trim();
+      if (name === 'lo') continue;
+      const cols = statsPart.trim().split(/\s+/).map((v) => Number(v) || 0);
+      const rx = cols[0] || 0;
+      const tx = cols[8] || 0;
+      rxBytes += rx;
+      txBytes += tx;
+      interfaces.push({ name, rxBytes: rx, txBytes: tx });
+    }
+  } catch {
+    // Non-Linux fallback
+  }
+
+  return { rxBytes, txBytes, interfaces };
+}
+
+function readDiskStats() {
+  try {
+    const st = fs.statfsSync(process.cwd());
+    const bsize = Number(st.bsize) || 4096;
+    const totalBytes = Number(st.blocks) * bsize;
+    const freeBytes = Number(st.bavail) * bsize;
+    const usedBytes = Math.max(0, totalBytes - freeBytes);
+    const usedPercent = totalBytes > 0 ? Number(((usedBytes / totalBytes) * 100).toFixed(1)) : 0;
+    return { totalBytes, freeBytes, usedBytes, usedPercent };
+  } catch {
+    return { totalBytes: 0, freeBytes: 0, usedBytes: 0, usedPercent: 0 };
+  }
+}
+
+function readAppPackageVersion(): string {
+  try {
+    const pkgPath = path.join(process.cwd(), 'package.json');
+    const raw = fs.readFileSync(pkgPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed.version || '2.2.2';
+  } catch {
+    return '2.2.2';
+  }
+}
+
+function measureEventLoopLagMs(): Promise<number> {
+  return new Promise((resolve) => {
+    const start = process.hrtime.bigint();
+    setImmediate(() => {
+      const diffNs = Number(process.hrtime.bigint() - start);
+      resolve(Number((diffNs / 1_000_000).toFixed(2)));
+    });
+  });
+}
+
+app.get('/api/admin/vm-metrics', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
+
+  try {
+    // If very first call, wait 120ms so CPU% and Net KB/s deltas are immediately accurate
+    if (!prevCpuSample || !prevNetSample) {
+      const sCpu = readCpuTimesSample();
+      const sNet = readNetworkStats();
+      prevCpuSample = { ...sCpu, timestamp: Date.now() };
+      prevNetSample = { ...sNet, timestamp: Date.now() };
+      prevProcCpuSample = { usage: process.cpuUsage(), hrTime: process.hrtime.bigint() };
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    const now = Date.now();
+    const curCpu = readCpuTimesSample();
+    const cpuDeltaTotal = curCpu.total - prevCpuSample.total;
+    const cpuDeltaActive = curCpu.active - prevCpuSample.active;
+    const cpuPercent =
+      cpuDeltaTotal > 0 ? Number(Math.max(0, Math.min(100, (cpuDeltaActive / cpuDeltaTotal) * 100)).toFixed(1)) : 0;
+    prevCpuSample = { ...curCpu, timestamp: now };
+
+    const curHr = process.hrtime.bigint();
+    const curProcCpu = process.cpuUsage();
+    let processCpuPercent = 0;
+    if (prevProcCpuSample) {
+      const elapsedUs = Number(curHr - prevProcCpuSample.hrTime) / 1000;
+      const cpuUsedUs =
+        curProcCpu.user - prevProcCpuSample.usage.user + (curProcCpu.system - prevProcCpuSample.usage.system);
+      const cores = Math.max(1, os.cpus().length);
+      if (elapsedUs > 0) {
+        processCpuPercent = Number(
+          Math.max(0, Math.min(100, (cpuUsedUs / (elapsedUs * cores)) * 100)).toFixed(1)
+        );
+      }
+    }
+    prevProcCpuSample = { usage: curProcCpu, hrTime: curHr };
+
+    const curNet = readNetworkStats();
+    const netElapsedSec = Math.max(0.05, (now - prevNetSample.timestamp) / 1000);
+    const rxBytesPerSec = Math.max(0, Math.round((curNet.rxBytes - prevNetSample.rxBytes) / netElapsedSec));
+    const txBytesPerSec = Math.max(0, Math.round((curNet.txBytes - prevNetSample.txBytes) / netElapsedSec));
+    prevNetSample = { rxBytes: curNet.rxBytes, txBytes: curNet.txBytes, timestamp: now };
+
+    const memory = readMemAndSwapInfo();
+    const cgroup = readCgroupMemoryInfo(memory.totalBytes);
+    const nodeMem = process.memoryUsage();
+    const disk = readDiskStats();
+    const cpus = os.cpus();
+    const loadAvg = os.loadavg();
+    const eventLoopLagMs = await measureEventLoopLagMs();
+
+    const activeRooms = Array.from(rooms.values());
+    const playingRoomsCount = activeRooms.filter((r) => r.status === 'playing').length;
+    const humanPlayersOnline = activeRooms.reduce(
+      (acc, r) => acc + r.players.filter((p) => !p.isBot && p.isConnected).length,
+      0
+    );
+    const botsActive = activeRooms.reduce((acc, r) => acc + r.players.filter((p) => p.isBot).length, 0);
+    const spectatorsCount = activeRooms.reduce(
+      (acc, r) => acc + (r.spectators?.filter((s) => s.isConnected).length || 0),
+      0
+    );
+
+    let authServiceStatus: 'online' | 'offline' | 'embedded' = AUTH_SERVICE_URL ? 'offline' : 'embedded';
+    if (AUTH_SERVICE_URL) {
+      try {
+        const authRes = await fetch(`${AUTH_SERVICE_URL}/health`, {
+          signal: AbortSignal.timeout(1200),
+        });
+        if (authRes.ok) authServiceStatus = 'online';
+      } catch {
+        authServiceStatus = 'offline';
+      }
+    }
+
+    return res.json({
+      success: true,
+      timestamp: now,
+      appVersion: readAppPackageVersion(),
+      host: {
+        hostname: os.hostname(),
+        platform: `${os.type()} ${os.release()}`,
+        arch: os.arch(),
+        uptimeSeconds: Math.floor(os.uptime()),
+      },
+      cpu: {
+        usagePercent: cpuPercent,
+        processPercent: processCpuPercent,
+        cores: cpus.length || 1,
+        model: cpus[0]?.model || 'Virtual CPU',
+        loadAvg: loadAvg.map((v) => Number(v.toFixed(2))),
+      },
+      memory: {
+        ...memory,
+        containerUsageBytes: cgroup.usageBytes,
+        containerLimitBytes: cgroup.limitBytes,
+        nodeRssBytes: nodeMem.rss,
+        nodeHeapUsedBytes: nodeMem.heapUsed,
+        nodeHeapTotalBytes: nodeMem.heapTotal,
+      },
+      network: {
+        rxBytesPerSec,
+        txBytesPerSec,
+        totalRxBytes: curNet.rxBytes,
+        totalTxBytes: curNet.txBytes,
+        interfaces: curNet.interfaces,
+      },
+      disk,
+      app: {
+        processUptimeSeconds: Math.floor(process.uptime()),
+        eventLoopLagMs,
+        wsConnections: wss.clients.size,
+        lobbyOnlineCount: onlinePlayers.size,
+        activeRoomsCount: activeRooms.length,
+        playingRoomsCount,
+        humanPlayersOnline,
+        botsActive,
+        spectatorsCount,
+        authServiceStatus,
+        authServiceUrl: AUTH_SERVICE_URL || null,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Erro ao coletar métricas da VM.' });
+  }
 });
 
 // Get all users with online & room status

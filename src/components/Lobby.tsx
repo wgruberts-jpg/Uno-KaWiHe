@@ -59,6 +59,7 @@ interface LobbyProps {
   onStartGame: () => void;
   onResetRoom?: () => void;
   onOpenVmGuide: () => void;
+  onOpenVmMonitor?: () => void;
   onOpenSettings: () => void;
   onOpenStats?: () => void;
   onOpenInvites?: () => void;
@@ -95,6 +96,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   onStartGame,
   onResetRoom,
   onOpenVmGuide,
+  onOpenVmMonitor,
   onOpenSettings,
   onOpenStats,
   onOpenInvites,
@@ -369,6 +371,7 @@ export const Lobby: React.FC<LobbyProps> = ({
         onOpenSettings={onOpenSettings}
         onOpenRules={() => setShowRules(true)}
         onOpenVmGuide={onOpenVmGuide}
+        onOpenVmMonitor={onOpenVmMonitor}
         onOpenInvites={onOpenInvites || (() => {})}
         onOpenAdminRooms={onOpenAdminRooms}
         onOpenUsers={onOpenAdminUsers}

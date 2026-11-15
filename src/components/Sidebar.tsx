@@ -13,7 +13,8 @@ import {
   KeyRound,
   LogOut,
   Layers,
-  Crown
+  Crown,
+  Activity
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -28,6 +29,7 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenRules: () => void;
   onOpenVmGuide: () => void;
+  onOpenVmMonitor?: () => void;
   onOpenInvites: () => void;
   onOpenAdminRooms?: () => void;
   onOpenUsers?: () => void;
@@ -47,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   onOpenRules,
   onOpenVmGuide,
+  onOpenVmMonitor,
   onOpenInvites,
   onOpenAdminRooms,
   onOpenUsers,
@@ -336,6 +339,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 )}
               </button>
+
+              {/* Admin: Monitoramento da VM (CPU, RAM, Rede, Swap) */}
+              {onOpenVmMonitor && (
+                <button
+                  type="button"
+                  onClick={onOpenVmMonitor}
+                  className={`w-full flex items-center rounded-2xl transition-all cursor-pointer ${
+                    isExpanded ? 'p-2.5 gap-3' : 'p-2.5 justify-center'
+                  } text-emerald-800 hover:bg-emerald-50`}
+                  title="Monitor da VM (Uso de CPU, RAM, Swap e Rede)"
+                >
+                  <Activity className="w-5 h-5 shrink-0 text-emerald-600" />
+                  {isExpanded && (
+                    <div className="text-left font-black text-xs">
+                      <div>Monitor da VM</div>
+                      <div className="text-[10px] text-emerald-600 font-medium">CPU, RAM, Swap & Rede</div>
+                    </div>
+                  )}
+                </button>
+              )}
             </>
           )}
         </div>
