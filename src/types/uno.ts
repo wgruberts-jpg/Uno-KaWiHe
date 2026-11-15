@@ -1,5 +1,8 @@
 export type CardColor = 'red' | 'blue' | 'green' | 'yellow' | 'wild';
 
+export type TeamId = 'A' | 'B';
+export type GameMode = 'standard' | 'team_2v2';
+
 export type CardValue =
   | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
   | 'skip' | 'reverse' | 'draw2'
@@ -22,6 +25,8 @@ export interface Player {
   hasCalledUno: boolean;
   isConnected: boolean;
   score: number;
+  team?: TeamId;
+  teammateHand?: Card[];
   botHand?: Card[]; // Exibido no Modo Criança (ver cartas dos robôs)
   isSpectator?: boolean;
 }
@@ -93,6 +98,10 @@ export interface GameState {
   unoVulnerablePlayerId: string | null; // player with 1 card who forgot to call UNO
   deckCardsCount: number;
   settings?: RoomSettings;
+  gameMode?: GameMode;
+  winnerTeam?: TeamId | null;
+  teammateId?: string | null;
+  teammateHand?: Card[];
   isSpectator?: boolean;
   spectatorCardsRevealed?: boolean;
   stagedCardPlay?: StagedCardPlay | null;
@@ -157,6 +166,7 @@ export type SpectatorPermission = 'disabled' | 'hidden_cards' | 'reveal_cards';
 
 export interface RoomSettings {
   maxPlayers: number;
+  gameMode?: GameMode; // 'standard' | 'team_2v2'
   turnDuration: number; // 0 = Sem pressa / ilimitado para crianças, ou 15, 25, 40, 60s
   challengeUnoRule: boolean;
   showBotCards?: boolean; // Ver cartas dos robôs (Modo Criança)
@@ -400,6 +410,7 @@ export type ClientMessagePayload =
   | { type: 'remove_bot'; roomId: string; botId: string; playerId?: string }
   | { type: 'kick_player'; roomId: string; targetPlayerId: string; playerId?: string; reason?: string }
   | { type: 'transfer_host'; roomId: string; targetPlayerId: string; playerId?: string }
+  | { type: 'set_team'; roomId: string; team: TeamId; targetPlayerId?: string; playerId?: string }
   | { type: 'start_game'; roomId: string; playerId?: string }
   | { type: 'pause_game'; roomId: string; playerId?: string }
   | { type: 'resume_game'; roomId: string; playerId?: string }

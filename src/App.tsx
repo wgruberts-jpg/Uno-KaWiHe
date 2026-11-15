@@ -766,6 +766,7 @@ export default function App() {
             sendMessage={send}
             onlinePlayers={onlinePlayers}
             lobbyChat={lobbyChat}
+            roomSettings={gameState?.settings}
           />
         ) : (
           <GameBoard
@@ -807,6 +808,8 @@ export default function App() {
       {gameState?.status === 'ended' && (
         <GameOverModal
           winnerId={gameState.winnerId}
+          winnerTeam={gameState.winnerTeam}
+          gameMode={gameState.gameMode || gameState.settings?.gameMode}
           players={gameState.players}
           myPlayerId={myPlayerId}
           isHost={isHost}

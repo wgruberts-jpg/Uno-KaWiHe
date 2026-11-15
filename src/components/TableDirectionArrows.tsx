@@ -3,80 +3,104 @@ import React from 'react';
 interface TableDirectionArrowsProps {
   direction: 1 | -1; // 1 = Horário (Clockwise), -1 = Anti-horário (Counter-clockwise)
   className?: string;
+  children?: React.ReactNode;
+  onDrop?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
 }
 
 export const TableDirectionArrows: React.FC<TableDirectionArrowsProps> = ({
   direction,
   className = '',
+  children,
+  onDrop,
+  onDragOver,
 }) => {
   const isClockwise = direction === 1;
 
-  // Colors:
-  // Horário: Amarelo Sol vibrante
-  // Anti-horário: Rosa/Coral vibrante
-  const fillColor = isClockwise ? '#fbbf24' : '#f43f5e';
-  const strokeColor = isClockwise ? '#fef08a' : '#fecdd3';
-  const filterId = isClockwise ? 'glow-orange' : 'glow-red';
-
+  // Reduced height to ~85% of previous size (260px -> 220px, 290px -> 246px)
   return (
     <div
-      className={`absolute inset-0 pointer-events-none flex items-center justify-center transition-all duration-500 ${className}`}
-      aria-label={`Sentido do jogo: ${isClockwise ? 'Horário' : 'Anti-horário'}`}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      className={`relative w-[360px] h-[220px] sm:w-[420px] sm:h-[246px] rounded-[44px] bg-gradient-to-br from-emerald-600 via-teal-700 to-emerald-800 border-4 border-amber-300 shadow-[0_20px_50px_rgba(0,0,0,0.35)] ring-4 ring-emerald-500/50 flex flex-col items-center justify-between p-1.5 sm:p-2 overflow-hidden select-none ${className}`}
+      aria-label={`Mesa central do jogo - Sentido: ${isClockwise ? 'Horário' : 'Anti-horário'}`}
     >
-      <svg
-        viewBox="0 0 400 400"
-        className="absolute inset-0 m-auto w-[130%] h-[130%] pointer-events-none overflow-visible transition-transform duration-700 ease-out"
-        style={{
-          // Mirror horizontally when clockwise so left points up and right points down!
-          transform: isClockwise ? 'scaleX(-1)' : 'scaleX(1)',
-        }}
+      {/* Direction Arrows SVG surrounding the entire felt mat perimeter */}
+      <div 
+        className={`absolute inset-0 pointer-events-none flex items-center justify-center transition-transform duration-700 ease-in-out ${
+          isClockwise ? 'rotate-0' : 'scale-x-[-1]'
+        }`}
       >
-        <defs>
-          <filter id={filterId} x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow
-              dx="0"
-              dy="0"
-              stdDeviation="6"
-              floodColor={fillColor}
-              floodOpacity="0.45"
+        <svg
+          viewBox="0 0 420 246"
+          className="w-full h-full pointer-events-none drop-shadow-[0_2px_8px_rgba(250,204,21,0.6)]"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <linearGradient id="arrowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#fef08a" />
+              <stop offset="100%" stopColor="#f59e0b" />
+            </linearGradient>
+            <filter id="arrowGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="3.5" floodColor="#fbbf24" floodOpacity="0.85" />
+            </filter>
+          </defs>
+
+          {/* Guide Track around the outer border of the felt */}
+          <rect
+            x="20"
+            y="18"
+            width="380"
+            height="210"
+            rx="34"
+            fill="none"
+            stroke="rgba(255, 255, 255, 0.2)"
+            strokeWidth="2.5"
+            strokeDasharray="6 6"
+          />
+
+          {/* Top Direction Arrow (Left to Right) */}
+          <g filter="url(#arrowGlow)">
+            <path
+              d="M 50 18 L 360 18"
+              fill="none"
+              stroke="url(#arrowGrad)"
+              strokeWidth="5"
+              strokeLinecap="round"
             />
-          </filter>
+            {/* Arrowhead at top right */}
+            <polygon
+              points="350,9 372,18 350,27"
+              fill="#f59e0b"
+              stroke="#fef08a"
+              strokeWidth="1.5"
+            />
+          </g>
 
-          <linearGradient id="arrow-gradient-left" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor={isClockwise ? '#fbbf24' : '#f87171'} />
-            <stop offset="100%" stopColor={isClockwise ? '#d97706' : '#dc2626'} />
-          </linearGradient>
+          {/* Bottom Direction Arrow (Right to Left) */}
+          <g filter="url(#arrowGlow)">
+            <path
+              d="M 370 228 L 60 228"
+              fill="none"
+              stroke="url(#arrowGrad)"
+              strokeWidth="5"
+              strokeLinecap="round"
+            />
+            {/* Arrowhead at bottom left */}
+            <polygon
+              points="70,219 48,228 70,237"
+              fill="#f59e0b"
+              stroke="#fef08a"
+              strokeWidth="1.5"
+            />
+          </g>
+        </svg>
+      </div>
 
-          <linearGradient id="arrow-gradient-right" x1="0%" y1="100%" x2="0%" y2="0%">
-            <stop offset="0%" stopColor={isClockwise ? '#fbbf24' : '#f87171'} />
-            <stop offset="100%" stopColor={isClockwise ? '#d97706' : '#dc2626'} />
-          </linearGradient>
-        </defs>
-
-        {/* Left Curved Arrow (Quarter-circle arc with flared arrowhead) */}
-        <g filter={`url(#${filterId})`}>
-          <path
-            d="M 112.82 75.49 A 168 168 0 0 0 92.01 328.7 L 80.44 342.48 L 158.1 346.11 L 124.15 290.39 L 112.58 304.18 A 136 136 0 0 1 112.82 75.49 Z"
-            fill="url(#arrow-gradient-left)"
-            stroke={strokeColor}
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-            className="transition-colors duration-500 opacity-95"
-          />
-        </g>
-
-        {/* Right Curved Arrow (Centrosymmetric: 180° rotation around center 200, 200) */}
-        <g filter={`url(#${filterId})`} transform="rotate(180 200 200)">
-          <path
-            d="M 112.82 75.49 A 168 168 0 0 0 92.01 328.7 L 80.44 342.48 L 158.1 346.11 L 124.15 290.39 L 112.58 304.18 A 136 136 0 0 1 112.82 75.49 Z"
-            fill="url(#arrow-gradient-right)"
-            stroke={strokeColor}
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-            className="transition-colors duration-500 opacity-95"
-          />
-        </g>
-      </svg>
+      {/* Center Table Content (Piles, Cards, Animations, Indicators) */}
+      <div className="relative z-20 flex flex-col items-center justify-between w-full h-full py-0.5">
+        {children}
+      </div>
     </div>
   );
 };

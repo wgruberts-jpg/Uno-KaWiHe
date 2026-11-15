@@ -31,11 +31,13 @@ Como este projeto é um ambiente de jogo real-time, Agentes devem seguir rigoros
   - Guia de liberação de microfone para Firefox e Chrome via HTTP/IP.
   - Painel de diagnóstico e moderação administrativa.
 
-## 4. Estrutura de Documentação (Para referência rápida)
-- `/Game_funcionalidades`: Contrato normativo do jogo.
-- `/SYSTEM_SPECIFICATION.md`: Arquitetura técnica.
-- `/manualSH.md`: Guia de scripts de automação.
-- `/USE_CASES.md`: Mapeamento de fluxos e regras de segurança.
+## 4. Estrutura de Documentação (Para referência rápida na raiz)
+- `/00_visao.md` a `/09_prompts.md`: Contrato modular de comportamento, arquitetura, regras, status, testes e prompts de auditoria.
+- `/Game_funcionalidades`: Contrato normativo detalhado do jogo.
+- `/SYSTEM_SPECIFICATION.md`: Arquitetura técnica e protocolo de rede.
+- `/GAME_MANUAL.md`: Manual oficial de regras do jogo e guia de microfone para PC.
+- `/manualSH.md`: Guia de scripts shell de automação e deploy.
+- `/USE_CASES.md`: Mapeamento de casos de uso e cenários de teste.
 
 ## 5. Protocolo de Ação do Agente
 Ao assumir a próxima tarefa, o Agente deve:

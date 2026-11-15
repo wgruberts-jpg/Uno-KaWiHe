@@ -49,6 +49,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenAdminRooms,
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'admin'>('general');
+  const [gameMode, setGameMode] = useState<'standard' | 'team_2v2'>(currentSettings.gameMode ?? 'standard');
   const [turnDuration, setTurnDuration] = useState<number>(currentSettings.turnDuration ?? 25);
   const [showBotCards, setShowBotCards] = useState<boolean>(currentSettings.showBotCards ?? false);
   const [botSpeedMs, setBotSpeedMs] = useState<number>(currentSettings.botSpeedMs ?? 1800);
@@ -102,6 +103,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleApply = () => {
     const updated: Partial<RoomSettings> = {
+      gameMode,
       turnDuration,
       showBotCards,
       botSpeedMs,
@@ -198,6 +200,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex-1 overflow-y-auto py-3 space-y-3.5 pr-1 text-xs">
           {activeTab === 'general' ? (
             <>
+              {/* Game Mode Selector: 1v1 / Todos contra Todos vs 2v2 Duplas */}
+              <div className="p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border-2 border-blue-200 shadow-sm space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">👥</span>
+                    <span className="font-black text-slate-900 text-xs">
+                      Modo de Jogo da Mesa:
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-black text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full border border-blue-300">
+                    {gameMode === 'team_2v2' ? 'Duplas (2v2)' : 'Todos contra Todos (1v1)'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 font-medium">
+                  {gameMode === 'team_2v2'
+                    ? '🤝 No Modo 2v2 você vê a mão do seu parceiro em tempo real e a equipe vence assim que qualquer um zerar as cartas!'
+                    : 'Modo padrão individual: o primeiro jogador a zerar as cartas vence a rodada.'}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGameMode('standard')}
+                    className={`py-2 px-2.5 rounded-xl border-2 text-center transition-all cursor-pointer ${
+                      gameMode === 'standard'
+                        ? 'bg-amber-400 text-slate-950 border-amber-500 font-black shadow-sm'
+                        : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100 font-bold'
+                    }`}
+                  >
+                    <div className="text-xs">🎮 Individual (Padrão)</div>
+                    <div className="text-[9px] opacity-80 mt-0.5">Cada um por si</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGameMode('team_2v2')}
+                    className={`py-2 px-2.5 rounded-xl border-2 text-center transition-all cursor-pointer ${
+                      gameMode === 'team_2v2'
+                        ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white border-white font-black shadow-sm'
+                        : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100 font-bold'
+                    }`}
+                  >
+                    <div className="text-xs">🤝 Duplas 2v2 (Equipes)</div>
+                    <div className="text-[9px] opacity-80 mt-0.5">Mão do parceiro visível</div>
+                  </button>
+                </div>
+              </div>
+
               {/* Quick Hero & Avatar Selector */}
               <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border-2 border-amber-200">
                 <div className="flex items-center justify-between mb-2">

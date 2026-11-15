@@ -31,7 +31,7 @@ O **Uno KaWiHe v2.2** é uma plataforma full-stack de jogo de cartas UNO multipl
 │   └── Dockerfile            # Container isolado do Auth Service
 ├── tests/
 │   ├── unoEngine.test.ts     # Suíte de Testes Unitários Automatizados (24 testes)
-│   └── serverIntegration.test.ts # Suíte de Testes de Integração e Segurança (14 testes)
+│   └── serverIntegration.test.ts # Suíte de Testes de Integração e Segurança (18 testes)
 ├── src/
 │   ├── App.tsx               # Orquestrador Principal do Frontend (Modais e Estados)
 │   ├── main.tsx              # Inicialização do React

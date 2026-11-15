@@ -1,4 +1,4 @@
-import { Card, CardColor, CardValue, GameState, Player, RematchVote, RoomSettings, StagedCardPlay, TurnDirection } from '../src/types/uno.js';
+import { Card, CardColor, CardValue, GameState, Player, RematchVote, RoomSettings, StagedCardPlay, TurnDirection, TeamId, GameMode } from '../src/types/uno.js';
 
 export function createDeck(): Card[] {
   const deck: Card[] = [];
@@ -92,6 +92,7 @@ export interface RoomData {
   turnDirection: TurnDirection;
   turnTimeLeft: number;
   winnerId: string | null;
+  winnerTeam?: TeamId | null;
   unoVulnerablePlayerId: string | null;
   unoVulnerableTurnCount?: number;
   turnTimerInterval: NodeJS.Timeout | null;
@@ -207,4 +208,50 @@ export function handleTimeoutEngine(room: RoomData): { player: InternalPlayer; d
   player.hasDrawnThisTurn = false;
   advanceTurnEngine(room, 1);
   return { player, drewCard };
+}
+
+export function getTeammate(room: RoomData, player: InternalPlayer): InternalPlayer | undefined {
+  if (room.settings.gameMode !== 'team_2v2' || !player.team) return undefined;
+  return room.players.find((p) => p.id !== player.id && p.team === player.team);
+}
+
+export function assignTeams2v2(room: RoomData): void {
+  if (room.settings.gameMode !== 'team_2v2') return;
+
+  const teamA: InternalPlayer[] = [];
+  const teamB: InternalPlayer[] = [];
+  const unassigned: InternalPlayer[] = [];
+
+  room.players.forEach((p) => {
+    if (p.team === 'A' && teamA.length < 2) {
+      teamA.push(p);
+    } else if (p.team === 'B' && teamB.length < 2) {
+      teamB.push(p);
+    } else {
+      unassigned.push(p);
+    }
+  });
+
+  unassigned.forEach((p) => {
+    if (teamA.length < 2) {
+      p.team = 'A';
+      teamA.push(p);
+    } else {
+      p.team = 'B';
+      teamB.push(p);
+    }
+  });
+
+  teamA.forEach((p) => { p.team = 'A'; });
+  teamB.forEach((p) => { p.team = 'B'; });
+
+  // Alternate seating: A1, B1, A2, B2 so turns naturally alternate between opposing teams
+  if (teamA.length === 2 && teamB.length === 2) {
+    room.players = [teamA[0], teamB[0], teamA[1], teamB[1]];
+  }
+}
+
+export function calculate2v2WinScore(room: RoomData, winningPlayer: InternalPlayer): number {
+  const opponents = room.players.filter((p) => p.team !== winningPlayer.team);
+  return opponents.reduce((sum, opp) => sum + opp.hand.reduce((s, c) => s + c.score, 0), 0);
 }

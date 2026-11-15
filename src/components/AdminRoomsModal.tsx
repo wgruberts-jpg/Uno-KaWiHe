@@ -641,9 +641,9 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                        {room.players.map((p) => (
+                        {room.players.map((p, idx) => (
                           <div
-                            key={p.id}
+                            key={`${p.id}-${idx}`}
                             className="p-2 bg-slate-900/80 rounded-xl border border-slate-700/80 flex items-center justify-between gap-2"
                           >
                             <div className="flex items-center gap-2 min-w-0">

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
-import { Player, RematchVote, TablePlayerScore } from '../types/uno.js';
+import { Player, RematchVote, TablePlayerScore, TeamId, GameMode } from '../types/uno.js';
 import {
   Trophy,
   RotateCcw,
@@ -16,11 +16,14 @@ import {
   CheckCircle2,
   Send,
   MessageCircle,
-  Flame
+  Flame,
+  Shield
 } from 'lucide-react';
 
 interface GameOverModalProps {
   winnerId: string | null;
+  winnerTeam?: TeamId | null;
+  gameMode?: GameMode;
   players: Player[];
   myPlayerId: string;
   isHost: boolean;
@@ -48,6 +51,8 @@ const QUICK_REMATCH_PHRASES = [
 
 export const GameOverModal: React.FC<GameOverModalProps> = ({
   winnerId,
+  winnerTeam,
+  gameMode,
   players,
   myPlayerId,
   isHost,
@@ -68,6 +73,12 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
 
   const winner = players.find((p) => p.id === winnerId);
   const isMeWinner = winnerId === myPlayerId;
+  const is2v2 = gameMode === 'team_2v2' || !!winnerTeam || players.some((p) => p.team !== undefined);
+  const myPlayer = players.find((p) => p.id === myPlayerId);
+  const myTeam = myPlayer?.team;
+  const winningTeamId = winnerTeam || winner?.team;
+  const isMyTeamWinner = is2v2 && !!winningTeamId && myTeam === winningTeamId;
+  const teammateOfWinner = is2v2 && winningTeamId && winner ? players.find((p) => p.id !== winner.id && p.team === winningTeamId) : null;
 
   useEffect(() => {
     if (winnerId) {
@@ -143,9 +154,28 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <span>Fim da Rodada!</span>
           </div>
 
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 mb-0.5">
-            {isMeWinner ? '🎉 PARABÉNS, VOCÊ VENCEU!' : `🏆 ${winner.name} Venceu a Rodada!`}
-          </h2>
+          {is2v2 && winningTeamId ? (
+            <div className="my-1 space-y-1">
+              <div
+                className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-black text-white shadow-sm border border-white ${
+                  winningTeamId === 'A' ? 'bg-blue-600' : 'bg-orange-500'
+                }`}
+              >
+                <span>{winningTeamId === 'A' ? '🟦' : '🟧'}</span>
+                <span>EQUIPE {winningTeamId === 'A' ? 'A (AZUL)' : 'B (LARANJA)'} VENCEU!</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight">
+                {isMyTeamWinner ? '🎉 SUA DUPLA VENCEU A RODADA!' : `🏆 Equipe ${winningTeamId} Venceu!`}
+              </h2>
+              <p className="text-xs text-slate-600 font-bold">
+                {winner.name} zerou suas cartas{teammateOfWinner ? ` (com seu parceiro ${teammateOfWinner.name})` : ''}!
+              </p>
+            </div>
+          ) : (
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 mb-0.5">
+              {isMeWinner ? '🎉 PARABÉNS, VOCÊ VENCEU!' : `🏆 ${winner.name} Venceu a Rodada!`}
+            </h2>
+          )}
 
           {/* Fastest win banner */}
           {isFastestWin && (
@@ -225,7 +255,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
 
                   return (
                     <div
-                      key={p.id}
+                      key={`${p.id}-${idx}`}
                       className={`p-2.5 rounded-2xl flex items-center justify-between border-2 transition-all ${
                         is1st
                           ? 'bg-gradient-to-r from-amber-100 via-yellow-50 to-amber-100 border-amber-400 shadow-md scale-102'
@@ -239,6 +269,17 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                         <div className="min-w-0">
                           <div className="text-xs font-black text-slate-900 truncate flex items-center gap-1">
                             <span>{p.name}</span>
+                            {p.team && (
+                              <span
+                                className={`text-[9px] font-black px-1.5 py-0.2 rounded-full border shadow-2xs ${
+                                  p.team === 'A'
+                                    ? 'bg-blue-600 text-white border-blue-400'
+                                    : 'bg-orange-500 text-white border-orange-400'
+                                }`}
+                              >
+                                {p.team === 'A' ? '🟦 Eq. A' : '🟧 Eq. B'}
+                              </span>
+                            )}
                             {p.id === myPlayerId && <span className="text-[10px] text-amber-700 font-bold">(Você)</span>}
                             {p.isBot && <span className="text-[9px] bg-slate-200 text-slate-600 px-1 rounded">Robô</span>}
                           </div>

@@ -24,7 +24,10 @@ import {
   RoomData,
   advanceTurnEngine,
   handleTimeoutEngine,
-  expireUnoVulnerability
+  expireUnoVulnerability,
+  assignTeams2v2,
+  calculate2v2WinScore,
+  getTeammate
 } from './server/unoEngine.js';
 import { EMOTES_MAP } from './src/utils/emotes.js';
 import {
@@ -1270,19 +1273,27 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
   if (!player && !isSpectator) return;
 
   const spectatorCanSeeHands = room.spectatorCardsRevealed ?? (room.settings.spectatorMode === 'reveal_cards');
+  const is2v2 = room.settings.gameMode === 'team_2v2';
+  const teammate = player && is2v2 ? getTeammate(room, player) : undefined;
 
-  const publicPlayers: Player[] = room.players.map((p) => ({
-    id: p.id,
-    name: p.name,
-    avatar: p.avatar,
-    isHost: p.isHost,
-    isBot: p.isBot,
-    cardsCount: p.hand.length,
-    hasCalledUno: p.hasCalledUno,
-    isConnected: p.isConnected,
-    score: p.score,
-    botHand: (room.settings.showBotCards && p.isBot) || (isSpectator && spectatorCanSeeHands) ? p.hand : undefined,
-  }));
+  const publicPlayers: Player[] = room.players.map((p) => {
+    const isMyTeammate = is2v2 && player && p.team && p.team === player.team && p.id !== player.id;
+    const realPlayer = room.players.find((rp) => rp.id === p.id);
+    return {
+      id: p.id,
+      name: p.name,
+      avatar: p.avatar,
+      isHost: p.isHost,
+      isBot: p.isBot,
+      cardsCount: p.hand.length,
+      hasCalledUno: p.hasCalledUno,
+      isConnected: p.isConnected,
+      score: p.score,
+      team: p.team,
+      teammateHand: isMyTeammate && realPlayer ? realPlayer.hand : undefined,
+      botHand: (room.settings.showBotCards && p.isBot) || (isSpectator && spectatorCanSeeHands) ? p.hand : undefined,
+    };
+  });
 
   const activePlayer = room.players[room.currentTurnIndex];
 
@@ -1303,9 +1314,13 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
     turnDuration: room.settings.turnDuration,
     drawCountPenalty: 0,
     winnerId: room.winnerId,
+    winnerTeam: room.winnerTeam || null,
+    teammateId: teammate ? teammate.id : null,
+    teammateHand: teammate ? teammate.hand : undefined,
     unoVulnerablePlayerId: room.unoVulnerablePlayerId,
     deckCardsCount: room.deck.length,
     settings: room.settings,
+    gameMode: room.settings.gameMode,
     isSpectator: isSpectator,
     spectatorCardsRevealed: spectatorCanSeeHands,
     stagedCardPlay: room.stagedCardPlay,
@@ -1402,9 +1417,18 @@ function addBotToRoom(room: RoomData): InternalPlayer | null {
 }
 
 function startGame(room: RoomData) {
+  // If 2v2 mode, ensure 4 players and balance teams with alternating seating
+  if (room.settings.gameMode === 'team_2v2') {
+    while (room.players.length < 4) {
+      addBotToRoom(room);
+    }
+    assignTeams2v2(room);
+  }
+
   room.deck = createDeck();
   room.status = 'playing';
   room.winnerId = null;
+  room.winnerTeam = null;
   room.unoVulnerablePlayerId = null;
   room.turnDirection = 1;
   room.currentTurnIndex = Math.floor(Math.random() * room.players.length);
@@ -1523,14 +1547,28 @@ function checkWinCondition(room: RoomData, player: InternalPlayer): boolean {
     room.winnerId = player.id;
     stopTurnTimer(room);
 
+    const is2v2 = room.settings.gameMode === 'team_2v2';
+    const teammate = is2v2 ? getTeammate(room, player) : undefined;
+    if (is2v2) {
+      room.winnerTeam = player.team || 'A';
+    }
+
     // Calculate score
     let points = 0;
-    room.players.forEach((p) => {
-      if (p.id !== player.id) {
-        points += p.hand.reduce((sum, c) => sum + c.score, 0);
+    if (is2v2) {
+      points = calculate2v2WinScore(room, player);
+      player.score += points;
+      if (teammate) {
+        teammate.score += points;
       }
-    });
-    player.score += points;
+    } else {
+      room.players.forEach((p) => {
+        if (p.id !== player.id) {
+          points += p.hand.reduce((sum, c) => sum + c.score, 0);
+        }
+      });
+      player.score += points;
+    }
 
     // Calculate duration & turns
     const durationSeconds = Math.max(1, Math.round((Date.now() - (room.roundStartTime || Date.now())) / 1000));
@@ -1549,20 +1587,31 @@ function checkWinCondition(room: RoomData, player: InternalPlayer): boolean {
     room.lastRoundIsFastest = isFastest;
 
     if (!room.tableScores) room.tableScores = {};
-    if (!room.tableScores[player.id]) {
-      room.tableScores[player.id] = {
-        playerId: player.id,
-        name: player.name,
-        avatar: player.avatar,
-        wins: 0,
-        points: 0,
-        roundsPlayed: 1,
-      };
-    }
-    room.tableScores[player.id].wins += 1;
-    room.tableScores[player.id].points += points;
 
-    let winMsg = `🏆 ${player.name} VENCEU A PARTIDA! (+${points} pontos)`;
+    const updateTableScore = (p: InternalPlayer) => {
+      if (!room.tableScores![p.id]) {
+        room.tableScores![p.id] = {
+          playerId: p.id,
+          name: p.name,
+          avatar: p.avatar,
+          wins: 0,
+          points: 0,
+          roundsPlayed: 1,
+        };
+      }
+      room.tableScores![p.id].wins += 1;
+      room.tableScores![p.id].points += points;
+    };
+
+    updateTableScore(player);
+    if (is2v2 && teammate) {
+      updateTableScore(teammate);
+    }
+
+    let winMsg = is2v2
+      ? `🏆 EQUIPE ${player.team === 'A' ? 'A (AZUL)' : 'B (LARANJA)'} VENCEU A RODADA! ${player.name} zerou suas cartas${teammate ? ` com sua dupla ${teammate.name}` : ''}! (+${points} pontos)`
+      : `🏆 ${player.name} VENCEU A PARTIDA! (+${points} pontos)`;
+
     if (isFastest) {
       winMsg += ` ⚡ NOVO RECORDE DA MESA: ${durationSeconds}s!`;
     }
@@ -1603,10 +1652,11 @@ function scheduleBotTurn(room: RoomData, bot: InternalPlayer) {
     if (room.status !== 'playing') return;
     if (room.players[room.currentTurnIndex]?.id !== bot.id) return;
 
-    // Check if any human is vulnerable to UNO catch (only if autoUnoProtection is false)!
+    // Check if any opponent is vulnerable to UNO catch (only if autoUnoProtection is false)!
     if (!room.settings.autoUnoProtection && room.unoVulnerablePlayerId && room.unoVulnerablePlayerId !== bot.id) {
       const vulnerable = room.players.find((p) => p.id === room.unoVulnerablePlayerId);
-      if (vulnerable && Math.random() < 0.6) {
+      const isTeammate = room.settings.gameMode === 'team_2v2' && bot.team && vulnerable?.team === bot.team;
+      if (vulnerable && !isTeammate && Math.random() < 0.6) {
         // 60% chance bot catches player
         const penalized = drawCardsFromDeck(room, 2);
         vulnerable.hand.push(...penalized);
@@ -2214,12 +2264,18 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           hasDrawnThisTurn: false,
         };
 
-        const count = Math.max(1, Math.min(3, msg.botCount || 1));
+        const is2v2 = msg.settings?.gameMode === 'team_2v2';
+        if (is2v2) {
+          hostPlayer.team = 'A';
+        }
+
+        const count = is2v2 ? 3 : Math.max(1, Math.min(3, msg.botCount || 1));
         const duration = msg.settings?.turnDuration !== undefined ? msg.settings.turnDuration : 25;
         const room: RoomData = {
           id: roomId,
           settings: {
-            maxPlayers: count + 1,
+            maxPlayers: is2v2 ? 4 : count + 1,
+            gameMode: is2v2 ? 'team_2v2' : 'standard',
             turnDuration: duration,
             challengeUnoRule: msg.settings?.challengeUnoRule ?? true,
             showBotCards: msg.settings?.showBotCards !== undefined ? msg.settings.showBotCards : true,
@@ -2236,6 +2292,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           turnDirection: 1,
           turnTimeLeft: duration > 0 ? duration : 999,
           winnerId: null,
+          winnerTeam: null,
           unoVulnerablePlayerId: null,
           turnTimerInterval: null,
           botTimerTimeout: null,
@@ -2243,7 +2300,11 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
         // Add the selected number of bots
         for (let i = 0; i < count; i++) {
-          addBotToRoom(room);
+          const newBot = addBotToRoom(room);
+          if (newBot && is2v2) {
+            // First bot is on Team A (teammate), other 2 are on Team B (opponents)
+            newBot.team = i === 0 ? 'A' : 'B';
+          }
         }
 
         rooms.set(roomId, room);
@@ -2347,12 +2408,14 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         }
 
         const roomId = generateRoomId();
+        const is2v2 = msg.settings?.gameMode === 'team_2v2';
         const hostPlayer: InternalPlayer = {
           id: `player-${crypto.randomUUID()}`,
           name: onlineMeta ? onlineMeta.name : (msg.playerName.trim() || 'Jogador 1'),
           avatar: onlineMeta ? onlineMeta.avatar : (msg.avatar || '🦸‍♂️'),
           isHost: true,
           isBot: false,
+          team: is2v2 ? 'A' : undefined,
           cardsCount: 0,
           hasCalledUno: false,
           isConnected: true,
@@ -2367,7 +2430,8 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           creatorName: hostPlayer.name,
           ownerUserId: onlineMeta ? onlineMeta.userId : undefined,
           settings: {
-            maxPlayers: msg.settings?.maxPlayers || 4,
+            maxPlayers: is2v2 ? 4 : (msg.settings?.maxPlayers || 4),
+            gameMode: is2v2 ? 'team_2v2' : (msg.settings?.gameMode || 'standard'),
             turnDuration: duration,
             challengeUnoRule: msg.settings?.challengeUnoRule ?? true,
             showBotCards: msg.settings?.showBotCards ?? false,
@@ -2386,6 +2450,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           turnDirection: 1,
           turnTimeLeft: duration > 0 ? duration : 999,
           winnerId: null,
+          winnerTeam: null,
           unoVulnerablePlayerId: null,
           turnTimerInterval: null,
           botTimerTimeout: null,
@@ -2860,8 +2925,23 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           ...room.settings,
           ...msg.settings,
         };
+        if (room.settings.gameMode === 'team_2v2') {
+          room.settings.maxPlayers = 4;
+        }
         broadcastLog(room, `⚙️ As configurações da mesa foram atualizadas!`, 'system');
         syncRoomState(room);
+        return;
+      }
+
+      if (msg.type === 'set_team') {
+        if (room.status !== 'waiting') return;
+        const targetId = (player.isHost && msg.targetPlayerId) ? msg.targetPlayerId : player.id;
+        const targetPlayer = room.players.find((p) => p.id === targetId);
+        if (targetPlayer && (msg.team === 'A' || msg.team === 'B')) {
+          targetPlayer.team = msg.team;
+          broadcastLog(room, `👥 ${targetPlayer.name} agora está na Equipe ${msg.team}!`, 'system');
+          syncRoomState(room);
+        }
         return;
       }
 
@@ -2910,6 +2990,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         stopTurnTimer(room);
         room.status = 'waiting';
         room.winnerId = null;
+        room.winnerTeam = null;
         room.unoVulnerablePlayerId = null;
         room.discardPile = [];
         room.deck = [];
@@ -3061,8 +3142,21 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           }
           return;
         }
+
+        const target = room.players.find((p) => p.id === msg.targetPlayerId);
+        if (room.settings.gameMode === 'team_2v2' && player.team && target?.team === player.team) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'error',
+                message: 'Você não pode penalizar seu próprio parceiro de equipe!',
+              })
+            );
+          }
+          return;
+        }
+
         if (room.unoVulnerablePlayerId === msg.targetPlayerId) {
-          const target = room.players.find((p) => p.id === msg.targetPlayerId);
           if (target && target.hand.length === 1 && !target.hasCalledUno) {
             const penalties = drawCardsFromDeck(room, 2);
             target.hand.push(...penalties);

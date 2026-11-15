@@ -289,7 +289,7 @@ describe('Server WebSocket & Protocol Integration Tests', () => {
             }
           }
 
-          // Catch UNO self penalty check
+          // Catch UNO self penalty check & 2v2 teammate penalty check
           if (msg.type === 'catch_uno') {
             if (msg.targetPlayerId === player.id) {
               ws.send(JSON.stringify({
@@ -297,6 +297,17 @@ describe('Server WebSocket & Protocol Integration Tests', () => {
                 messageId: msg.messageId,
                 code: 'UNO_SELF_CATCH',
                 message: 'Você não pode aplicar a penalidades de UNO a si próprio.',
+              }));
+              return;
+            }
+
+            const target = room.players.find((p: InternalPlayer) => p.id === msg.targetPlayerId);
+            if (room.settings.gameMode === 'team_2v2' && player.team && target?.team === player.team) {
+              ws.send(JSON.stringify({
+                type: 'action_rejected',
+                messageId: msg.messageId,
+                code: 'TEAMMATE_CATCH_BLOCKED',
+                message: 'Você não pode penalizar seu próprio parceiro de equipe!',
               }));
               return;
             }
@@ -689,5 +700,71 @@ describe('Server WebSocket & Protocol Integration Tests', () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.success).toBe(false);
+  });
+
+  it('19. Modo 2v2: Deve impedir que um jogador aplique penalidade de UNO ao próprio parceiro de equipe', async () => {
+    const roomId = 'ROOM_2V2_TEAMMATE_UNO';
+    const room: RoomData = {
+      id: roomId,
+      settings: { maxPlayers: 4, gameMode: 'team_2v2', turnDuration: 30, challengeUnoRule: true },
+      status: 'playing',
+      players: [
+        { id: 'p_a1', name: 'Player A1', avatar: '🦸', isHost: true, isBot: false, team: 'A', cardsCount: 2, hasCalledUno: false, isConnected: true, score: 0, hand: [], hasDrawnThisTurn: false },
+        { id: 'p_a2', name: 'Player A2', avatar: '🧙', isHost: false, isBot: false, team: 'A', cardsCount: 1, hasCalledUno: false, isConnected: true, score: 0, hand: [], hasDrawnThisTurn: false },
+      ],
+      deck: createDeck(),
+      discardPile: [],
+      currentColor: 'red',
+      currentTurnIndex: 0,
+      turnDirection: 1,
+      turnTimeLeft: 30,
+      winnerId: null,
+      unoVulnerablePlayerId: 'p_a2',
+      turnTimerInterval: null,
+      botTimerTimeout: null,
+    };
+    rooms.set(roomId, room);
+
+    const client = new WebSocket(`ws://localhost:${port}`);
+    await new Promise<void>((resolve) => client.on('open', resolve));
+
+    const tokenA1 = 'token-a1-test';
+    sessionReconnectTokens.set(`${roomId}:p_a1`, tokenA1);
+
+    const authPromise = new Promise<ServerMessage>((resolve) => {
+      client.on('message', (d) => resolve(JSON.parse(d.toString())));
+    });
+
+    client.send(JSON.stringify({
+      type: 'sync_session',
+      roomId,
+      playerId: 'p_a1',
+      reconnectToken: tokenA1,
+      protocolVersion: 1,
+      messageId: 'msg-sync-a1',
+    }));
+
+    const authReply = await authPromise;
+    expect(authReply.type).toBe('room_joined');
+
+    // Tentativa de aplicar catch_uno contra o parceiro de equipe (p_a2)
+    const rejectPromise = new Promise<ServerMessage>((resolve) => {
+      client.on('message', (d) => resolve(JSON.parse(d.toString())));
+    });
+
+    client.send(JSON.stringify({
+      type: 'catch_uno',
+      targetPlayerId: 'p_a2',
+      protocolVersion: 1,
+      messageId: 'msg-catch-teammate',
+    }));
+
+    const rejectReply = await rejectPromise;
+    expect(rejectReply.type).toBe('action_rejected');
+    if (rejectReply.type === 'action_rejected') {
+      expect(rejectReply.code).toBe('TEAMMATE_CATCH_BLOCKED');
+    }
+
+    client.close();
   });
 });

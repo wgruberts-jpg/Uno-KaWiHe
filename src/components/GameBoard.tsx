@@ -181,19 +181,37 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   const me = state.players.find((p) => p.id === myPlayerId);
   const isSpectator = state.isSpectator || !me;
+  const is2v2 = state.gameMode === 'team_2v2' || !!me?.team;
+  const myTeam = me?.team;
+  const teammate = is2v2 && myTeam ? state.players.find((p) => p.id !== myPlayerId && p.team === myTeam) : null;
+  const teammateHand = state.teammateHand || teammate?.teammateHand || [];
   const isMyTurn = !isSpectator && state.currentTurnPlayerId === myPlayerId;
   const activeTurnPlayer = state.players.find((p) => p.id === state.currentTurnPlayerId);
   const isPaused = state.status === 'paused';
 
   // Opponents ordered in clockwise sequence relative to current player
   const opponentsInArc = useMemo(() => {
-    if (isSpectator) return state.players;
-    const myIdx = state.players.findIndex((p) => p.id === myPlayerId);
-    if (myIdx === -1) return state.players.filter((p) => p.id !== myPlayerId);
-    return [
-      ...state.players.slice(myIdx + 1),
-      ...state.players.slice(0, myIdx),
-    ];
+    let list: Player[] = [];
+    if (isSpectator) {
+      list = state.players;
+    } else {
+      const myIdx = state.players.findIndex((p) => p.id === myPlayerId);
+      if (myIdx === -1) {
+        list = state.players.filter((p) => p.id !== myPlayerId);
+      } else {
+        list = [
+          ...state.players.slice(myIdx + 1),
+          ...state.players.slice(0, myIdx),
+        ];
+      }
+    }
+    const seen = new Set<string>();
+    return list.filter((p) => {
+      if (!p || !p.id) return false;
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
   }, [state.players, myPlayerId, isSpectator]);
 
   const handleToggleMute = () => {
@@ -320,12 +338,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   // Render Opponent Card Box
   const renderOpponentBox = (opp: Player) => {
     const isOppTurn = state.currentTurnPlayerId === opp.id;
-    const isCatchable = state.unoVulnerablePlayerId === opp.id;
+    const isOppTeammate = is2v2 && opp.team && opp.team === myTeam && opp.id !== myPlayerId;
+    const isCatchable = state.unoVulnerablePlayerId === opp.id && !isOppTeammate;
     const isUnoAlert = opp.cardsCount === 1;
 
     return (
       <div
-        key={opp.id}
         className={`relative z-20 flex flex-col items-center p-2 rounded-2xl transition-all duration-300 backdrop-blur-md shadow-md ${
           isOppTurn
             ? 'bg-gradient-to-b from-amber-100 via-yellow-200 to-amber-300 text-slate-950 border-2 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.6)] scale-105 ring-2 ring-amber-300 z-30'
@@ -417,7 +435,24 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           {opp.cardsCount} {opp.cardsCount === 1 ? '🔥 1 CARTA' : isCompact ? 'un' : 'cartas'}
         </span>
 
-        {/* Revealed Cards Strip (Modo Treino / Modo Criança / Modo Telão) */}
+        {/* 2v2 Team Badge */}
+        {opp.team && (
+          <div
+            className={`mt-1 text-[9px] font-black px-1.5 py-0.2 rounded-md border flex items-center gap-0.5 shadow-2xs ${
+              opp.team === 'A'
+                ? 'bg-blue-600 text-white border-blue-400'
+                : 'bg-orange-500 text-white border-orange-400'
+            }`}
+          >
+            <span>{opp.team === 'A' ? '🟦' : '🟧'}</span>
+            <span>Eq. {opp.team}</span>
+            {isOppTeammate && (
+              <span className="text-yellow-300 font-extrabold ml-0.5">🤝 Parceiro</span>
+            )}
+          </div>
+        )}
+
+        {/* Revealed Cards Strip (when Cartas dos Robôs / showBotCards is enabled) */}
         {opp.botHand && opp.botHand.length > 0 && (
           <div className="mt-1 flex items-center justify-center -space-x-4 max-w-[130px] overflow-x-auto py-0.5 px-1 bg-black/40 rounded-xl border border-white/50 shadow-inner">
             {opp.botHand.map((c) => (
@@ -483,6 +518,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <span className="font-black text-[10px] sm:text-xs text-amber-950 bg-gradient-to-r from-yellow-300 to-amber-300 px-2 sm:px-3 py-1 rounded-2xl border-2 border-white shadow-sm flex items-center gap-1">
               <span>🏷️</span> <span className="hidden sm:inline">SALA:</span> {state.roomId}
             </span>
+
+            {/* 2v2 Team Badge in Header */}
+            {is2v2 && myTeam && (
+              <span className={`font-black text-[10px] sm:text-xs px-2.5 sm:px-3 py-1 rounded-2xl border-2 border-white shadow-sm flex items-center gap-1 ${
+                myTeam === 'A'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-orange-500 text-white'
+              }`}>
+                <span>👥 Duplas: Equipe {myTeam}</span>
+              </span>
+            )}
           </div>
 
           {/* Right: Controls & Actions */}
@@ -576,201 +622,220 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           </div>
         )}
 
-        {/* MAIN GAME BOARD CONTAINER */}
+        {/* MAIN GAME BOARD CONTAINER: CLEAN 3x3 GRID (9 SQUARES / QUADRANTES) */}
         {isLandscape ? (
           /* ========================================================================= */
-          /* LANDSCAPE: 3-ROW GRID WITH DEDICATED SLOTS (PHYSICAL OVERLAP IMPOSSIBLE)  */
+          /* LANDSCAPE: 3x3 EXPLICIT GRID (9 SECTORS)                                  */
+          /* Row 1: [Top-Left]       | [Top Player Thor]    | [Top-Right]              */
+          /* Row 2: [Left Player Luna]| [Center Table Felt]  | [Right Player Maya]      */
+          /* Row 3: [Bottom-Left]    | [Bottom Hand & HUD]  | [Bottom-Right]           */
           /* ========================================================================= */
-          <main className="flex-1 flex flex-col justify-between px-6 pt-5 pb-2 overflow-hidden">
-            {/* ROW 1: TOP OPPONENT SLOT (Thor 180°) - Height: 96px with top breathing room */}
-            <div className="w-full min-h-[96px] shrink-0 flex items-center justify-center z-20 pt-2">
+          <main className="flex-1 grid grid-cols-3 grid-rows-[auto_1fr_auto] gap-2 px-6 py-2 overflow-hidden items-center justify-items-center">
+            {/* Square (1,1): Top-Left Corner */}
+            <div className="w-full h-full flex items-center justify-start text-xs text-transparent select-none pointer-events-none" />
+
+            {/* Square (1,2): Top Player (Thor 180°) */}
+            <div className="w-full flex items-center justify-center z-20">
               {topOpponents.length > 0 && (
-                <div className="flex items-center justify-center gap-8">
-                  {topOpponents.map((opp) => renderOpponentBox(opp))}
+                <div className="flex items-center justify-center gap-6">
+                  {topOpponents.map((opp, idx) => (
+                    <div key={`top-${opp.id}-${idx}`}>
+                      {renderOpponentBox(opp)}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
 
-            {/* ROW 2: 3-COLUMN ARENA (Left Opponent | Central Table | Right Opponent) */}
-            <div className="w-full flex-1 flex items-center justify-between z-10 my-1">
-              {/* Left Column: 270° Player (Luna) */}
-              <div className="w-[180px] flex items-center justify-start">
-                {leftOpponent ? renderOpponentBox(leftOpponent) : <div className="w-[1px]" />}
-              </div>
+            {/* Square (1,3): Top-Right Corner */}
+            <div className="w-full h-full flex items-center justify-end text-xs text-transparent select-none pointer-events-none" />
 
-              {/* Center Column: Central Felt Table Zone */}
-              <div className="flex-1 flex flex-col items-center justify-center relative">
-                {feedbackToast && (
-                  <div className="absolute -top-10 bg-rose-600 border-2 border-white text-white text-xs px-4 py-1.5 rounded-full shadow-2xl font-black animate-bounce z-40">
-                    ⚠️ {feedbackToast}
-                  </div>
-                )}
+            {/* Square (2,1): Left Player (Luna 270°) */}
+            <div className="w-full flex items-center justify-center z-20">
+              {leftOpponent ? (
+                <div key={`left-${leftOpponent.id}`}>
+                  {renderOpponentBox(leftOpponent)}
+                </div>
+              ) : (
+                <div className="w-1" />
+              )}
+            </div>
 
-                {/* Circular Green Felt Table */}
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                  }}
-                  onDrop={handleDropOnCenter}
-                  className="relative w-48 h-48 rounded-full bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-600 border-4 border-white shadow-[0_12px_32px_rgba(0,0,0,0.22)] ring-8 ring-emerald-300/50 flex items-center justify-center"
-                >
-                  {/* Direction Arrows */}
-                  <TableDirectionArrows direction={state.turnDirection} />
+            {/* Square (2,2): Center Game Felt Table (Unified Table + Perimeter Direction Arrows) */}
+            <div className="w-full flex flex-col items-center justify-center relative z-10">
+              {feedbackToast && (
+                <div className="absolute -top-10 bg-rose-600 border-2 border-white text-white text-xs px-4 py-1.5 rounded-full shadow-2xl font-black animate-bounce z-40">
+                  ⚠️ {feedbackToast}
+                </div>
+              )}
 
-                  {/* Staged Card Levitating Play Animation */}
-                  {state.stagedCardPlay && (
-                    <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-slate-950/40 rounded-full backdrop-blur-xs animate-in zoom-in-95 duration-200">
-                      <div className="text-xs font-black text-amber-300 bg-slate-900/90 px-3 py-1 rounded-full border border-amber-400 mb-2 shadow-xl animate-pulse flex items-center gap-1">
-                        <span>{state.stagedCardPlay.playerAvatar}</span>
-                        <span>{state.stagedCardPlay.playerName} jogou:</span>
-                      </div>
+              {/* Unified Central Green Felt Table & Direction Arrows Component */}
+              <TableDirectionArrows
+                direction={state.turnDirection}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={handleDropOnCenter}
+              >
+                {/* Active Color Indicator & Countdown Timer with Decreasing Progress Bar (INSIDE TABLE FELT) */}
+                <div className="z-30 flex flex-col items-center pointer-events-none mt-0.5">
+                  {/* Main Pill: Color + Turn Time */}
+                  <div
+                    className={`px-3 py-0.5 rounded-full text-xs font-black uppercase tracking-wider shadow-lg border border-white flex items-center gap-2 transition-all duration-300 pointer-events-auto ${
+                      currentColorBg[state.currentColor]
+                    } ${state.turnTimeLeft <= 5 && state.turnDuration > 0 && !isPaused ? 'animate-pulse ring-2 ring-rose-400 scale-105' : ''}`}
+                  >
+                    {/* Color Glow Dot */}
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-white shadow-xs"></span>
+                    </span>
 
-                      <div className="transform scale-110 shadow-[0_0_30px_rgba(250,204,21,0.9)] animate-bounce rounded-2xl">
-                        <UnoCard card={state.stagedCardPlay.card} size="md" />
-                      </div>
-                    </div>
-                  )}
+                    <span className="drop-shadow-xs flex items-center gap-1 text-[11px]">
+                      <span>Cor:</span>
+                      <strong className="underline decoration-1 underline-offset-2 tracking-wider">{currentColorNames[state.currentColor]}</strong>
+                    </span>
 
-                  {/* Center Play Pile Area */}
-                  <div className="flex items-center gap-3 z-20">
-                    {/* Draw Pile (Deck) */}
-                    <div className="flex flex-col items-center">
-                      <button
-                        type="button"
-                        onClick={isMyTurn && !isPaused ? handleDrawCard : undefined}
-                        disabled={!isMyTurn || isPaused}
-                        className={`group relative cursor-pointer transition-transform ${
-                          isMyTurn && !isPaused ? 'hover:scale-105 active:scale-95' : 'opacity-90'
+                    {/* Vertical Divider */}
+                    <span className="w-[1px] h-3 bg-white/60 rounded-full" />
+
+                    {/* Turn Timer Badge */}
+                    {isPaused ? (
+                      <span className="flex items-center gap-1 text-white bg-black/40 px-1.5 py-0.5 rounded text-[9px] font-mono shadow-xs">
+                        <Pause className="w-2.5 h-2.5 fill-white" /> PAUSA
+                      </span>
+                    ) : state.turnDuration > 0 ? (
+                      <span
+                        className={`flex items-center gap-1 font-mono px-1.5 py-0.5 rounded text-[10px] font-black transition-colors shadow-xs ${
+                          state.turnTimeLeft <= 5 ? 'bg-rose-950/90 text-rose-200 animate-bounce ring-1 ring-white' : 'bg-black/35 text-white'
                         }`}
-                        title="Comprar carta do baralho"
                       >
-                        <div className="absolute top-1 left-1 w-full h-full rounded-2xl bg-rose-700 border border-white pointer-events-none" />
-                        <div className="absolute top-0.5 left-0.5 w-full h-full rounded-2xl bg-rose-800 border border-white pointer-events-none" />
-                        <UnoCard isBack size="md" />
-
-                        {isMyTurn && !hasPlayableCard && !isPaused && (
-                          <span className="absolute -bottom-2 -right-1 bg-gradient-to-r from-yellow-300 to-amber-400 text-slate-950 font-black text-[10px] px-2 py-0.5 rounded-full shadow-xl border border-white animate-bounce">
-                            COMPRE
-                          </span>
-                        )}
-                      </button>
-                      <span className="text-[10px] text-white font-mono mt-1 font-black drop-shadow bg-emerald-700/60 px-2 py-0.5 rounded-full border border-white/40">
-                        {state.deckCardsCount} rest.
+                        <Clock className={`w-2.5 h-2.5 ${state.turnTimeLeft <= 5 ? 'text-yellow-300 animate-spin' : 'text-white'}`} />
+                        <span>{state.turnTimeLeft}s</span>
                       </span>
-                    </div>
-
-                    {/* Discard Pile */}
-                    <div
-                      className="flex flex-col items-center cursor-pointer group"
-                      onClick={() => {
-                        if (hasPlayableCard && isMyTurn && !isPaused) {
-                          setFeedbackToast('Toque na carta da sua mão para jogar!');
-                          setTimeout(() => setFeedbackToast(null), 3000);
-                        }
-                      }}
-                    >
-                      {state.discardPileTop ? (
-                        <UnoCard card={state.discardPileTop} size="md" />
-                      ) : (
-                        <div className="w-20 h-28 rounded-2xl border-2 border-dashed border-white/60 bg-white/20 flex items-center justify-center text-xs text-white font-black">
-                          Vazio
-                        </div>
-                      )}
-                      <span className="text-[10px] text-white font-black mt-1 drop-shadow bg-emerald-700/60 px-2 py-0.5 rounded-full border border-white/40">
-                        Mesa
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Active Color Indicator & Countdown Timer with Decreasing Progress Bar */}
-                  <div className="absolute -top-9 z-30 flex flex-col items-center pointer-events-none">
-                    {/* Main Pill: Color + Turn Time */}
-                    <div
-                      className={`px-3.5 py-1 rounded-2xl text-xs font-black uppercase tracking-wider shadow-2xl border-2 border-white flex items-center gap-2 transition-all duration-300 pointer-events-auto ${
-                        currentColorBg[state.currentColor]
-                      } ${state.turnTimeLeft <= 5 && state.turnDuration > 0 && !isPaused ? 'animate-pulse ring-4 ring-rose-400 scale-105' : ''}`}
-                    >
-                      {/* Color Glow Dot */}
-                      <span className="relative flex h-2.5 w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white shadow-sm"></span>
-                      </span>
-
-                      <span className="drop-shadow-sm flex items-center gap-1">
-                        <span>Cor:</span>
-                        <strong className="underline decoration-2 underline-offset-2 tracking-widest">{currentColorNames[state.currentColor]}</strong>
-                      </span>
-
-                      {/* Vertical Divider */}
-                      <span className="w-[1.5px] h-3.5 bg-white/60 rounded-full" />
-
-                      {/* Turn Timer Badge */}
-                      {isPaused ? (
-                        <span className="flex items-center gap-1 text-white bg-black/40 px-2 py-0.5 rounded-lg text-[10px] font-mono shadow-xs">
-                          <Pause className="w-3 h-3 fill-white" /> PAUSA
-                        </span>
-                      ) : state.turnDuration > 0 ? (
-                        <span
-                          className={`flex items-center gap-1 font-mono px-2 py-0.5 rounded-lg text-[11px] font-black transition-colors shadow-xs ${
-                            state.turnTimeLeft <= 5 ? 'bg-rose-950/90 text-rose-200 animate-bounce ring-1 ring-white' : 'bg-black/35 text-white'
-                          }`}
-                        >
-                          <Clock className={`w-3 h-3 ${state.turnTimeLeft <= 5 ? 'text-yellow-300 animate-spin' : 'text-white'}`} />
-                          <span>{state.turnTimeLeft}s</span>
-                        </span>
-                      ) : (
-                        <span className="text-[10px] opacity-90 font-mono">∞</span>
-                      )}
-                    </div>
-
-                    {/* Decreasing Time Progress Bar */}
-                    {state.turnDuration > 0 && !isPaused && (
-                      <div className="w-32 h-1.5 bg-slate-950/70 rounded-full mt-1 p-0.5 border border-white shadow-lg overflow-hidden backdrop-blur-xs pointer-events-auto">
-                        <div
-                          className={`h-full rounded-full transition-all duration-1000 ease-linear shadow-xs ${
-                            timerPercent <= 25
-                              ? 'bg-gradient-to-r from-rose-500 to-red-600 animate-pulse'
-                              : timerPercent <= 50
-                              ? 'bg-gradient-to-r from-amber-400 to-orange-500'
-                              : 'bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500'
-                          }`}
-                          style={{ width: `${timerPercent}%` }}
-                        />
-                      </div>
+                    ) : (
+                      <span className="text-[10px] opacity-90 font-mono">∞</span>
                     )}
                   </div>
 
-                  {/* Direction Pill below circle */}
-                  <div
-                    className={`absolute -bottom-3.5 px-3 py-0.5 rounded-full text-[11px] font-black tracking-wide bg-white/95 shadow-xl flex items-center gap-1.5 z-20 border-2 transition-colors ${
-                      state.turnDirection === 1
-                        ? 'border-amber-400 text-amber-900'
-                        : 'border-pink-400 text-pink-900'
-                    }`}
-                  >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        state.turnDirection === 1
-                          ? 'bg-amber-400 shadow-[0_0_8px_1px_rgba(250,204,21,0.9)]'
-                          : 'bg-pink-400 shadow-[0_0_8px_1px_rgba(244,114,182,0.9)]'
+                  {/* Decreasing Time Progress Bar */}
+                  {state.turnDuration > 0 && !isPaused && (
+                    <div className="w-24 h-1 bg-slate-950/70 rounded-full mt-0.5 p-0.5 border border-white/60 shadow overflow-hidden backdrop-blur-xs pointer-events-auto">
+                      <div
+                        className={`h-full rounded-full transition-all duration-1000 ease-linear shadow-xs ${
+                          timerPercent <= 25
+                            ? 'bg-gradient-to-r from-rose-500 to-red-600 animate-pulse'
+                            : timerPercent <= 50
+                            ? 'bg-gradient-to-r from-amber-400 to-orange-500'
+                            : 'bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500'
+                        }`}
+                        style={{ width: `${timerPercent}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Staged Card Levitating Play Animation */}
+                {state.stagedCardPlay && (
+                  <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-slate-950/40 rounded-full backdrop-blur-xs animate-in zoom-in-95 duration-200">
+                    <div className="text-xs font-black text-amber-300 bg-slate-900/90 px-3 py-1 rounded-full border border-amber-400 mb-2 shadow-xl animate-pulse flex items-center gap-1">
+                      <span>{state.stagedCardPlay.playerAvatar}</span>
+                      <span>{state.stagedCardPlay.playerName} jogou:</span>
+                    </div>
+
+                    <div className="transform scale-105 shadow-[0_0_30px_rgba(250,204,21,0.9)] animate-bounce rounded-2xl">
+                      <UnoCard card={state.stagedCardPlay.card} size="md" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Center Play Pile Area - Cards enlarged to 'md' with tight margin & gap */}
+                <div className="flex items-center gap-4 sm:gap-6 z-20 my-auto">
+                  {/* Draw Pile (Deck) */}
+                  <div className="flex flex-col items-center">
+                    <button
+                      type="button"
+                      onClick={isMyTurn && !isPaused ? handleDrawCard : undefined}
+                      disabled={!isMyTurn || isPaused}
+                      className={`group relative cursor-pointer transition-transform ${
+                        isMyTurn && !isPaused ? 'hover:scale-105 active:scale-95' : 'opacity-90'
                       }`}
-                    />
-                    <span>Sentido: {state.turnDirection === 1 ? 'Horário ↻' : 'Anti-horário ↺'}</span>
+                      title="Comprar carta do baralho"
+                    >
+                      <div className="absolute top-1 left-1 w-full h-full rounded-2xl bg-rose-700 border border-white pointer-events-none" />
+                      <div className="absolute top-0.5 left-0.5 w-full h-full rounded-2xl bg-rose-800 border border-white pointer-events-none" />
+                      <UnoCard isBack size="md" />
+
+                      {isMyTurn && !hasPlayableCard && !isPaused && (
+                        <span className="absolute -bottom-2 -right-1 bg-gradient-to-r from-yellow-300 to-amber-400 text-slate-950 font-black text-[9px] px-1.5 py-0.2 rounded-full shadow-xl border border-white animate-bounce">
+                          COMPRE
+                        </span>
+                      )}
+                    </button>
+                    <span className="text-[9px] text-white font-mono mt-0.5 font-black drop-shadow bg-emerald-800/80 px-2 py-0.2 rounded-full border border-white/50">
+                      {state.deckCardsCount} rest.
+                    </span>
+                  </div>
+
+                  {/* Discard Pile */}
+                  <div
+                    className="flex flex-col items-center cursor-pointer group"
+                    onClick={() => {
+                      if (hasPlayableCard && isMyTurn && !isPaused) {
+                        setFeedbackToast('Toque na carta da sua mão para jogar!');
+                        setTimeout(() => setFeedbackToast(null), 3000);
+                      }
+                    }}
+                  >
+                    {state.discardPileTop ? (
+                      <UnoCard card={state.discardPileTop} size="md" />
+                    ) : (
+                      <div className="w-20 aspect-[2/3] rounded-2xl border-2 border-dashed border-white/60 bg-white/20 flex items-center justify-center text-xs text-white font-black">
+                        Vazio
+                      </div>
+                    )}
+                    <span className="text-[9px] text-white font-black mt-0.5 drop-shadow bg-emerald-800/80 px-2 py-0.2 rounded-full border border-white/50">
+                      Mesa
+                    </span>
                   </div>
                 </div>
-              </div>
 
-              {/* Right Column: 90° Player (Maya) */}
-              <div className="w-[180px] flex items-center justify-end">
-                {rightOpponent ? renderOpponentBox(rightOpponent) : <div className="w-[1px]" />}
-              </div>
+                {/* Direction Word/Pill (INSIDE TABLE FELT) */}
+                <div
+                  className={`px-3 py-0.5 rounded-full text-[10px] font-black tracking-wide bg-white/95 shadow-md flex items-center gap-1.5 z-20 border transition-colors mb-0.5 ${
+                    state.turnDirection === 1
+                      ? 'border-amber-400 text-amber-900'
+                      : 'border-pink-400 text-pink-900'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      state.turnDirection === 1
+                        ? 'bg-amber-400 shadow-[0_0_6px_1px_rgba(250,204,21,0.9)]'
+                        : 'bg-pink-400 shadow-[0_0_6px_1px_rgba(244,114,182,0.9)]'
+                    }`}
+                  />
+                  <span>Sentido: {state.turnDirection === 1 ? 'Horário ↻' : 'Anti-horário ↺'}</span>
+                </div>
+              </TableDirectionArrows>
             </div>
 
-            {/* ROW 3: PLAYER HAND (0°) + ACTION HUD */}
-            <div className="w-full shrink-0 flex flex-col items-center z-20 pb-1">
-              {/* Catch UNO Alert Banner */}
-              {state.unoVulnerablePlayerId && (
+            {/* Square (2,3): Right Player (Maya 90°) */}
+            <div className="w-full flex items-center justify-center z-20">
+              {rightOpponent ? (
+                <div key={`right-${rightOpponent.id}`}>
+                  {renderOpponentBox(rightOpponent)}
+                </div>
+              ) : (
+                <div className="w-1" />
+              )}
+            </div>
+
+            {/* Squares 7, 8, 9: Full Bottom Row for Player Hand (0°) + Action HUD (Spans Squares 7, 8, 9 so cards never get lost) */}
+            <div className="w-full col-span-3 shrink-0 flex flex-col items-center z-20 pb-1">
+              {/* Catch UNO Alert Banner (do not allow catching teammate) */}
+              {state.unoVulnerablePlayerId && (!is2v2 || !myTeam || state.players.find((p) => p.id === state.unoVulnerablePlayerId)?.team !== myTeam) && (
                 <div className="w-full max-w-md my-1 animate-bounce z-30">
                   <button
                     type="button"
@@ -783,7 +848,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 </div>
               )}
 
-              {/* Cards in Hand */}
+              {/* 2v2 Teammate Hand Cards Strip Only */}
+              {is2v2 && teammate && !isSpectator && teammateHand.length > 0 && (
+                <div className="w-full max-w-lg px-2 py-1 mb-1 rounded-2xl bg-black/40 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center -space-x-3 overflow-x-auto z-30">
+                  {teammateHand.map((c) => (
+                    <div key={c.id} className="shrink-0 hover:z-30 hover:-translate-y-1 transition-transform">
+                      <UnoCard card={c} size="xs" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Cards in Hand - Spans Squares 7, 8, 9 with responsive spacing so many cards don't disappear */}
               {isSpectator ? (
                 <div className="w-full max-w-md p-2 bg-white/90 rounded-2xl border-2 border-white shadow-lg text-center my-0.5 text-slate-800">
                   <div className="text-xs font-black text-slate-900 flex items-center justify-center gap-1.5">
@@ -792,15 +868,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="w-full max-w-4xl px-2 overflow-x-auto py-1 flex items-center justify-center">
+                <div className="w-full max-w-6xl px-4 overflow-x-auto py-1 flex items-center justify-center scrollbar-thin">
                   <div
                     className={`flex items-center ${
-                      state.myHand.length > 8
-                        ? '-space-x-10'
-                        : state.myHand.length > 5
-                        ? '-space-x-8'
-                        : '-space-x-6'
-                    } hover:-space-x-4 transition-all duration-300 py-1.5 px-3`}
+                      state.myHand.length > 22
+                        ? '-space-x-12 sm:-space-x-14'
+                        : state.myHand.length > 16
+                        ? '-space-x-10 sm:-space-x-12'
+                        : state.myHand.length > 11
+                        ? '-space-x-9 sm:-space-x-10'
+                        : state.myHand.length > 7
+                        ? '-space-x-7 sm:-space-x-8'
+                        : state.myHand.length > 4
+                        ? '-space-x-5'
+                        : '-space-x-3'
+                    } hover:-space-x-2 transition-all duration-300 py-2 px-4`}
                   >
                     {state.myHand.map((card, idx) => {
                       const playable = isPlayable(card);
@@ -829,7 +911,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
               {/* Action HUD */}
               {!isSpectator && (
-                <div className="w-full max-w-3xl bg-white/90 backdrop-blur-md p-1.5 rounded-3xl border-2 border-amber-300/80 shadow-2xl flex items-center justify-between gap-2 mt-0.5 z-30 ring-2 ring-white/80">
+                <div className="w-full max-w-3xl bg-white/90 backdrop-blur-md p-1.5 rounded-3xl border-2 border-amber-300/80 shadow-2xl flex items-center justify-start gap-6 mt-0.5 z-30 ring-2 ring-white/80">
                   {/* Turn Info */}
                   <div className="flex items-center gap-2 shrink-0">
                     {isPaused ? (
@@ -889,16 +971,19 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
                     <EmotePicker onSelectEmote={(emote) => onSendEmote?.(emote.id)} />
 
-                    {isMyTurn && !isPaused && (
-                      <button
-                        type="button"
-                        onClick={onPassTurn}
-                        className="py-1.5 px-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-black border-2 border-white shadow-md active:scale-95 flex items-center gap-1 cursor-pointer transition-all"
-                      >
-                        <span>Passar Vez</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={onPassTurn}
+                      disabled={!isMyTurn || isPaused}
+                      className={`py-1.5 px-3.5 rounded-2xl text-xs font-black border-2 border-white shadow-md flex items-center gap-1 transition-all ${
+                        isMyTurn && !isPaused
+                          ? 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white cursor-pointer active:scale-95'
+                          : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
+                      }`}
+                    >
+                      <span>Passar Vez</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               )}
@@ -908,11 +993,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           /* ========================================================================= */
           /* PORTRAIT: DEDICATED STACKED ROWS (PHYSICAL OVERLAP IMPOSSIBLE)            */
           /* ========================================================================= */
-          <main className="flex-1 flex flex-col justify-between px-2 pt-4 pb-1 overflow-hidden">
+          <main className="flex-1 flex flex-col justify-between px-2 pb-1 overflow-hidden" style={{ paddingTop: '2px' }}>
             {/* Top Opponents Row with top margin */}
             <div className="w-full flex items-center justify-around gap-1 pt-2 z-20 shrink-0">
-              {opponentsInArc.map((opp) => (
-                <div key={opp.id} className="shrink-0 scale-90">
+              {opponentsInArc.map((opp, idx) => (
+                <div key={`arc-${opp.id}-${idx}`} className="shrink-0 scale-90">
                   {renderOpponentBox(opp)}
                 </div>
               ))}
@@ -926,15 +1011,28 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 </div>
               )}
 
-              <div
+              <TableDirectionArrows
+                direction={state.turnDirection}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = 'move';
                 }}
                 onDrop={handleDropOnCenter}
-                className="relative w-44 h-44 rounded-full bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-600 border-4 border-white shadow-[0_12px_32px_rgba(0,0,0,0.22)] ring-8 ring-emerald-300/50 flex items-center justify-center"
+                className="w-[300px] h-[190px]"
               >
-                <TableDirectionArrows direction={state.turnDirection} />
+                {/* Color and Timer (INSIDE TABLE FELT) */}
+                <div className="z-30 flex flex-col items-center pointer-events-none mt-0.5">
+                  <div
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-md border border-white flex items-center gap-1.5 pointer-events-auto ${
+                      currentColorBg[state.currentColor]
+                    }`}
+                  >
+                    <span>Cor:</span>
+                    <strong className="underline underline-offset-2">{currentColorNames[state.currentColor]}</strong>
+                    <span className="w-[1px] h-2.5 bg-white/60 rounded-full" />
+                    <span>{state.turnTimeLeft}s</span>
+                  </div>
+                </div>
 
                 {state.stagedCardPlay && (
                   <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-slate-950/40 rounded-full backdrop-blur-xs animate-in zoom-in-95 duration-200">
@@ -944,7 +1042,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   </div>
                 )}
 
-                <div className="flex items-center gap-3 z-20">
+                <div className="flex items-center gap-3 sm:gap-4 z-20 my-auto">
                   <div className="flex flex-col items-center">
                     <button
                       type="button"
@@ -954,7 +1052,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     >
                       <UnoCard isBack size="md" />
                     </button>
-                    <span className="text-[10px] text-white font-mono mt-0.5 font-black bg-emerald-700/60 px-2 py-0.5 rounded-full border border-white/40">
+                    <span className="text-[9px] text-white font-mono mt-0.5 font-black bg-emerald-800/80 px-2 py-0.2 rounded-full border border-white/40">
                       {state.deckCardsCount} rest.
                     </span>
                   </div>
@@ -963,41 +1061,50 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     {state.discardPileTop ? (
                       <UnoCard card={state.discardPileTop} size="md" />
                     ) : (
-                      <div className="w-18 h-26 rounded-2xl border-2 border-dashed border-white/60 bg-white/20 flex items-center justify-center text-xs text-white font-black">
+                      <div className="w-20 aspect-[2/3] rounded-2xl border-2 border-dashed border-white/60 bg-white/20 flex items-center justify-center text-xs text-white font-black">
                         Vazio
                       </div>
                     )}
-                    <span className="text-[10px] text-white font-black mt-0.5 bg-emerald-700/60 px-2 py-0.5 rounded-full border border-white/40">
+                    <span className="text-[9px] text-white font-black mt-0.5 bg-emerald-800/80 px-2 py-0.2 rounded-full border border-white/40">
                       Mesa
                     </span>
                   </div>
                 </div>
 
-                {/* Color and Timer */}
-                <div className="absolute -top-8.5 z-30 flex flex-col items-center pointer-events-none">
-                  <div
-                    className={`px-3 py-0.5 rounded-2xl text-[11px] font-black uppercase tracking-wider shadow-2xl border-2 border-white flex items-center gap-1.5 pointer-events-auto ${
-                      currentColorBg[state.currentColor]
-                    }`}
-                  >
-                    <span>Cor:</span>
-                    <strong className="underline underline-offset-2">{currentColorNames[state.currentColor]}</strong>
-                    <span className="w-[1px] h-3 bg-white/60 rounded-full" />
-                    <span>{state.turnTimeLeft}s</span>
-                  </div>
-                </div>
-
-                {/* Direction */}
-                <div className="absolute -bottom-3.5 px-3 py-0.5 rounded-full text-[10px] font-black bg-white/95 shadow-xl border-2 border-amber-400 text-amber-900 z-20">
+                {/* Direction (INSIDE TABLE FELT) */}
+                <div className="px-2.5 py-0.5 rounded-full text-[9px] font-black bg-white/95 shadow-md border border-amber-400 text-amber-900 z-20 mb-0.5">
                   Sentido: {state.turnDirection === 1 ? 'Horário ↻' : 'Anti-horário ↺'}
                 </div>
-              </div>
+              </TableDirectionArrows>
             </div>
 
             {/* Bottom Player Hand + Action HUD */}
             <div className="w-full shrink-0 flex flex-col items-center z-20 pb-1">
+              {/* 2v2 Teammate Hand Cards Strip Only in Portrait */}
+              {is2v2 && teammate && !isSpectator && teammateHand.length > 0 && (
+                <div className="w-full max-w-sm px-2 py-1 mb-1 rounded-xl bg-black/40 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center -space-x-3 overflow-x-auto z-30">
+                  {teammateHand.map((c) => (
+                    <div key={c.id} className="shrink-0 hover:z-30 hover:-translate-y-1 transition-transform">
+                      <UnoCard card={c} size="xs" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="w-full px-1 overflow-x-auto py-1 flex scrollbar-thin">
-                <div className="flex items-center -space-x-7 py-1 px-3 mx-auto min-w-min">
+                <div
+                  className={`flex items-center ${
+                    state.myHand.length > 20
+                      ? '-space-x-12 sm:-space-x-14'
+                      : state.myHand.length > 15
+                      ? '-space-x-10 sm:-space-x-12'
+                      : state.myHand.length > 10
+                      ? '-space-x-9'
+                      : state.myHand.length > 6
+                      ? '-space-x-7'
+                      : '-space-x-5'
+                  } py-1 px-3 mx-auto min-w-min hover:-space-x-2 transition-all`}
+                >
                   {state.myHand.map((card, idx) => (
                     <div
                       key={card.id}
@@ -1016,7 +1123,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               </div>
 
               {!isSpectator && (
-                <div className="w-full bg-white/90 p-1.5 rounded-2xl border-2 border-amber-300 shadow-xl flex items-center justify-between gap-1 mt-0.5">
+                <div className="w-full bg-white/90 p-1.5 rounded-2xl border-2 border-amber-300 shadow-xl flex items-center justify-start gap-4 mt-0.5">
                   <div className="text-xs font-black text-slate-900 bg-white px-2.5 py-1 rounded-xl border border-amber-200">
                     {isMyTurn ? 'SUA VEZ!' : `Vez: ${activeTurnPlayer?.name || '...'}`}
                   </div>
@@ -1034,15 +1141,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
                     <EmotePicker onSelectEmote={(emote) => onSendEmote?.(emote.id)} />
 
-                    {isMyTurn && !isPaused && (
-                      <button
-                        type="button"
-                        onClick={onPassTurn}
-                        className="py-1 px-2.5 rounded-xl bg-cyan-500 text-white text-xs font-black border border-white shadow-sm flex items-center gap-1 cursor-pointer"
-                      >
-                        Passar
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={onPassTurn}
+                      disabled={!isMyTurn || isPaused}
+                      className={`py-1 px-2.5 rounded-xl text-xs font-black border border-white shadow-sm flex items-center gap-1 transition-all ${
+                        isMyTurn && !isPaused
+                          ? 'bg-cyan-500 text-white cursor-pointer active:scale-95'
+                          : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
+                      }`}
+                    >
+                      Passar
+                    </button>
                   </div>
                 </div>
               )}

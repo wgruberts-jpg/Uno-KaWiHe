@@ -10,7 +10,7 @@ feito: <lista curta>
 arquivos alterados: <caminhos>
 regras alteradas/criadas: <IDs>
 testes: <rodados? passaram/falharam, quantos>
-divergências encontradas: <código x docs>
+divergências encontradas: <código x documentação>
 regra AI Studio Free Tier: <respeitada?>
 próximo passo sugerido: <1 item>
 ```

@@ -26,9 +26,13 @@
 
 ## 📚 Documentação do Projeto
 
+- 🤖 [**AGENTS.md**](./AGENTS.md) — Briefing obrigatório para Agentes (regras de ouro, autoridade do servidor e AI Studio Free Tier).
+- 📜 [**00_visao.md**](./00_visao.md) a [**09_prompts.md**](./09_prompts.md) — Especificação modular de contrato, arquitetura, regras, testes e prompts prontos.
 - 🃏 [**GAME_MANUAL.md**](./GAME_MANUAL.md) — Manual oficial de regras do jogo, cartas especiais, penalidades de UNO e proteções infantis.
 - 📄 [**SYSTEM_SPECIFICATION.md**](./SYSTEM_SPECIFICATION.md) — Especificação técnica completa de arquitetura, envelopes de WebSocket v2, reconexão segura e persistência.
+- 🛠️ [**manualSH.md**](./manualSH.md) — Manual completo dos scripts shell de deploy, backup e administração.
 - 📊 [**USE_CASES.md**](./USE_CASES.md) — Mapeamento detalhado dos fluxos de uso, segurança e cenários de teste do sistema.
+- ⚖️ [**Game_funcionalidades**](./Game_funcionalidades) — Contrato normativo de regras e comportamento.
 
 ---
 

@@ -635,6 +635,22 @@ wild        → 50
 wild_draw_4 → 50
 
 O vencedor recebe a soma das cartas restantes dos adversários.
+
+23.1 Modo Duplas 2v2 (gameMode: 'team_2v2')
+
+O jogo suporta modo competitivo em duplas 2v2 com as seguintes regras autoritativas:
+
+    Composição da mesa: exatamente 4 jogadores divididos em Equipe A (Azul) e Equipe B (Laranja).
+
+    Disposição alternada de assentos: os jogadores são ordenados como [A1, B1, A2, B2] para que as jogadas alternem naturalmente entre as duas equipes em sentido horário/anti-horário.
+
+    Visibilidade compartilhada de cartas: cada membro da equipe recebe em tempo real pelo socket a lista de cartas do seu parceiro (`teammateHand`), além da própria mão (`myHand`). As cartas dos adversários permanecem estritamente ocultas.
+
+    Condição de encerramento e vitória: a rodada encerra imediatamente assim que qualquer um dos membros da equipe zerar todas as suas cartas na mão (`player.hand.length === 0`). A vitória é concedida à equipe inteira (`winnerTeam = player.team`), registrando o jogador que bateu em `winnerId`.
+
+    Cálculo de pontuação da rodada: a pontuação da equipe vencedora é a soma dos valores de todas as cartas restantes na mão dos 2 adversários da equipe perdedora. As cartas que sobraram na mão do parceiro vencedor não geram penalidade e não são somadas contra a equipe.
+
+    Proteção contra fogo amigo (UNO Catch): é expressamente proibido penalizar o próprio parceiro de equipe no caso de esquecimento de UNO (`catch_uno`). Tanto jogadores humanos quanto robôs da IA ignoram vulnerabilidade de seus respectivos parceiros de equipe.
 24. Pontuação
 
 Devem ser distinguidos:

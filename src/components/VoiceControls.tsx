@@ -289,12 +289,12 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
             {/* Peers */}
             {players
               .filter((p) => p.id !== myPlayerId && !p.isBot)
-              .map((p) => {
+              .map((p, idx) => {
                 const peerState = peerStates[p.id];
                 const inCall = !!peerState;
                 return (
                   <div
-                    key={p.id}
+                    key={`${p.id}-${idx}`}
                     className="flex items-center justify-between bg-slate-800/60 px-2.5 py-1.5 rounded-xl text-xs"
                   >
                     <div className="flex items-center gap-2">

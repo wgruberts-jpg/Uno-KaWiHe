@@ -10,6 +10,9 @@ import {
   handleTimeoutEngine,
   RoomData,
   InternalPlayer,
+  assignTeams2v2,
+  calculate2v2WinScore,
+  getTeammate,
 } from '../server/unoEngine.js';
 import { Card, CardColor } from '../src/types/uno.js';
 
@@ -562,6 +565,81 @@ describe('Uno Engine Unit Tests', () => {
       expect(res2.drewCard).toBe(false); // NÃO comprou carta extra!
       expect(pB.hand.length).toBe(1);    // Mão permaneceu com 1 carta
       expect(room.currentTurnIndex).toBe(0); // Apenas passou a vez de volta para A
+    });
+  });
+
+  // 12. Modo 2v2 em Duplas (Team Mode)
+  describe('12. Modo 2v2 em Duplas (Team Mode)', () => {
+    it('deve balancear e alternar os assentos entre Equipe A e Equipe B (A1, B1, A2, B2)', () => {
+      const p1: InternalPlayer = { id: 'p1', name: 'Jogador 1', avatar: '🦸', isHost: true, isBot: false, cardsCount: 7, hasCalledUno: false, isConnected: true, score: 0, hand: [], hasDrawnThisTurn: false };
+      const p2: InternalPlayer = { id: 'p2', name: 'Jogador 2', avatar: '🦹', isHost: false, isBot: false, cardsCount: 7, hasCalledUno: false, isConnected: true, score: 0, hand: [], hasDrawnThisTurn: false };
+      const p3: InternalPlayer = { id: 'p3', name: 'Jogador 3', avatar: '🧙', isHost: false, isBot: false, cardsCount: 7, hasCalledUno: false, isConnected: true, score: 0, hand: [], hasDrawnThisTurn: false };
+      const p4: InternalPlayer = { id: 'p4', name: 'Jogador 4', avatar: '🥷', isHost: false, isBot: false, cardsCount: 7, hasCalledUno: false, isConnected: true, score: 0, hand: [], hasDrawnThisTurn: false };
+
+      const room: RoomData = {
+        id: 'ROOM_2V2',
+        settings: { maxPlayers: 4, gameMode: 'team_2v2', turnDuration: 25, challengeUnoRule: true },
+        status: 'waiting',
+        players: [p1, p2, p3, p4],
+        deck: [],
+        discardPile: [],
+        currentColor: 'red',
+        currentTurnIndex: 0,
+        turnDirection: 1,
+        turnTimeLeft: 25,
+        winnerId: null,
+        unoVulnerablePlayerId: null,
+        turnTimerInterval: null,
+        botTimerTimeout: null,
+      };
+
+      assignTeams2v2(room);
+
+      // Verifica distribuição de equipes: 2 na Equipe A e 2 na Equipe B
+      expect(room.players.filter((p) => p.team === 'A').length).toBe(2);
+      expect(room.players.filter((p) => p.team === 'B').length).toBe(2);
+
+      // Verifica ordenação alternada dos assentos: A, B, A, B
+      expect(room.players[0].team).toBe('A');
+      expect(room.players[1].team).toBe('B');
+      expect(room.players[2].team).toBe('A');
+      expect(room.players[3].team).toBe('B');
+
+      // Verifica identificação correta do parceiro de equipe
+      const partnerOfP0 = getTeammate(room, room.players[0]);
+      expect(partnerOfP0?.id).toBe(room.players[2].id);
+
+      const partnerOfP1 = getTeammate(room, room.players[1]);
+      expect(partnerOfP1?.id).toBe(room.players[3].id);
+    });
+
+    it('deve calcular a pontuação de vitória a partir das cartas restantes de ambos os adversários', () => {
+      const a1: InternalPlayer = { id: 'a1', name: 'A1', avatar: '🦸', isHost: true, isBot: false, team: 'A', cardsCount: 0, hasCalledUno: false, isConnected: true, score: 0, hand: [], hasDrawnThisTurn: false };
+      const b1: InternalPlayer = { id: 'b1', name: 'B1', avatar: '🦹', isHost: false, isBot: false, team: 'B', cardsCount: 2, hasCalledUno: false, isConnected: true, score: 0, hand: [{ id: 'b1-1', color: 'red', value: '5', score: 5 }, { id: 'b1-2', color: 'blue', value: 'draw2', score: 20 }], hasDrawnThisTurn: false };
+      const a2: InternalPlayer = { id: 'a2', name: 'A2', avatar: '🧙', isHost: false, isBot: false, team: 'A', cardsCount: 3, hasCalledUno: false, isConnected: true, score: 0, hand: [{ id: 'a2-1', color: 'green', value: '3', score: 3 }], hasDrawnThisTurn: false };
+      const b2: InternalPlayer = { id: 'b2', name: 'B2', avatar: '🥷', isHost: false, isBot: false, team: 'B', cardsCount: 1, hasCalledUno: false, isConnected: true, score: 0, hand: [{ id: 'b2-1', color: 'wild', value: 'wild4', score: 50 }], hasDrawnThisTurn: false };
+
+      const room: RoomData = {
+        id: 'ROOM_SCORE_2V2',
+        settings: { maxPlayers: 4, gameMode: 'team_2v2', turnDuration: 25, challengeUnoRule: true },
+        status: 'playing',
+        players: [a1, b1, a2, b2],
+        deck: [],
+        discardPile: [],
+        currentColor: 'red',
+        currentTurnIndex: 0,
+        turnDirection: 1,
+        turnTimeLeft: 25,
+        winnerId: null,
+        unoVulnerablePlayerId: null,
+        turnTimerInterval: null,
+        botTimerTimeout: null,
+      };
+
+      // Quando a1 encerra as cartas da mão (0 cartas):
+      // Pontos calculados devem vir de B1 (5 + 20 = 25) + B2 (50) = 75 pontos!
+      const pointsWon = calculate2v2WinScore(room, a1);
+      expect(pointsWon).toBe(75);
     });
   });
 });

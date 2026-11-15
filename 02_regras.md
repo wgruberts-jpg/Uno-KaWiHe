@@ -47,6 +47,14 @@ Fonte de verdade das regras. Cada regra tem ID e status: **C** = CONFIRMADO, **P
 - **REG-ID-02** Desconectado mantém assento, mão e score durante o grace period.
 - **REG-ID-03** Sala sem humanos conectados é destruída após ~5 min.
 
+## Modo Duplas 2v2 (Equipes)
+- **REG-2V2-01** Modo 2v2 consiste em 4 jogadores divididos em Equipe A (Azul) e Equipe B (Laranja).
+- **REG-2V2-02** Assentos alternados `[A1, B1, A2, B2]` para intercalar turnos entre equipes opostas.
+- **REG-2V2-03** Visibilidade de cartas: cada membro da equipe recebe em tempo real pelo socket a mão do seu parceiro (`teammateHand`), mantendo cartas de adversários ocultas.
+- **REG-2V2-04** Condição de vitória: a rodada encerra imediatamente quando qualquer membro da equipe zerar suas cartas (`player.hand.length === 0`), concedendo a vitória à dupla (`winnerTeam`).
+- **REG-2V2-05** Pontuação da vitória: soma dos pontos das cartas restantes de ambos os adversários da equipe perdedora.
+- **REG-2V2-06** Fogo amigo de UNO: bloqueado acusar ou penalizar o próprio parceiro via `catch_uno`.
+
 ## Admin e Segurança
 - **REG-ADM-01** Rotas `/api/admin/*` exigem JWT com `role === 'admin'`.
 - **REG-SEG-01** `JWT_SECRET` obrigatório; senhas com bcrypt. Nenhuma cobrança ou dependência paga.

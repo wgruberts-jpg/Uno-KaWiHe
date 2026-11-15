@@ -78,6 +78,7 @@ interface LobbyProps {
   sendMessage?: (msg: ClientMessage) => void;
   onlinePlayers?: OnlinePlayerSummary[];
   lobbyChat?: Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>;
+  roomSettings?: RoomSettings;
 }
 
 export const Lobby: React.FC<LobbyProps> = ({
@@ -113,9 +114,12 @@ export const Lobby: React.FC<LobbyProps> = ({
   sendMessage,
   onlinePlayers = [],
   lobbyChat = [],
+  roomSettings,
 }) => {
   const [playerName, setPlayerName] = useState(() => currentUser?.displayName || localStorage.getItem('uno_nickname') || 'Jogador 1');
   const [selectedAvatar, setSelectedAvatar] = useState(() => currentUser?.avatar || localStorage.getItem('uno_avatar') || '🦸‍♂️');
+  const [creatorGameMode, setCreatorGameMode] = useState<'standard' | 'team_2v2'>('standard');
+  const [soloGameMode, setSoloGameMode] = useState<'standard' | 'team_2v2'>('standard');
 
   useEffect(() => {
     if (currentUser) {
@@ -308,7 +312,8 @@ export const Lobby: React.FC<LobbyProps> = ({
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     onCreateRoom(playerName, selectedAvatar, {
-      maxPlayers,
+      maxPlayers: creatorGameMode === 'team_2v2' ? 4 : maxPlayers,
+      gameMode: creatorGameMode,
       turnDuration,
       challengeUnoRule: true,
       ...getSavedSettings(),
@@ -318,8 +323,9 @@ export const Lobby: React.FC<LobbyProps> = ({
   const handleStartSoloClick = () => {
     if (isStartingSolo) return;
     setIsStartingSolo(true);
-    onStartSolo(playerName, selectedAvatar, selectedBotCount, {
+    onStartSolo(playerName, selectedAvatar, soloGameMode === 'team_2v2' ? 3 : selectedBotCount, {
       ...getSavedSettings(),
+      gameMode: soloGameMode,
       showBotCards: trainingShowBotCards,
     });
     setTimeout(() => setIsStartingSolo(false), 3000);
@@ -658,28 +664,68 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </div>
               </div>
 
-              {/* Bot Quantity Selector */}
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { count: 1, label: '1 Robô', desc: '1 contra 1' },
-                  { count: 2, label: '2 Robôs', desc: '3 jogadores' },
-                  { count: 3, label: '3 Robôs', desc: 'Mesa cheia (4)' },
-                ].map((item) => (
-                  <button
-                    key={item.count}
-                    type="button"
-                    onClick={() => setSelectedBotCount(item.count)}
-                    className={`py-1.5 px-2 rounded-2xl border-2 text-center transition-all cursor-pointer ${
-                      selectedBotCount === item.count
-                        ? 'bg-gradient-to-r from-yellow-300 to-amber-400 border-white text-slate-950 font-black shadow-md scale-102'
-                        : 'bg-white border-emerald-200 text-slate-700 hover:bg-emerald-100 font-bold'
-                    }`}
-                  >
-                    <div className="text-xs">{item.label}</div>
-                    <div className="text-[9px] opacity-80">{item.desc}</div>
-                  </button>
-                ))}
+              {/* Mode switch for training: 1v1 vs 2v2 Duplas */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-emerald-100/80 rounded-2xl border border-emerald-300">
+                <button
+                  type="button"
+                  onClick={() => setSoloGameMode('standard')}
+                  className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    soloGameMode === 'standard'
+                      ? 'bg-emerald-600 text-white shadow-sm border border-emerald-700'
+                      : 'text-emerald-950 hover:bg-white/50'
+                  }`}
+                >
+                  <span>🎮</span> Individual (Padrão)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSoloGameMode('team_2v2')}
+                  className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    soloGameMode === 'team_2v2'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm border border-blue-700'
+                      : 'text-emerald-950 hover:bg-white/50'
+                  }`}
+                >
+                  <span>🤝</span> Duplas 2v2 (Equipes)
+                </button>
               </div>
+
+              {/* Bot Quantity Selector (only if individual) */}
+              {soloGameMode === 'standard' ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { count: 1, label: '1 Robô', desc: '1 contra 1' },
+                    { count: 2, label: '2 Robôs', desc: '3 jogadores' },
+                    { count: 3, label: '3 Robôs', desc: 'Mesa cheia (4)' },
+                  ].map((item) => (
+                    <button
+                      key={item.count}
+                      type="button"
+                      onClick={() => setSelectedBotCount(item.count)}
+                      className={`py-1.5 px-2 rounded-2xl border-2 text-center transition-all cursor-pointer ${
+                        selectedBotCount === item.count
+                          ? 'bg-gradient-to-r from-yellow-300 to-amber-400 border-white text-slate-950 font-black shadow-md scale-102'
+                          : 'bg-white border-emerald-200 text-slate-700 hover:bg-emerald-100 font-bold'
+                      }`}
+                    >
+                      <div className="text-xs">{item.label}</div>
+                      <div className="text-[9px] opacity-80">{item.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-2.5 bg-blue-50/90 rounded-2xl border border-blue-200 text-xs flex items-center gap-2">
+                  <span className="text-xl">🤝</span>
+                  <div>
+                    <span className="font-black text-blue-950 block text-[11px]">
+                      Modo 2v2 (Você + 1 Robô vs 2 Robôs)
+                    </span>
+                    <span className="text-[10px] text-blue-700">
+                      Você verá a mão do seu robô parceiro. A rodada encerra assim que um membro da dupla zerar!
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Bot Cards Visibility Toggle for Kids / Practice Mode */}
               <div className="flex items-center justify-between p-2 rounded-2xl bg-white/90 border border-emerald-200 text-xs shadow-2xs">
@@ -740,6 +786,39 @@ export const Lobby: React.FC<LobbyProps> = ({
                   </p>
 
                   <div className="space-y-3 mb-3 text-xs">
+                    {/* Game Mode Selector */}
+                    <div>
+                      <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
+                        <span>👥</span> Modo de Jogo:
+                      </span>
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setCreatorGameMode('standard')}
+                          className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
+                            creatorGameMode === 'standard'
+                              ? 'bg-amber-400 text-slate-950 border-white shadow-sm ring-1 ring-amber-400'
+                              : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
+                          }`}
+                        >
+                          <div>🎮 Individual</div>
+                          <div className="text-[8px] opacity-80">Todos contra todos</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCreatorGameMode('team_2v2')}
+                          className={`py-1.5 px-1 rounded-xl text-[11px] font-black cursor-pointer transition-all border-2 text-center ${
+                            creatorGameMode === 'team_2v2'
+                              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-white shadow-sm ring-1 ring-blue-500'
+                              : 'bg-white text-slate-700 border-blue-200 hover:bg-blue-100'
+                          }`}
+                        >
+                          <div>🤝 Duplas 2v2</div>
+                          <div className="text-[8px] opacity-80">Ver cartas parceiro</div>
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Turn duration */}
                     <div>
                       <span className="text-slate-700 flex items-center gap-1 mb-1 font-black">
@@ -1148,6 +1227,51 @@ export const Lobby: React.FC<LobbyProps> = ({
 
             {/* Players in Room */}
             <div>
+              {/* 2v2 Mode Active Banner */}
+              {(roomSettings?.gameMode === 'team_2v2' || players.some((p) => p.team !== undefined)) && (
+                <div className="mb-3 p-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-2xl border-2 border-white shadow-md text-white flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🤝</span>
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-wider flex items-center gap-2">
+                        <span>Modo Duplas 2v2 Ativo</span>
+                        <span className="bg-yellow-300 text-slate-950 text-[10px] px-2 py-0.5 rounded-full font-black">
+                          Equipe A (Azul) vs Equipe B (Laranja)
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-blue-100 font-medium">
+                        Você verá a mão do seu parceiro em tempo real. A rodada encerra assim que um membro zerar!
+                      </div>
+                    </div>
+                  </div>
+
+                  {isHost && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        players.forEach((pl, idx) => {
+                          const targetTeam = idx < 2 ? 'A' : 'B';
+                          if (pl.team !== targetTeam) {
+                            sendMessage?.({
+                              type: 'set_team',
+                              roomId: roomId!,
+                              team: targetTeam,
+                              targetPlayerId: pl.id,
+                              playerId: myPlayerId,
+                            });
+                          }
+                        });
+                      }}
+                      className="py-1 px-3 rounded-xl bg-white hover:bg-yellow-100 text-slate-950 font-black text-xs flex items-center gap-1 cursor-pointer transition-all shadow-xs shrink-0 active:scale-95"
+                      title="Equilibrar duplas automaticamente (2 na Equipe A e 2 na Equipe B)"
+                    >
+                      <span>⚖️</span>
+                      <span>Equilibrar Duplas (2x2)</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-xs font-black uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
@@ -1184,13 +1308,13 @@ export const Lobby: React.FC<LobbyProps> = ({
 
               {/* Player Cards Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {players.map((p) => {
+                {players.map((p, idx) => {
                   const isMe = p.id === myPlayerId;
                   const isRoomCreator = creatorName && p.name.toLowerCase() === creatorName.toLowerCase();
 
                   return (
                     <div
-                      key={p.id}
+                      key={`${p.id}-${idx}`}
                       className={`p-3.5 rounded-2xl border-2 flex items-center justify-between transition-all ${
                         isMe
                           ? 'bg-amber-100/90 border-amber-400 shadow-md ring-2 ring-amber-300'
@@ -1240,6 +1364,48 @@ export const Lobby: React.FC<LobbyProps> = ({
                               <span className="text-emerald-700">🟢 Conectado e Pronto</span>
                             )}
                           </div>
+
+                          {/* 2v2 Team Badge and Switch Button */}
+                          {(roomSettings?.gameMode === 'team_2v2' || players.some((pl) => pl.team !== undefined)) && (
+                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className={`text-[10px] font-black px-2 py-0.5 rounded-full border shadow-2xs flex items-center gap-1 ${
+                                  p.team === 'A'
+                                    ? 'bg-blue-600 text-white border-blue-400'
+                                    : p.team === 'B'
+                                    ? 'bg-orange-500 text-white border-orange-400'
+                                    : 'bg-slate-200 text-slate-700 border-slate-300'
+                                }`}
+                              >
+                                <span>{p.team === 'A' ? '🟦' : p.team === 'B' ? '🟧' : '⚪'}</span>
+                                <span>{p.team ? `Equipe ${p.team}` : 'Sem Equipe'}</span>
+                              </span>
+
+                              {(isMe || isHost) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextTeam = p.team === 'A' ? 'B' : 'A';
+                                    sendMessage?.({
+                                      type: 'set_team',
+                                      roomId: roomId!,
+                                      team: nextTeam,
+                                      targetPlayerId: p.id,
+                                      playerId: myPlayerId,
+                                    });
+                                  }}
+                                  className={`text-[10px] font-black px-2 py-0.5 rounded-xl border transition-all cursor-pointer shadow-2xs ${
+                                    p.team === 'A'
+                                      ? 'bg-orange-100 hover:bg-orange-200 text-orange-950 border-orange-300'
+                                      : 'bg-blue-100 hover:bg-blue-200 text-blue-950 border-blue-300'
+                                  }`}
+                                  title="Alternar entre Equipe A e Equipe B"
+                                >
+                                  {p.team === 'A' ? 'Mudar p/ B 🟧' : 'Mudar p/ A 🟦'}
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1418,13 +1584,13 @@ export const Lobby: React.FC<LobbyProps> = ({
                     Nenhum jogador conectado no momento.
                   </div>
                 ) : (
-                  onlinePlayers.map((p) => {
+                  onlinePlayers.map((p, idx) => {
                     const isMe = p.id === currentUser?.id || (currentUser?.username && p.userId === currentUser.username);
                     const inRoom = p.roomId !== null;
 
                     return (
                       <div
-                        key={p.id}
+                        key={`${p.id}-${idx}`}
                         onClick={() => {
                           if (isAdmin) handleOpenPlayerReport(p);
                         }}
