@@ -868,7 +868,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="w-full max-w-6xl px-4 overflow-x-auto py-1 flex items-center justify-center scrollbar-thin">
+                <div className="w-full max-w-6xl px-4 overflow-x-auto overflow-y-visible py-6 flex items-center justify-center scrollbar-thin">
                   <div
                     className={`flex items-center ${
                       state.myHand.length > 22
@@ -882,7 +882,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         : state.myHand.length > 4
                         ? '-space-x-5'
                         : '-space-x-3'
-                    } hover:-space-x-2 transition-all duration-300 py-2 px-4`}
+                    } hover:-space-x-2 transition-all duration-300 py-6 px-4`}
                   >
                     {state.myHand.map((card, idx) => {
                       const playable = isPlayable(card);
@@ -891,10 +891,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       return (
                         <div
                           key={card.id}
-                          className={`transform transition-all duration-300 hover:z-40 hover:-translate-y-4 ${
+                          className={`transform transition-all duration-300 group hover:z-50 focus-within:z-50 ${
                             isFlying ? '-translate-y-48 scale-75 opacity-20 pointer-events-none' : ''
                           }`}
-                          style={{ zIndex: isFlying ? 50 : idx }}
+                          style={{ zIndex: isFlying ? 100 : idx }}
                         >
                           <UnoCard
                             card={card}
