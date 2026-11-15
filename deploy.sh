@@ -16,7 +16,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 STATE_FILE=".deploy_state"
-REPO_URL="https://github.com/wgruberts/unokawihe.git"
+REPO_URL="https://github.com/wgruberts-jpg/Uno-KaWiHe.git"
 INSTALL_DIR="/opt/unokawihe"
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
