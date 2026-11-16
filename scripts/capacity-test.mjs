@@ -210,7 +210,7 @@ async function initAdminAuth() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: ADMIN_USER, password: ADMIN_PASS }),
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(12000),
       });
       const data = await res.json();
       if (data?.success && data?.token) {
@@ -787,7 +787,7 @@ class CapacityCluster {
         }
       }
     }
-    await sleep(220);
+    await sleep(350);
 
     for (const room of this.rooms) {
       for (const client of [...room.players, ...room.spectators]) {
@@ -1101,11 +1101,15 @@ async function run() {
   }
 
   // Verifica se o servidor ficou limpo após o teardown
-  await sleep(400);
+  await sleep(800);
   const postTestVm = await fetchVmMetrics();
-  const openRoomsCheck = await fetch(`${httpBase}/api/rooms/open`, { signal: AbortSignal.timeout(4000) })
+  let openRoomsError = null;
+  const openRoomsCheck = await fetch(`${httpBase}/api/rooms/open`, { signal: AbortSignal.timeout(8000) })
     .then((r) => r.json())
-    .catch(() => null);
+    .catch((err) => {
+      openRoomsError = err?.message || 'timeout';
+      return null;
+    });
 
   // ==========================================================================
   // 7. Relatório Final Completo
@@ -1239,6 +1243,8 @@ async function run() {
   if (openRoomsCheck?.success) {
     const leftover = openRoomsCheck.rooms?.length ?? 0;
     console.log(`\n🧹 Limpeza pós-teste: ${leftover === 0 ? '0 salas remanescentes (100% limpo)' : `${leftover} sala(s) ainda aberta(s)`}${postTestVm ? ` | Node RSS pós-limpeza=${formatMB(postTestVm.memory.nodeRssBytes)}` : ''}`);
+  } else {
+    console.log(`\n🧹 Limpeza pós-teste: não foi possível consultar /api/rooms/open (${openRoomsError || 'resposta inválida'})`);
   }
   console.log('============================================================================');
 }

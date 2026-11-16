@@ -84,6 +84,7 @@ app.post('/api/auth/login', async (req, res) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(3500),
       });
       const data = await response.json();
       return res.status(response.status).json(data);
@@ -100,6 +101,7 @@ app.get('/api/auth/me', async (req, res) => {
     try {
       const response = await fetch(`${AUTH_SERVICE_URL}/api/auth/me`, {
         headers: { Authorization: req.headers.authorization || '' },
+        signal: AbortSignal.timeout(3500),
       });
       const data = await response.json();
       return res.status(response.status).json(data);
@@ -1144,8 +1146,7 @@ app.post('/api/admin/rooms/:id/close', (req, res) => {
 
   const reason = req.body.reason || 'Esta sala foi encerrada pelo Administrador Edinho.';
   broadcastToRoom(room.id, { type: 'player_kicked', reason });
-  stopTurnTimer(room);
-  rooms.delete(room.id);
+  cleanupRoomResources(room);
 
   return res.json({ success: true, message: `Sala ${room.id} fechada com sucesso.` });
 });
@@ -1796,6 +1797,30 @@ function stopTurnTimer(room: RoomData) {
     clearTimeout(room.botTimerTimeout);
     room.botTimerTimeout = null;
   }
+  if (room.stagedCardTimeout) {
+    clearTimeout(room.stagedCardTimeout);
+    room.stagedCardTimeout = null;
+  }
+}
+
+function cleanupRoomResources(room: RoomData) {
+  stopTurnTimer(room);
+  if (room.emptyRoomTimeout) {
+    clearTimeout(room.emptyRoomTimeout);
+    room.emptyRoomTimeout = undefined;
+  }
+  const prefix = `${room.id}:`;
+  for (const key of sessionReconnectTokens.keys()) {
+    if (key.startsWith(prefix)) {
+      sessionReconnectTokens.delete(key);
+    }
+  }
+  for (const [clientWs, meta] of clientConnections.entries()) {
+    if (meta.roomId === room.id) {
+      clientConnections.delete(clientWs);
+    }
+  }
+  rooms.delete(room.id);
 }
 
 function startTurnTimer(room: RoomData) {
@@ -2695,8 +2720,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
             const hasOnlineHumans = room.players.some((p) => !p.isBot && p.isConnected);
             if (!hasOnlineHumans) {
-              stopTurnTimer(room);
-              rooms.delete(room.id);
+              cleanupRoomResources(room);
             } else {
               syncRoomState(room);
             }
@@ -3084,8 +3108,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
               type: 'player_kicked',
               reason: msg.reason || 'Esta sala foi encerrada pelo Administrador Edinho.',
             });
-            stopTurnTimer(targetRoom);
-            rooms.delete(targetRoom.id);
+            cleanupRoomResources(targetRoom);
           }
         }
         return;
@@ -3593,7 +3616,9 @@ wss.on('connection', (ws: WebSocket, req: any) => {
   });
 
   ws.on('close', () => {
-    // Delete from online lobby registry and notify
+    // Delete from online lobby registry & per-socket rate limit maps to prevent memory leaks
+    lobbyChatRateLimits.delete(ws);
+    startSoloRateLimits.delete(ws);
     onlinePlayers.delete(ws);
     broadcastOnlinePlayers();
 
@@ -3627,8 +3652,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
             if (currentRoom) {
               const stillNoHumans = currentRoom.players.every((p) => p.isBot || !p.isConnected);
               if (stillNoHumans) {
-                stopTurnTimer(currentRoom);
-                rooms.delete(currentRoom.id);
+                cleanupRoomResources(currentRoom);
                 console.log(`[Room Cleanup] Sala #${currentRoom.id} encerrada por inatividade (5min).`);
               }
             }
@@ -3637,6 +3661,9 @@ wss.on('connection', (ws: WebSocket, req: any) => {
       } else {
         syncRoomState(room);
       }
+    } else if (room.spectators) {
+      room.spectators = room.spectators.filter((s) => s.id !== meta.playerId);
+      syncRoomState(room);
     }
   });
 });
