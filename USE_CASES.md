@@ -113,13 +113,28 @@ Este documento mapeia os principais fluxos de uso, interações, cenários de se
 
 ---
 
-## 🧪 Caso de Uso 9: Execução da Suíte Completa de Testes (`npm test`)
-* **Descrição:** Permite validar regras de negócio, modo 2v2, torneios, W.O., integridade de WebSocket e políticas de segurança.
+## 📥 Caso de Uso 9: Importador de Usuários em Massa e Ciclo de Vida (Admin JWT)
+* **Descrição:** O Administrador importa lotes de até 200 jogadores (CSV ou colagem até 512 KB), com pré-validação, inscrição opcional em torneios individuais e gestão segura pós-importação.
+* **Pré-condições:** JWT válido com `role === 'admin'` (requisições apenas com `x-admin-pin` são recusadas com HTTP 403).
+* **Fluxo Principal:**
+  1. Na aba **Importar em Massa** do painel administrativo, o Admin escolhe upload CSV ou colagem de texto e seleciona o modo (`create_only`, `create_and_enroll` ou `enroll_existing`).
+  2. O sistema pré-valida no servidor (`POST /api/admin/import/validate`): exige `displayName` único (NFKC, sem fallback para `username`), senha mínima padronizada de 4 caracteres e bloqueia torneios `doubles` nesta v1.
+  3. Ao confirmar no modal da interface, `POST /api/admin/import/commit` executa hash `bcrypt` em `worker_threads` nativa fora do lock e persiste atômica e consistentemente (`data/.kawihe.lock` + WAL) em `users.json`, `tournaments.json` e `import_batches.json` (sem gravar senhas ou hashes no histórico do lote).
+  4. Na aba **Histórico Lotes**, o Admin consulta lotes anteriores, distingue contas criadas pelo lote (`created_by_batch`) de contas já existentes (`existing_enrolled_only`), analisa impacto de dependências e pode desativar (`disabled`), arquivar (`archived`), reativar (`active`) ou excluir apenas contas sem histórico vinculado — derrubando imediatamente sessões WebSocket ativas (código `4003`) de contas bloqueadas.
+
+---
+
+## 🧪 Caso de Uso 10: Execução da Suíte Completa de Testes (`npm test`)
+* **Descrição:** Permite validar regras de negócio, modo 2v2, torneios, W.O., importador em massa, integridade de WebSocket e políticas de segurança.
 * **Fluxo Principal:**
   1. O desenvolvedor executa `npm test` (ou `npx vitest run --reporter=verbose`) no terminal.
-  2. O runner executa **91 testes automatizados** em 5 suítes com 100% de aprovação:
+  2. O runner executa **106 testes automatizados** em 8 suítes com 100% de aprovação:
      - **26 testes unitários** no `tests/unoEngine.test.ts`
      - **19 testes de integração e segurança** no `tests/serverIntegration.test.ts`
      - **22 testes de domínio puro de torneios** no `tests/tournamentEngine.test.ts`
      - **19 testes de remoção segura por W.O.** no `tests/tournamentWo.test.ts`
      - **5 testes de integração real de torneios HTTP/WS** no `tests/tournamentIntegration.test.ts`
+     - **6 testes do parser RFC-4180 do importador** no `tests/importParser.test.ts`
+     - **6 testes de serviço, WAL, ciclo de vida e benchmark Worker** no `tests/importService.test.ts`
+     - **3 testes de integração HTTP/WS e desconexão ao vivo** no `tests/importIntegration.test.ts`
+

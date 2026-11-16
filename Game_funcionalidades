@@ -1505,9 +1505,9 @@ Para suportar ambientes de desenvolvimento e VMs acessadas via IP direto em HTTP
 - **Firefox:** Ajustes em `about:config` alterando `media.devices.insecure.enabled` e `media.getusermedia.insecure.enabled` de `false` para `true`.
 - **Google Chrome / Edge:** Acesso a `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, definindo como `Enabled` e adicionando a origem/IP.
 
-67. Suíte de Testes Automatizados e Confiabilidade (91 Testes — v2.2.3)
+67. Suíte de Testes Automatizados e Confiabilidade (106 Testes — v2.2.3)
 
-A suíte de testes do Uno KaWiHe v2.2.3 compreende **91 testes automatizados** executados via Vitest em 5 arquivos (`tests/unoEngine.test.ts`: 26, `tests/serverIntegration.test.ts`: 19, `tests/tournamentEngine.test.ts`: 22, `tests/tournamentWo.test.ts`: 19, `tests/tournamentIntegration.test.ts`: 5), cobrindo regras de jogo, modo Duplas 2v2, proteção anti-fraude, isolamento de sockets, validação de rotas administrativas, motor de torneios e invariante das 108 cartas no W.O. O servidor de desenvolvimento gerencia o middleware do Vite com estabilidade e tratamento de falhas de transporte.
+A suíte de testes do Uno KaWiHe v2.2.3 compreende **106 testes automatizados** executados via Vitest em 8 arquivos (`tests/unoEngine.test.ts`: 26, `tests/serverIntegration.test.ts`: 19, `tests/tournamentEngine.test.ts`: 22, `tests/tournamentWo.test.ts`: 19, `tests/tournamentIntegration.test.ts`: 5, `tests/importParser.test.ts`: 6, `tests/importService.test.ts`: 6, `tests/importIntegration.test.ts`: 3), cobrindo regras de jogo, modo Duplas 2v2, proteção anti-fraude, isolamento de sockets, validação de rotas administrativas, motor de torneios, invariante das 108 cartas no W.O. e o módulo completo do Importador de Usuários em Massa. O servidor de desenvolvimento gerencia o middleware do Vite com estabilidade e tratamento de falhas de transporte.
 
 68. Sistema de Torneios (`tournamentEngine.ts` e `data/tournaments.json`)
 
@@ -1515,4 +1515,12 @@ A suíte de testes do Uno KaWiHe v2.2.3 compreende **91 testes automatizados** e
 - Criação, início, simulação pré-início (`/api/tournaments/:id/simulate`) e decisões administrativas restritas a `role === 'admin'`.
 - Remoção por W.O. (`removeTournamentPlayerWO`) aplica-se exclusivamente a salas com `tournamentId` no modo individual após expiração de `reconnectGraceMs`, devolvendo cartas da mão e `stagedCardPlay` abaixo do topo do descarte sem violar a contagem de 108 cartas. Em salas 2v2, W.O. individual é rejeitado e a desistência concede vitória da partida à equipe adversária.
 - Em reinício do servidor com partidas ativas, os torneios entram em pausa (`server_restart`) aguardando resolução administrativa sem inventar vencedor automático.
+
+69. Importador de Usuários em Massa e Ciclo de Vida de Contas (`importService.ts`, `importParser.ts`, `dataLock.ts`)
+
+- Autorização estrita: todas as rotas `/api/admin/import/*` exigem JWT válido com `role === 'admin'` (sem fallback por `x-admin-pin`), registrando o administrador responsável em `auditTrail`.
+- Regras padronizadas: senha mínima de **4 caracteres** em todo o sistema; `displayName` obrigatório e único (normalizado em Unicode NFKC, sem fallback automático para `username`); `role` sempre `'player'`; limites de **512 KB** e **200 registros** por lote; torneios `doubles` bloqueados na V1 (evolução futura prevista com coluna `teamName`).
+- Desempenho e integridade: hashing `bcrypt` em `worker_threads` nativa fora do lock (evitando bloqueio de WebSockets), serialização global via mutex FIFO + `data/.kawihe.lock`, e WAL em `data/import_batches.json` com reconciliação automática (`reconcileIncompleteImportBatches`) na inicialização do servidor.
+- Privacidade e ciclo de vida: zero retenção de senhas/hashes/CSV bruto em lotes ou logs; estados `active`, `disabled` e `archived` aplicados em login (HTTP 403), `/api/auth/me`, JWT, salas, torneios e WebSockets ativos (desconexão imediata código `4003`); exclusão física permitida apenas para contas criadas pelo lote sem histórico de partidas, torneios, salas ativas ou convites.
+
 

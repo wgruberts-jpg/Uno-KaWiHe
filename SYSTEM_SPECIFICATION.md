@@ -10,10 +10,10 @@ O **Uno KaWiHe v2.2.3** é uma plataforma full-stack de jogo de cartas UNO multi
 ### Pilhas de Tecnologia (Tech Stack)
 * **Frontend:** React 19, Vite, TypeScript, Tailwind CSS v4, Lucide Icons, Motion, Canvas Confetti.
 * **Backend:** Node.js, Express, WebSockets (`ws`), TypeScript (`tsx`).
-* **Testes Automatizados:** Vitest (**91 testes** em 5 suítes: `unoEngine`, `serverIntegration`, `tournamentEngine`, `tournamentWo`, `tournamentIntegration`).
-* **Segurança & Autenticação:** JWT (JSON Web Tokens) com verificação estrita de assinatura e perfil (`role: 'admin' | 'player'`), Rate Limiting composto em memória com suporte a Cloudflare (`CF-Connecting-IP` e `trust proxy`), `bcryptjs` e criptografia nativa `crypto` (`randomUUID`, `randomInt`, `randomBytes`).
+* **Testes Automatizados:** Vitest (**106 testes** em 8 suítes: `unoEngine`, `serverIntegration`, `tournamentEngine`, `tournamentWo`, `tournamentIntegration`, `importParser`, `importService`, `importIntegration`).
+* **Segurança & Autenticação:** JWT (JSON Web Tokens) com verificação estrita de assinatura e perfil (`role: 'admin' | 'player'`), senha mínima padronizada em **4 caracteres**, Rate Limiting composto em memória com suporte a Cloudflare (`CF-Connecting-IP` e `trust proxy`), `bcryptjs` (com processamento em `worker_threads` nativa para lotes em massa) e criptografia nativa `crypto` (`randomUUID`, `randomInt`, `randomBytes`).
 * **Comunicação em Tempo Real:** WebSockets (sincronização de estado da partida, torneios, chat e lobbies) e WebRTC (voz P2P direta com sinalização sanitizada via WebSocket).
-* **Persistência Atômica:** Disco local (`data/users.json`, `data/invites.json`, `data/stats.json`, `data/tournaments.json`) com sincronização física `fsyncSync` + `renameSync`.
+* **Persistência Atômica e Lock Global:** Disco local (`data/users.json`, `data/invites.json`, `data/stats.json`, `data/tournaments.json`, `data/import_batches.json`) com sincronização física `fsyncSync` + `renameSync` e exclusão mútua in-process + `data/.kawihe.lock`.
 * **Deploy:** Docker, Docker Compose ou execução direta via Node.js/AI Studio (100% Free Tier).
 
 ---
@@ -26,7 +26,10 @@ O **Uno KaWiHe v2.2.3** é uma plataforma full-stack de jogo de cartas UNO multi
 ├── server/
 │   ├── unoEngine.ts                # Motor de Regras do Jogo UNO (Padrão, 2v2, W.O. e Bots)
 │   ├── tournamentEngine.ts         # Domínio Puro de Torneios (Individual, Duplas, Desempates, W.O.)
-│   └── authService.ts              # Serviço de Autenticação, Usuários, Convites e JWT
+│   ├── dataLock.ts                 # Escrita atômica, mutex FIFO e file lock multi-processo (.kawihe.lock)
+│   ├── authService.ts              # Serviço de Autenticação, Usuários (status), Convites e JWT
+│   ├── importParser.ts             # Parser RFC-4180 CSV/TSV/texto (512 KB / 200 linhas)
+│   └── importService.ts            # Importador em massa, Worker bcrypt, WAL, impacto e ciclo de vida
 ├── auth-service/
 │   ├── server.ts                   # Microserviço Central de Autenticação KaWiHe (SSO opcional)
 │   └── Dockerfile                  # Container isolado do Auth Service
@@ -35,7 +38,10 @@ O **Uno KaWiHe v2.2.3** é uma plataforma full-stack de jogo de cartas UNO multi
 │   ├── serverIntegration.test.ts   # Suíte de Integração HTTP/WS e Segurança (19 testes)
 │   ├── tournamentEngine.test.ts    # Suíte Unitária do Domínio de Torneios (22 testes)
 │   ├── tournamentWo.test.ts        # Suíte de W.O. e Invariante das 108 Cartas (19 testes)
-│   └── tournamentIntegration.test.ts # Suíte de Integração Real de Torneios (5 testes)
+│   ├── tournamentIntegration.test.ts # Suíte de Integração Real de Torneios (5 testes)
+│   ├── importParser.test.ts        # Suíte do Parser RFC-4180 do Importador (6 testes)
+│   ├── importService.test.ts       # Suíte do Importador, WAL, Ciclo de Vida e Benchmark Worker (6 testes)
+│   └── importIntegration.test.ts   # Suíte de Integração HTTP/WS do Importador e Bloqueio Ao Vivo (3 testes)
 ├── src/
 │   ├── App.tsx                     # Orquestrador Principal do Frontend
 │   ├── main.tsx                    # Inicialização do React
@@ -62,7 +68,9 @@ O **Uno KaWiHe v2.2.3** é uma plataforma full-stack de jogo de cartas UNO multi
 │   │   ├── SettingsModal.tsx       # Configurações da Partida & Modo Kids
 │   │   ├── HowToPlayModal.tsx      # Regras e Instruções
 │   │   ├── GameOverModal.tsx       # Tela de Vitória/Revanche
-│   │   ├── AdminRoomsModal.tsx     # Painel Administrativo de Salas e Usuários
+│   │   ├── AdminRoomsModal.tsx     # Painel Administrativo de Salas, Usuários e Abas do Importador
+│   │   ├── AdminImportPanel.tsx    # Importador de Usuários em Massa (Upload CSV / Colagem / Modos A-C)
+│   │   ├── AdminImportHistoryPanel.tsx # Histórico de Lotes, Auditoria, Análise de Impacto e Ciclo de Vida
 │   │   ├── AdminInvitesModal.tsx   # Gestão de Convites pelo Admin
 │   │   ├── PlayerReportModal.tsx   # Relatório de Diagnóstico e Moderação
 │   │   ├── VmMonitorModal.tsx      # Monitor de Métricas da VM
@@ -192,26 +200,40 @@ A escrita dos arquivos JSON em `./data/` usa um fluxo físico de segurança atô
 | :--- | :--- | :--- | :--- |
 | `id` | `string` | Sim (PK) | Identificador imutável (`usr_edinho`, `usr_<ts>_<rand>`) |
 | `username` | `string` | Sim (Unique) | Login em minúsculas e sem espaços |
-| `passwordHash` | `string` | Sim | Hash `bcrypt` (nunca retornado ao cliente) |
-| `displayName` | `string` | Sim | Nome público exibido nas mesas e lobby |
+| `passwordHash` | `string` | Sim | Hash `bcrypt` (mín. 4 caracteres; nunca retornado ao cliente) |
+| `displayName` | `string` | Sim (Unique) | Nome público exibido nas mesas e lobby (normalizado NFKC, 2–18 chars) |
 | `avatar` | `string` | Sim | Emoji/ícone do jogador |
-| `role` | `'admin' \| 'player'` | Sim | Permissão de acesso |
+| `role` | `'admin' \| 'player'` | Sim | Permissão de acesso (importação em lote fixa `'player'`) |
 | `tag` | `string` | Opcional | Tag definitiva única de 4 dígitos (ex: `#0001`) |
 | `createdAt` | `string` | Sim | Timestamp ISO 8601 de criação |
+| `status` | `'active' \| 'disabled' \| 'archived'` | Opcional (default `'active'`) | Estado do ciclo de vida da conta |
+| `statusUpdatedAt` | `string` | Opcional | Timestamp ISO 8601 da última alteração de status |
+| `statusReason` | `string` | Opcional | Motivo administrativo da desativação/arquivamento |
 
-### 7.2 Outros Arquivos em `./data/`
+### 7.2 Outros Arquivos em `./data/` e Lock Multi-Processo
+- **`data/.kawihe.lock`:** Lock exclusivo coordenado por `server/dataLock.ts` e `auth-service/server.ts` garantindo serialização entre operações concorrentes de cadastro, edição de perfil, redefinição de senha, importação e status.
 - **`data/invites.json` (`InviteCode[]`):** `code` (`@XXXX`), `createdBy`, `createdAt`, `expiresAt`, `maxUses`, `usedCount`, `usedBy`, `status`.
 - **`data/stats.json`:** Mapa indexado por `user.id` / `username` contendo `PlayerCareerStats` (vitórias, sequências, cartas jogadas, conquistas).
 - **`data/tournaments.json`:** Estado persistido de torneios (`Tournament[]`), inscrições, rodadas e jogos para recuperação pós-reinício.
+- **`data/import_batches.json` (`ImportBatch[]`):** Histórico completo de lotes de importação (`importBatchId`, `name`, `importTag`, `mode`, `sourceType`, `delimiterUsed`, `tournamentId`, `idempotencyKey`, `status`, `stepsCompleted` WAL, `summary`, `items` com `relationType: 'created_by_batch' | 'existing_enrolled_only'`, e `auditTrail`). **Privacidade:** nenhuma senha em texto puro, `passwordHash` ou payload CSV bruto é persistido.
+
+### 7.3 Consistência Cross-File (WAL) & Desempenho do Importador
+- **Protocolo WAL:** Lotes gravam `status: 'in_progress'` com `stepsCompleted` (`usersSaved`, `tournamentSaved`, `batchFinalized`) antes de modificar `users.json` e `tournaments.json`. Na inicialização do servidor, `reconcileIncompleteImportBatches` recupera lotes interrompidos por queda sem duplicar usuários ou inscrições.
+- **Parser 1 MB dedicado:** Apenas `/api/admin/import/*` aceita JSON até `1mb` (para suportar CSV até 512 KB com metadados), mantendo o limite padrão `100kb` nas demais rotas.
+- **Benchmark Empírico (`worker_threads` bcrypt rounds=10, 200 registros):** ~20,6s totais com **lag médio de Event Loop de ~10,6ms** (máx. 58,7ms sob carga de testes paralelos), mantendo latência WebSocket estável durante importações máximas.
+- **Evolução Futura Planejada (Torneios Duplas):** A V1 bloqueia inscrição individual em torneios `doubles`; a arquitetura prevê extensão futura para colunas `username;displayName;password;teamName` respeitando a regra de duplas sem improviso.
 
 ---
 
 ## 8. Suíte de Testes Automatizados (Vitest)
 
-O sistema possui **91 testes automatizados** distribuídos em 5 arquivos, executados via `npm test` (`vitest run`):
+O sistema possui **106 testes automatizados** distribuídos em 8 arquivos, executados via `npm test` (`vitest run`):
 
 1. **`tests/unoEngine.test.ts` (26 testes):** Composição das 108 cartas, jogabilidade (`isCardPlayable`), turnos, Reverse em 2 jogadores, reciclagem preservando cores, `pass_turn` / `MUST_DRAW_FIRST`, timeout, vitória com `+2`/`+4`, janela de UNO, bloqueio `UNO_SELF_CATCH` e regras do modo 2v2.
 2. **`tests/serverIntegration.test.ts` (19 testes):** Proteção contra usurpação de socket (`UNAUTHENTICATED_SOCKET`), versionamento (`UNSUPPORTED_VERSION`), `reconnectToken`, idempotência, `MUST_DRAW_FIRST`, `UNO_SELF_CATCH`, `PLAYER_MISMATCH`, `NOT_AUTHENTICATED`, controle de acesso JWT Admin vs `role: 'player'` vs `x-admin-pin`, exclusão de salas privadas em `/api/rooms/open`, `/api/admin/player-report/:target`, ações de moderação e bloqueio de fogo amigo 2v2.
 3. **`tests/tournamentEngine.test.ts` (22 testes):** Permissões admin, validação de séries (Md1/Md3/Md5) e equipes 2v2, distribuição determinística de mesas (2..4), chaveamento com byes, *early clinch*, classificação V1 sem desempate por `roundPointsWon`, desempate por partida extra ou decisão admin, W.O. por prazo de reconexão e pausa segura pós-reinicialização.
 4. **`tests/tournamentWo.test.ts` (19 testes):** Remoção de jogador por W.O. em torneio individual preservando exatamente as 108 cartas e IDs únicos, recuperação de carta em `stagedCardPlay`, ajuste de `currentTurnIndex` em ambas as direções (`1` e `-1`), idempotência e rejeição em salas 2v2 ou salas comuns.
 5. **`tests/tournamentIntegration.test.ts` (5 testes):** Integração real ponta a ponta via HTTP e WebSocket para criação, inscrição, simulação, partidas e conclusão de torneios Individual e Duplas 2v2.
+6. **`tests/importParser.test.ts` (6 testes):** Parser RFC-4180 (aspas, `;`/`,`/`\t`), remoção de BOM UTF-8, colunas reordenadas, detecção de ambiguidade de delimitador, limites de 512 KB / 200 registros e lista simples de usernames no Modo C.
+7. **`tests/importService.test.ts` (6 testes):** Senha mínima padronizada de 4 caracteres, `displayName` obrigatório/NFKC, privacidade sem armazenamento de senhas/hashes em `import_batches.json`, Modos A/B/C, bloqueio `doubles`, reconciliação WAL, ciclo de vida e benchmark empírico de 200 hashes `bcrypt` em Worker Thread.
+8. **`tests/importIntegration.test.ts` (3 testes):** Bloqueio estrito sem JWT admin (incluindo rejeição de `x-admin-pin`), parser 1 MB dedicado, fluxo ponta a ponta Fases 1–4 com desconexão ao vivo de WebSocket (close `4003`) e bloqueio HTTP 403 no login.

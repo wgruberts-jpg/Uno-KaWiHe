@@ -40,15 +40,29 @@ import {
   registerUser,
   loginUser,
   getUserFromToken,
+  verifyToken,
   verifyAdminPin,
   getAllInvites,
   saveInvites,
   getAllUsers,
+  getUserRecordById,
+  getEffectiveUserStatus,
+  isUserAccountActive,
   updateUserProfile,
   adminCreateUser,
   adminResetPassword,
   adminDeleteUser
 } from './server/authService.js';
+import { buildCsvTemplate } from './server/importParser.js';
+import {
+  analyzeImportBatchUsersImpact,
+  commitImportBatch,
+  getImportBatchDetails,
+  listImportBatches,
+  manageImportBatchUsers,
+  reconcileIncompleteImportBatches,
+  validateImportBatch,
+} from './server/importService.js';
 import {
   assertTournamentAdmin,
   createTournament,
@@ -71,7 +85,14 @@ const app = express();
 const server = http.createServer(app);
 const PORT = 3000;
 
-app.use(express.json());
+const defaultJsonMiddleware = express.json();
+const importJsonMiddleware = express.json({ limit: '1mb' });
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/admin/import')) {
+    return importJsonMiddleware(req, res, next);
+  }
+  return defaultJsonMiddleware(req, res, next);
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -115,7 +136,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
   }
   const result = await loginUser(req.body);
-  return res.status(result.success ? 200 : 401).json(result);
+  return res.status(result.success ? 200 : result.accountBlocked ? 403 : 401).json(result);
 });
 
 app.get('/api/auth/me', async (req, res) => {
@@ -154,7 +175,7 @@ app.post('/api/auth/update-profile', async (req, res) => {
     return res.status(401).json({ success: false, error: 'Sessão expirada.' });
   }
   const { displayName, avatar } = req.body;
-  const updated = updateUserProfile(user.id, displayName, avatar);
+  const updated = await updateUserProfile(user.id, displayName, avatar);
   if (!updated) {
     return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
   }
@@ -998,6 +1019,8 @@ app.get('/api/admin/users', async (req, res) => {
       role: u.role,
       tag: u.tag,
       createdAt: u.createdAt,
+      status: getEffectiveUserStatus(u),
+      statusUpdatedAt: u.statusUpdatedAt,
       isOnline,
       currentRoomId,
       roomStatus,
@@ -1092,9 +1115,12 @@ app.delete('/api/admin/users/:id', async (req, res) => {
     }
   }
 
-  const result = adminDeleteUser(req.params.id);
+  const result = await adminDeleteUser(req.params.id);
   if (!result.success) {
     return res.status(400).json(result);
+  }
+  if (result.deletedUserId) {
+    disconnectUsersFromServer([result.deletedUserId], 'Esta conta foi removida pelo Administrador.');
   }
   return res.json(result);
 });
@@ -1593,8 +1619,8 @@ function loadTournamentsFromDisk(): Map<string, Tournament> {
 
 const tournaments = loadTournamentsFromDisk();
 
-function saveTournaments(): void {
-  atomicWriteTournamentsSync(tournaments);
+function saveTournaments(targetMap: Map<string, Tournament> = tournaments): void {
+  atomicWriteTournamentsSync(targetMap);
 }
 
 function getAuthenticatedRequestUser(req: express.Request) {
@@ -1602,6 +1628,257 @@ function getAuthenticatedRequestUser(req: express.Request) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   return getUserFromToken(authHeader.split(' ')[1]);
 }
+
+function getStrictAdminJwtActor(req: express.Request) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const user = getUserFromToken(authHeader.split(' ')[1]);
+  if (!user || user.role !== 'admin') return null;
+  return user;
+}
+
+function disconnectUsersFromServer(userIds: string[], reason: string): number {
+  if (!userIds || userIds.length === 0) return 0;
+  const targetSet = new Set(userIds);
+  const allUsers = getAllUsers();
+  const usernamesSet = new Set<string>();
+  for (const u of allUsers) {
+    if (targetSet.has(u.id)) {
+      usernamesSet.add(u.username.toLowerCase());
+    }
+  }
+
+  let closedCount = 0;
+  for (const [ws, meta] of Array.from(onlinePlayers.entries())) {
+    const matchesAuthId = !!(meta.authenticatedUserId && targetSet.has(meta.authenticatedUserId));
+    const matchesUsername = !!(meta.userId && usernamesSet.has(meta.userId.toLowerCase()));
+    const matchesPrefixedId = usernamesSet.size > 0 && Array.from(usernamesSet).some((un) => meta.id === `user-${un}`);
+
+    if (matchesAuthId || matchesUsername || matchesPrefixedId) {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: 'error', code: 'FORBIDDEN', message: reason }));
+          ws.close(4003, reason);
+        } catch {}
+      }
+      removeClientConnection(ws);
+      onlinePlayers.delete(ws);
+      closedCount++;
+    }
+  }
+
+  // Mark room seats disconnected or remove from waiting non-tournament rooms
+  for (const room of Array.from(rooms.values())) {
+    let changed = false;
+    for (const p of [...room.players]) {
+      if (p.isBot) continue;
+      if ((p.userId && targetSet.has(p.userId)) || usernamesSet.has(p.name.toLowerCase())) {
+        if (room.status === 'waiting' && !room.tournamentId) {
+          room.players = room.players.filter((pl) => pl.id !== p.id);
+          changed = true;
+        } else if (p.isConnected) {
+          p.isConnected = false;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      const hasHumans = room.players.some((p) => !p.isBot && p.isConnected);
+      if (!hasHumans && !room.tournamentId) {
+        cleanupRoomResources(room);
+      } else {
+        syncRoomState(room);
+      }
+    }
+  }
+
+  if (closedCount > 0) {
+    scheduleBroadcastOnlinePlayers();
+  }
+  return closedCount;
+}
+
+// ============================================================================
+// Importador de Usuários em Massa (JWT Admin Obrigatório)
+// ============================================================================
+
+app.get('/api/admin/import/template', (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito a Administrador autenticado via JWT.' });
+  }
+  const mode =
+    req.query.mode === 'enroll_existing'
+      ? 'enroll_existing'
+      : req.query.mode === 'create_and_enroll'
+        ? 'create_and_enroll'
+        : 'create_only';
+  const csv = buildCsvTemplate(mode);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="modelo_importacao_${mode}.csv"`);
+  return res.send('\uFEFF' + csv);
+});
+
+app.post('/api/admin/import/validate', (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito a Administrador autenticado via JWT.' });
+  }
+
+  const body = req.body || {};
+  const mode =
+    body.mode === 'create_and_enroll' || body.mode === 'enroll_existing' ? body.mode : 'create_only';
+
+  const result = validateImportBatch({
+    rawText: String(body.rawText || ''),
+    mode,
+    delimiter: body.delimiter || 'auto',
+    tournamentId: body.tournamentId ? String(body.tournamentId) : undefined,
+    ignoreExistingUsers: !!body.ignoreExistingUsers,
+    tournamentsMap: tournaments,
+  });
+
+  return res.status(result.success ? 200 : 400).json(result);
+});
+
+app.post('/api/admin/import/commit', async (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito a Administrador autenticado via JWT.' });
+  }
+
+  const body = req.body || {};
+  const mode =
+    body.mode === 'create_and_enroll' || body.mode === 'enroll_existing' ? body.mode : 'create_only';
+  const sourceType = body.sourceType === 'csv_upload' ? 'csv_upload' : 'text_paste';
+
+  const result = await commitImportBatch({
+    rawText: String(body.rawText || ''),
+    mode,
+    sourceType,
+    delimiter: body.delimiter || 'auto',
+    tournamentId: body.tournamentId ? String(body.tournamentId) : undefined,
+    ignoreExistingUsers: !!body.ignoreExistingUsers,
+    name: String(body.name || ''),
+    importTag: body.importTag ? String(body.importTag) : undefined,
+    description: body.description ? String(body.description) : undefined,
+    idempotencyKey: body.idempotencyKey ? String(body.idempotencyKey) : undefined,
+    actor: { id: adminActor.id, username: adminActor.username },
+    tournamentsMap: tournaments,
+    saveTournamentsFn: saveTournaments,
+  });
+
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+  return res.status(result.idempotentHit ? 200 : 201).json(result);
+});
+
+app.get('/api/admin/import/batches', async (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito a Administrador autenticado via JWT.' });
+  }
+
+  await reconcileIncompleteImportBatches(tournaments, saveTournaments);
+  const batches = listImportBatches({
+    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+    mode:
+      req.query.mode === 'create_only' || req.query.mode === 'create_and_enroll' || req.query.mode === 'enroll_existing'
+        ? req.query.mode
+        : 'all',
+    status: typeof req.query.status === 'string' ? req.query.status : 'all',
+  });
+
+  return res.json({ success: true, batches });
+});
+
+app.get('/api/admin/import/batches/:batchId', async (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito a Administrador autenticado via JWT.' });
+  }
+
+  await reconcileIncompleteImportBatches(tournaments, saveTournaments);
+  const details = getImportBatchDetails(req.params.batchId, tournaments);
+  if (!details) {
+    return res.status(404).json({ success: false, error: 'Lote de importação não encontrado.' });
+  }
+  return res.json({ success: true, ...details });
+});
+
+app.post('/api/admin/import/batches/:batchId/users/impact', (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito a Administrador autenticado via JWT.' });
+  }
+
+  const body = req.body || {};
+  const userIds = Array.isArray(body.userIds) ? body.userIds.map(String) : [];
+  const requestedAction =
+    body.action === 'disable' || body.action === 'archive' || body.action === 'reactivate' || body.action === 'delete'
+      ? body.action
+      : 'disable';
+
+  const impact = analyzeImportBatchUsersImpact({
+    batchId: req.params.batchId,
+    userIds,
+    requestedAction,
+    tournamentsMap: tournaments,
+    roomsMap: rooms,
+    statsMap: getAllStats(),
+  });
+
+  if (!impact) {
+    return res.status(404).json({ success: false, error: 'Lote de importação não encontrado.' });
+  }
+  return res.json({ success: true, impact });
+});
+
+app.post('/api/admin/import/batches/:batchId/users/manage', async (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito a Administrador autenticado via JWT.' });
+  }
+
+  const body = req.body || {};
+  const userIds = Array.isArray(body.userIds) ? body.userIds.map(String) : [];
+  const action =
+    body.action === 'disable' || body.action === 'archive' || body.action === 'reactivate' || body.action === 'delete'
+      ? body.action
+      : null;
+
+  if (!action || userIds.length === 0) {
+    return res.status(400).json({ success: false, error: 'Informe a ação e ao menos um usuário.' });
+  }
+
+  const result = await manageImportBatchUsers({
+    batchId: req.params.batchId,
+    userIds,
+    action,
+    reason: body.reason ? String(body.reason) : undefined,
+    actor: { id: adminActor.id, username: adminActor.username },
+    tournamentsMap: tournaments,
+    roomsMap: rooms,
+    statsMap: getAllStats(),
+  });
+
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  if ((action === 'disable' || action === 'archive' || action === 'delete') && result.affectedUserIds.length > 0) {
+    const disconnectReason =
+      action === 'delete'
+        ? 'Sua conta foi removida pelo administrador.'
+        : action === 'archive'
+          ? 'Sua conta foi arquivada pelo administrador.'
+          : 'Sua conta foi desativada pelo administrador.';
+    disconnectUsersFromServer(result.affectedUserIds, disconnectReason);
+  }
+
+  return res.json(result);
+});
 
 function getSpectatorPermissionForTournament(mode: TournamentConfig['spectatorMode']): 'disabled' | 'hidden_cards' | 'reveal_cards' {
   if (mode === 'table_only') return 'disabled';
@@ -1941,6 +2218,9 @@ app.post('/api/tournaments/:id/register', (req, res) => {
       if (!found) {
         return res.status(404).json({ success: false, error: 'Usuário informado não encontrado.' });
       }
+      if (!isUserAccountActive(found)) {
+        return res.status(400).json({ success: false, error: 'Esta conta está desativada ou arquivada e não pode ser inscrita em torneios.' });
+      }
       targetUser = {
         id: found.id,
         username: found.username,
@@ -1990,6 +2270,9 @@ app.post('/api/tournaments/:id/teams', (req, res) => {
     if (!u1 || !u2) {
       return res.status(404).json({ success: false, error: 'Um ou ambos os usuários informados não existem.' });
     }
+    if (!isUserAccountActive(u1) || !isUserAccountActive(u2)) {
+      return res.status(400).json({ success: false, error: 'Contas desativadas ou arquivadas não podem ser inscritas em equipes.' });
+    }
 
     const teamId = (body.teamId && String(body.teamId).trim()) || `team_${crypto.randomBytes(4).toString('hex')}`;
     const teamName = String(body.name || `${u1.displayName} & ${u2.displayName}`).trim();
@@ -2027,6 +2310,9 @@ app.put('/api/tournaments/:id/teams/:teamId', (req, res) => {
     const u2 = resolveUser(String(rawUserIds[1]));
     if (!u1 || !u2) {
       return res.status(404).json({ success: false, error: 'Um ou ambos os usuários informados não existem.' });
+    }
+    if (!isUserAccountActive(u1) || !isUserAccountActive(u2)) {
+      return res.status(400).json({ success: false, error: 'Contas desativadas ou arquivadas não podem integrar equipes.' });
     }
 
     const updated = updateDoublesTeamMembers(tournament, req.params.teamId, [u1.id, u2.id]);
@@ -3355,6 +3641,17 @@ wss.on('connection', (ws: WebSocket, req: any) => {
       ? authHeader.split(' ')[1]
       : urlObj?.searchParams.get('token') || undefined;
     if (handshakeToken) {
+      const decodedHandshake = verifyToken(handshakeToken);
+      if (decodedHandshake) {
+        const rec = getUserRecordById(decodedHandshake.id);
+        if (rec && !isUserAccountActive(rec)) {
+          try {
+            ws.send(JSON.stringify({ type: 'error', code: 'FORBIDDEN', message: 'Esta conta foi desativada ou arquivada pelo administrador.' }));
+            ws.close(4003, 'Conta desativada ou arquivada.');
+          } catch {}
+          return;
+        }
+      }
       const verified = getUserFromToken(handshakeToken);
       if (verified) {
         onlinePlayers.set(ws, {
@@ -3426,13 +3723,40 @@ wss.on('connection', (ws: WebSocket, req: any) => {
       if (msg.type === 'register_lobby') {
         let verifiedJwtUser: ReturnType<typeof getUserFromToken> | null = null;
         if (msg.token) {
+          const decodedToken = verifyToken(msg.token);
+          if (decodedToken) {
+            const rawRec = getUserRecordById(decodedToken.id);
+            if (rawRec && !isUserAccountActive(rawRec)) {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'error', code: 'FORBIDDEN', message: 'Conta desativada ou arquivada pelo administrador.' }));
+                ws.close(4003, 'Conta desativada ou arquivada.');
+              }
+              return;
+            }
+          }
           verifiedJwtUser = getUserFromToken(msg.token);
         }
         let authUser = verifiedJwtUser;
         if (!authUser && msg.playerId && msg.playerId.startsWith('usr_')) {
-          authUser = getAllUsers().find(u => u.id === msg.playerId) || null;
+          const found = getAllUsers().find(u => u.id === msg.playerId) || null;
+          if (found && !isUserAccountActive(found)) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'error', code: 'FORBIDDEN', message: 'Conta desativada ou arquivada pelo administrador.' }));
+              ws.close(4003, 'Conta desativada ou arquivada.');
+            }
+            return;
+          }
+          authUser = found;
         } else if (!authUser && msg.name && msg.name !== 'Visitante' && msg.name !== '🕵️') {
-          authUser = getAllUsers().find(u => u.displayName.toLowerCase() === msg.name.toLowerCase() || u.username.toLowerCase() === msg.name.toLowerCase()) || null;
+          const found = getAllUsers().find(u => u.displayName.toLowerCase() === msg.name.toLowerCase() || u.username.toLowerCase() === msg.name.toLowerCase()) || null;
+          if (found && !isUserAccountActive(found)) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'error', code: 'FORBIDDEN', message: 'Conta desativada ou arquivada pelo administrador.' }));
+              ws.close(4003, 'Conta desativada ou arquivada.');
+            }
+            return;
+          }
+          authUser = found;
         }
 
         const pId = authUser ? `user-${authUser.username}` : (msg.playerId || `player-${crypto.randomUUID()}`);
@@ -3638,6 +3962,17 @@ wss.on('connection', (ws: WebSocket, req: any) => {
       }
 
       if (msg.type === 'start_solo') {
+        const onlineMeta = onlinePlayers.get(ws);
+        if (onlineMeta?.authenticatedUserId) {
+          const rec = getUserRecordById(onlineMeta.authenticatedUserId);
+          if (rec && !isUserAccountActive(rec)) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'error', code: 'FORBIDDEN', message: 'Conta desativada ou arquivada pelo administrador.' }));
+              ws.close(4003, 'Conta desativada ou arquivada.');
+            }
+            return;
+          }
+        }
         const lastSolo = startSoloRateLimits.get(ws) || 0;
         if (Date.now() - lastSolo < 2000) {
           if (ws.readyState === WebSocket.OPEN) {
@@ -3813,6 +4148,16 @@ wss.on('connection', (ws: WebSocket, req: any) => {
       if (msg.type === 'create_room') {
         const isPrivate = !!msg.settings?.isPrivate;
         const onlineMeta = onlinePlayers.get(ws);
+        if (onlineMeta?.authenticatedUserId) {
+          const rec = getUserRecordById(onlineMeta.authenticatedUserId);
+          if (rec && !isUserAccountActive(rec)) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'error', code: 'FORBIDDEN', message: 'Conta desativada ou arquivada pelo administrador.' }));
+              ws.close(4003, 'Conta desativada ou arquivada.');
+            }
+            return;
+          }
+        }
         if (isPrivate && (!onlineMeta || !onlineMeta.userId)) {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'error', message: 'Visitantes não podem criar salas privadas. Faça login.' }));
@@ -3883,6 +4228,16 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         const cleanRoomId = (msg.roomId || '').replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
         const room = rooms.get(cleanRoomId);
         const onlineMeta = onlinePlayers.get(ws);
+        if (onlineMeta?.authenticatedUserId) {
+          const rec = getUserRecordById(onlineMeta.authenticatedUserId);
+          if (rec && !isUserAccountActive(rec)) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'action_rejected', messageId: msg.messageId, code: 'FORBIDDEN', message: 'Conta desativada ou arquivada pelo administrador.' }));
+              ws.close(4003, 'Conta desativada ou arquivada.');
+            }
+            return;
+          }
+        }
         if (room) {
           const player = room.players.find((p) => p.id === msg.playerId);
           if (player) {
@@ -3958,6 +4313,17 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         const cleanRoomId = rawRoomInput.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
         const room = rooms.get(cleanRoomId);
         const onlineMeta = onlinePlayers.get(ws);
+
+        if (onlineMeta?.authenticatedUserId) {
+          const rec = getUserRecordById(onlineMeta.authenticatedUserId);
+          if (rec && !isUserAccountActive(rec)) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'action_rejected', messageId: msg.messageId, code: 'FORBIDDEN', message: 'Conta desativada ou arquivada pelo administrador.' }));
+              ws.close(4003, 'Conta desativada ou arquivada.');
+            }
+            return;
+          }
+        }
 
         if (!room) {
           ws.send(JSON.stringify({
@@ -4941,6 +5307,15 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
 // Production vs Dev mode setup
 async function startServer() {
+  try {
+    const rec = await reconcileIncompleteImportBatches(tournaments, saveTournaments);
+    if (rec.reconciledCount > 0) {
+      console.log(`🔄 [IMPORT RECONCILIATION] ${rec.reconciledCount} lote(s) interrompido(s) reconciliado(s): ${rec.batchIds.join(', ')}`);
+    }
+  } catch (err) {
+    console.error('Erro ao reconciliar lotes de importação no boot:', err);
+  }
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -4983,6 +5358,7 @@ export {
   wss,
   rooms,
   tournaments,
+  saveTournaments,
   startGame,
   executeTournamentPlayerWO,
   executeTournamentDoublesTeamWO,

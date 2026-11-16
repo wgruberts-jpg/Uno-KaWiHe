@@ -112,3 +112,11 @@ O Administrador pode organizar **Torneios** diretamente pelo menu **Torneios**:
 - **Modalidade Duplas 2v2:** Chaveamento eliminatório em séries **Melhor de 1 (Md1)**, **Melhor de 3 (Md3)** ou **Melhor de 5 (Md5)**, com avanço automático (*bye*) quando necessário.
 - **W.O. Automático:** Caso um jogador desconecte em torneio individual e não retorne dentro do prazo de tolerância, ele é removido da mesa por W.O. e a partida continua normalmente com os demais participantes.
 
+---
+
+## 🔐 11. Regras de Conta, Senha e Importação Administrativa
+- **Senha Mínima:** Todas as contas do Uno KaWiHe exigem senha com no mínimo **4 caracteres**.
+- **Nome de Exibição Único:** Cada jogador possui um Nome de Exibição (`displayName`) único no sistema para evitar confusão nas mesas.
+- **Contas Desativadas ou Arquivadas:** Administradores podem importar grupos de jogadores em lote e desativar/arquivar contas temporariamente sem apagar seus troféus ou históricos de torneios. Contas desativadas ou arquivadas têm login e conexão WebSocket bloqueados até serem reativadas.
+
+

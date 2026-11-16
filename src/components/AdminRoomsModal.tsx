@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AdminRoomSummary, AdminUserSummary, UserProfile } from '../types/uno.js';
 import { auth } from '../services/auth.js';
+import { AdminImportPanel } from './AdminImportPanel.js';
+import { AdminImportHistoryPanel } from './AdminImportHistoryPanel.js';
 import {
   ShieldAlert,
   Users,
@@ -28,7 +30,9 @@ import {
   Plus,
   Lock,
   Key,
-  Search
+  Search,
+  Upload,
+  History
 } from 'lucide-react';
 
 interface AdminRoomsModalProps {
@@ -38,7 +42,7 @@ interface AdminRoomsModalProps {
   onJoinRoomAsAdmin?: (roomId: string) => void;
   onWatchRoom?: (roomId: string, revealCards?: boolean) => void;
   ws?: WebSocket | null;
-  initialTab?: 'rooms' | 'users' | 'messages';
+  initialTab?: 'rooms' | 'users' | 'messages' | 'import' | 'import_history';
 }
 
 export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
@@ -50,7 +54,7 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
   ws,
   initialTab,
 }) => {
-  const [activeTab, setActiveTab] = useState<'rooms' | 'users' | 'messages'>(initialTab || 'rooms');
+  const [activeTab, setActiveTab] = useState<'rooms' | 'users' | 'messages' | 'import' | 'import_history'>(initialTab || 'rooms');
   const [rooms, setRooms] = useState<AdminRoomSummary[]>([]);
   const [users, setUsers] = useState<AdminUserSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -136,8 +140,8 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
       setTimeout(() => setActionError(null), 4000);
       return;
     }
-    if (newPassword.trim().length < 3) {
-      setActionError('A senha deve ter no mínimo 3 caracteres.');
+    if (newPassword.trim().length < 4) {
+      setActionError('A senha deve ter no mínimo 4 caracteres.');
       setTimeout(() => setActionError(null), 4000);
       return;
     }
@@ -175,8 +179,8 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
   };
 
   const handleResetPassword = async (userId: string, username: string) => {
-    if (!newPasswordForReset.trim() || newPasswordForReset.trim().length < 3) {
-      setActionError('A nova senha deve ter no mínimo 3 caracteres.');
+    if (!newPasswordForReset.trim() || newPasswordForReset.trim().length < 4) {
+      setActionError('A nova senha deve ter no mínimo 4 caracteres.');
       setTimeout(() => setActionError(null), 4000);
       return;
     }
@@ -433,31 +437,31 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 p-1.5 bg-slate-800/90 rounded-2xl border border-slate-700 mb-3 shrink-0">
+        <div className="flex flex-wrap gap-1.5 p-1.5 bg-slate-800/90 rounded-2xl border border-slate-700 mb-3 shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('rooms')}
-            className={`flex-1 py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'rooms'
                 ? 'bg-amber-500 text-slate-950 shadow-md font-black'
                 : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>Salas & Mesas ({rooms.length})</span>
+            <span>Salas ({rooms.length})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('users')}
-            className={`flex-1 py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 min-w-[140px] py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'users'
                 ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
                 : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>👥 Usuários & Senhas ({users.length})</span>
+            <span>Usuários ({users.length})</span>
             {totalUsersOnline > 0 && (
               <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse"></span>
             )}
@@ -465,15 +469,41 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveTab('import')}
+            className={`flex-1 min-w-[140px] py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeTab === 'import'
+                ? 'bg-sky-500 text-slate-950 shadow-md font-black'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <Upload className="w-4 h-4" />
+            <span>Importar em Massa</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('import_history')}
+            className={`flex-1 min-w-[130px] py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeTab === 'import_history'
+                ? 'bg-teal-500 text-slate-950 shadow-md font-black'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            <span>Histórico Lotes</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('messages')}
-            className={`flex-1 py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 min-w-[130px] py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'messages'
                 ? 'bg-purple-500 text-white shadow-md font-black'
                 : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
             }`}
           >
             <MessageSquare className="w-4 h-4" />
-            <span>Enviar Mensagem de Sala</span>
+            <span>Mensagens</span>
           </button>
         </div>
 
@@ -761,7 +791,7 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                     <input
                       type="password"
                       required
-                      placeholder="Mínimo 3 caracteres"
+                      placeholder="Mínimo 4 caracteres"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-600 text-white font-bold text-xs focus:outline-none focus:border-amber-400"
@@ -903,6 +933,16 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                                 {u.role === 'admin' && (
                                   <span className="text-[9px] font-black bg-amber-500 text-slate-950 px-1.5 rounded">
                                     ADMIN
+                                  </span>
+                                )}
+                                {u.status === 'disabled' && (
+                                  <span className="text-[9px] font-black bg-amber-900/80 text-amber-200 border border-amber-500/50 px-1.5 rounded">
+                                    DESATIVADA
+                                  </span>
+                                )}
+                                {u.status === 'archived' && (
+                                  <span className="text-[9px] font-black bg-slate-700 text-slate-300 border border-slate-500/50 px-1.5 rounded">
+                                    ARQUIVADA
                                   </span>
                                 )}
                               </div>
@@ -1059,6 +1099,49 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
             <div className="p-3 bg-purple-950/30 border border-purple-500/40 rounded-2xl text-xs text-purple-200">
               💡 <strong>Dica:</strong> Mensagens de sala chegam instantaneamente no chat lateral e no log da partida dos jogadores daquela mesa. Transmissões globais geram um banner sonoro de aviso no topo da tela de todos os participantes.
             </div>
+          </div>
+        )}
+
+        {/* TAB 4: BULK USER IMPORTER */}
+        {activeTab === 'import' && (
+          <div className="flex-1 overflow-y-auto pr-1 min-h-[220px]">
+            {currentUser?.role !== 'admin' ? (
+              <div className="p-6 rounded-2xl bg-rose-950/50 border border-rose-500 text-center space-y-2">
+                <ShieldAlert className="w-8 h-8 text-rose-400 mx-auto" />
+                <h4 className="text-sm font-black text-white">Autenticação JWT de Administrador Obrigatória</h4>
+                <p className="text-xs text-slate-300">
+                  Para garantir rastreabilidade e auditoria, a importação em massa exige login com conta de Administrador (<code className="text-amber-300">role === 'admin'</code>), não apenas desbloqueio por PIN.
+                </p>
+              </div>
+            ) : (
+              <AdminImportPanel
+                onImportCompleted={() => {
+                  fetchAdminData();
+                }}
+                onOpenHistory={() => setActiveTab('import_history')}
+              />
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: IMPORT BATCH HISTORY & SAFE MANAGEMENT */}
+        {activeTab === 'import_history' && (
+          <div className="flex-1 overflow-y-auto pr-1 min-h-[220px]">
+            {currentUser?.role !== 'admin' ? (
+              <div className="p-6 rounded-2xl bg-rose-950/50 border border-rose-500 text-center space-y-2">
+                <ShieldAlert className="w-8 h-8 text-rose-400 mx-auto" />
+                <h4 className="text-sm font-black text-white">Autenticação JWT de Administrador Obrigatória</h4>
+                <p className="text-xs text-slate-300">
+                  Faça login com uma conta de Administrador para consultar lotes e gerenciar contas importadas.
+                </p>
+              </div>
+            ) : (
+              <AdminImportHistoryPanel
+                onUsersChanged={() => {
+                  fetchAdminData();
+                }}
+              />
+            )}
           </div>
         )}
 

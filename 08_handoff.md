@@ -22,12 +22,21 @@ próximo passo sugerido: <1 item>
 ## Último registro
 ```
 HANDOFF
-tarefa: atualizar AGENTS.md e toda a documentação e arquivos de planejamento do projeto
-feito: alinhamento de AGENTS.md, 01-08, README.md, SYSTEM_SPECIFICATION.md, USE_CASES.md, GAME_MANUAL.md, Game_changes.MD, Game_funcionalidades e manualSH.md para v2.2.3 (Torneios, Modo 2v2, esquemas JSON em data/, Monitor VM e 91 testes)
-arquivos alterados: AGENTS.md, 01_casos_de_uso.md, 02_regras.md, 03_arquitetura.md, 04_status.md, 05_adr.md, 06_testes.md, 07_historico.md, 08_handoff.md, README.md, SYSTEM_SPECIFICATION.md, USE_CASES.md, GAME_MANUAL.md, Game_changes.MD, Game_funcionalidades, manualSH.md
-regras alteradas/criadas: REG-TOR-01 a REG-TOR-06, ADR-006, ADR-007
-testes: rodados (npm test) — 91/91 passaram em 5 suítes
-divergências encontradas: docs antigos citavam v2.2 e 38/42 testes; código real está na v2.2.3 com 91 testes, sistema de torneios, modo 2v2 e persistência data/tournaments.json
-regra AI Studio Free Tier: respeitada (100% gratuito/local)
-próximo passo sugerido: manter o ciclo de testes antes de iniciar novos itens do backlog v2.3 em 04_status.md
+tarefa: implementar módulo completo de Importador de Usuários em Massa (Fases 1 a 4) com integridade cross-file, concorrência, privacidade, ciclo de vida e benchmark Worker bcrypt
+feito:
+  - Padronização de senha mínima em 4 caracteres (cadastro público, adminCreateUser, adminResetPassword, importação, UI e auth-service)
+  - Parser RFC-4180 (CSV/TSV/texto, BOM UTF-8, colunas dinâmicas, 512 KB / 200 registros)
+  - Hashing bcrypt em worker_threads nativa fora do lock (lag médio ~10,6ms em 200 registros)
+  - Lock centralizado in-process + file lock data/.kawihe.lock (dataLock.ts + auth-service)
+  - WAL em data/import_batches.json + reconcileIncompleteImportBatches no boot
+  - Modos A (create_only), B (create_and_enroll), C (enroll_existing) com bloqueio de torneios doubles na V1
+  - Ciclo de vida active/disabled/archived, desconexão WS ao vivo (4003), análise de impacto e exclusão segura sem dependências
+  - UI completa (AdminImportPanel + AdminImportHistoryPanel) sem window.confirm e limpeza de credenciais após commit
+arquivos alterados: src/types/uno.ts, server/dataLock.ts, server/authService.ts, auth-service/server.ts, server/importParser.ts, server/importService.ts, server.ts, src/services/auth.ts, src/components/AdminImportPanel.tsx, src/components/AdminImportHistoryPanel.tsx, src/components/AdminRoomsModal.tsx, tests/importParser.test.ts, tests/importService.test.ts, tests/importIntegration.test.ts, documentação completa
+regras alteradas/criadas: REG-IMP-01 a REG-IMP-09, ADR-008 a ADR-010, UC-IMP-01 a UC-IMP-04
+testes: rodados (npm test) — 106/106 passaram em 8 suítes
+divergências encontradas: nenhuma pendente; auth-service e server.ts alinhados no status 403 para contas bloqueadas e 4 caracteres de senha mínima
+regra AI Studio Free Tier: respeitada (100% gratuito/local, worker_threads e JSON atômico nativos)
+próximo passo sugerido: implementar suporte futuro a importação de equipes doubles (teamName) quando priorizado
 ```
+

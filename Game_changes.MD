@@ -96,6 +96,14 @@ Este documento descreve a auditoria técnica, tabela de comportamentos observado
      - **Diagnóstico & Infraestrutura:** Adição de `/api/admin/player-report/:target`, ações de moderação direta e `/api/admin/vm-metrics` (`VmMonitorModal.tsx`).
      - **Expansão da Suíte para 91 Testes:** Cobertura completa em 5 arquivos (`unoEngine.test.ts`: 26, `serverIntegration.test.ts`: 19, `tournamentEngine.test.ts`: 22, `tournamentWo.test.ts`: 19, `tournamentIntegration.test.ts`: 5).
 
+### 11. **Passo 11: Módulo Importador de Usuários em Massa, Lock Multi-Processo & Ciclo de Vida (v2.2.3) [CONCLUÍDO]**
+   - **O que foi feito para resolver:**
+     - **Padronização de Senha Mínima (4 caracteres):** Alinhamento entre cadastro público, criação admin, reset de senha, importador em massa, frontend e `auth-service/server.ts`.
+     - **Parser & Serviço de Importação (`server/importParser.ts` + `server/importService.ts`):** Upload CSV / colagem RFC-4180 (até 512 KB / 200 registros), `displayName` obrigatório e único (NFKC), `role` fixado como `'player'`, bloqueio explícito de torneios `doubles` na V1 e moderação completa em `AdminImportPanel.tsx` / `AdminImportHistoryPanel.tsx`.
+     - **Desempenho & Concorrência (`server/dataLock.ts` + Worker Threads):** Hashing `bcrypt` executado em `worker_threads` nativa fora do lock (benchmark empírico de 200 registros: lag médio de Event Loop de ~10,6ms sem congelar WebSockets); toda persistência sincronizada por mutex FIFO + `data/.kawihe.lock`.
+     - **WAL, Privacidade e Ciclo de Vida:** Diário transacional em `data/import_batches.json` com reconciliação automática no boot (`reconcileIncompleteImportBatches`), zero armazenamento de senhas/hashes em logs/lotes, e status `active`/`disabled`/`archived` com desconexão imediata de WebSockets (`4003`) e exclusão permitida apenas sem dependências históricas.
+     - **Expansão da Suíte para 106 Testes:** Adição de `importParser.test.ts` (6), `importService.test.ts` (6) e `importIntegration.test.ts` (3).
+
 ---
 
 ## ⚠️ Divergências Conhecidas & Pendências Pós-Deploy

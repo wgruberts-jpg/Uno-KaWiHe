@@ -52,3 +52,10 @@ Papéis globais: **Visitante**, **Registrado**, **Admin**. Papéis na sala: **Ho
 - **UC-ADM-04 Relatório de jogador** — `/api/admin/player-report/:target`.
 - **UC-ADM-05 Moderar** — expulsar da sala, derrubar sessão WebSocket, enviar alerta direto.
 - **UC-ADM-06 Monitor de VM** — `/api/admin/vm-metrics` com telemetria de CPU, RAM, disco e saúde.
+
+## Importador de Usuários em Massa (`AdminImportPanel` + `AdminImportHistoryPanel`)
+- **UC-IMP-01 Validar e importar lote (Modo A `create_only`)** — upload de CSV ou colagem de texto (até 512 KB / 200 registros) com pré-validação linha a linha, exigência de `displayName` único (NFKC) e senha mínima de 4 caracteres, sem vínculo obrigatório com torneio.
+- **UC-IMP-02 Importar e inscrever em torneio individual (Modos B e C)** — `create_and_enroll` (cria novas contas e inscreve) ou `enroll_existing` (inscreve contas existentes em torneio `individual` em `registration`), bloqueando torneios `doubles` nesta v1.
+- **UC-IMP-03 Consultar histórico e auditoria de lotes** — listagem filtrável por busca/modo/status e visão detalhada separando `created_by_batch` vs `existing_enrolled_only`, sem expor senhas ou hashes.
+- **UC-IMP-04 Gerenciar ciclo de vida pós-importação** — análise prévia de impacto (`/users/impact`), desativação (`disabled`), arquivamento (`archived`), reativação (`active`) com desconexão imediata de WebSockets ativos, e exclusão segura permitida apenas quando não há dependências históricas.
+

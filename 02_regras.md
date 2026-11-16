@@ -64,5 +64,17 @@ Fonte de verdade das regras. Cada regra tem ID e status: **C** = CONFIRMADO, **P
 - **REG-TOR-06** Em reinício do servidor com partidas em andamento, o torneio é pausado (`server_restart`) sem inventar vencedor automático.
 
 ## Admin e Segurança
-- **REG-ADM-01** Rotas `/api/admin/*` exigem JWT com `role === 'admin'` (ou `ADMIN_PIN` apenas quando configurado explicitamente via variável de ambiente).
-- **REG-SEG-01** `JWT_SECRET` via ambiente em produção; senhas com bcrypt (fator 10 no cadastro, 12 no bootstrap/CLI). Nenhuma cobrança ou dependência paga.
+- **REG-ADM-01** Rotas `/api/admin/*` exigem JWT com `role === 'admin'` (ou `ADMIN_PIN` apenas quando configurado explicitamente via variável de ambiente). Rotas do Importador (`/api/admin/import/*`) exigem **exclusivamente** JWT válido de administrador (`role === 'admin'`), rejeitando `x-admin-pin` isolado para garantir rastreabilidade do operador.
+- **REG-SEG-01** `JWT_SECRET` via ambiente em produção; senhas com bcrypt (fator 10 no cadastro/importação, 12 no bootstrap/CLI). Nenhuma cobrança ou dependência paga.
+
+## Importador de Usuários em Massa e Ciclo de Vida (`importService.ts` + `dataLock.ts`)
+- **REG-IMP-01** **Senha mínima padronizada:** mínimo de **4 caracteres** consistente entre cadastro público, criação administrativa, redefinição de senha, importação em massa e CLI.
+- **REG-IMP-02** **DisplayName obrigatório e único:** modos de criação (`create_only`, `create_and_enroll`) exigem `displayName` (2–18 caracteres, normalizado em Unicode NFKC sem caracteres invisíveis/Bidi) e rejeitam duplicidade no sistema ou no mesmo lote (nunca usa `username` como fallback).
+- **REG-IMP-03** **Torneios de duplas bloqueados na V1:** inscrição individual em lote é bloqueada em torneios `doubles` (`2v2`). Evolução futura prevista: importação explícita de equipes (`username;displayName;password;teamName`).
+- **REG-IMP-04** **Limites operacionais validados empiricamente:** máximo de **200 registros** por lote e **512 KB** por payload/arquivo; hashing `bcrypt` (rounds=10) executado em `worker_threads` nativa fora do mutex para manter o lag médio do Event Loop em ~10ms sem afetar partidas WebSocket.
+- **REG-IMP-05** **Concorrência global (`data/.kawihe.lock`):** toda escrita em `DATA_DIR` (cadastro normal, cadastro admin, edição de perfil, reset de senha, importação, status e `auth-service`) é serializada por mutex FIFO em memória + file lock exclusivo `data/.kawihe.lock`.
+- **REG-IMP-06** **Consistência entre arquivos JSON (WAL):** lotes utilizam idempotencyKey e registro incremental (`in_progress` → `usersSaved` → `tournamentSaved` → `batchFinalized`) em `data/import_batches.json`, com reconciliação automática na inicialização (`reconcileIncompleteImportBatches`).
+- **REG-IMP-07** **Privacidade absoluta:** `import_batches.json`, trilhas de auditoria, logs e APIs jamais persistem ou retornam senhas em texto puro, `passwordHash` ou conteúdo bruto do CSV; estado de senhas na UI é limpo após o commit.
+- **REG-IMP-08** **Ciclo de vida de contas (`active` | `disabled` | `archived`):** contas desativadas ou arquivadas são bloqueadas em login (HTTP 403), `/api/auth/me`, validação de JWT (`getUserFromToken`), handshake WebSocket (close `4003`), criação/entrada em salas, reconexão (`sync_session`) e inscrições em torneios, mantendo histórico e estatísticas preservados.
+- **REG-IMP-09** **Exclusão segura:** contas pré-existentes vinculadas via `enroll_existing` e contas `admin` são protegidas contra gestão pelo lote; exclusão só é permitida para contas criadas pelo lote (`created_by_batch`) sem histórico de partidas, torneios, salas ativas ou convites.
+

@@ -213,6 +213,7 @@ export interface EmoteItem {
 }
 
 export type UserRole = 'admin' | 'player';
+export type UserAccountStatus = 'active' | 'disabled' | 'archived';
 
 export interface UserProfile {
   id: string;
@@ -222,6 +223,9 @@ export interface UserProfile {
   role: UserRole;
   tag?: string; // Tag definitiva com # (ex: #0001, #1042)
   createdAt: string;
+  status?: UserAccountStatus;
+  statusUpdatedAt?: string;
+  statusReason?: string;
 }
 
 export interface InviteCode {
@@ -240,6 +244,7 @@ export interface AuthResponse {
   token?: string;
   user?: UserProfile;
   error?: string;
+  accountBlocked?: boolean;
 }
 
 export interface OnlinePlayerSummary {
@@ -367,6 +372,8 @@ export interface AdminUserSummary {
   role: UserRole;
   tag?: string;
   createdAt: string;
+  status?: UserAccountStatus;
+  statusUpdatedAt?: string;
   isOnline: boolean;
   currentRoomId?: string | null;
   roomStatus?: string | null;
@@ -490,4 +497,172 @@ export type ServerMessage =
   | { type: 'action_ack'; messageId: string }
   | { type: 'action_rejected'; messageId?: string; code: ErrorCode; message: string }
   | { type: 'error'; message: string; code?: ErrorCode; messageId?: string };
+
+// ============================================================================
+// Importador de Usuários em Massa (Módulo Administrativo)
+// ============================================================================
+
+export type ImportOperationMode = 'create_only' | 'create_and_enroll' | 'enroll_existing';
+export type ImportSourceType = 'csv_upload' | 'text_paste';
+export type ImportDelimiter = ';' | ',' | '\t';
+export type ImportBatchStatus = 'in_progress' | 'completed' | 'partial_success' | 'failed' | 'reconciled_partial';
+export type ImportItemOutcome =
+  | 'created'
+  | 'enrolled'
+  | 'created_and_enrolled'
+  | 'skipped'
+  | 'rejected'
+  | 'failed';
+
+export interface ImportValidationRow {
+  lineNumber: number;
+  username: string;
+  displayName: string;
+  hasPassword: boolean;
+  status: 'valid' | 'conflict_ignorable' | 'invalid';
+  codes: string[];
+  messages: string[];
+  willCreateUser: boolean;
+  willEnrollTournament: boolean;
+  existingUserId?: string;
+  existingUserStatus?: UserAccountStatus;
+}
+
+export interface ImportValidationSummary {
+  totalLines: number;
+  validCount: number;
+  invalidCount: number;
+  duplicateUsernameInFileCount: number;
+  existingUsernameCount: number;
+  duplicateDisplayNameInFileCount: number;
+  existingDisplayNameCount: number;
+  missingRequiredFieldsCount: number;
+  invalidPasswordCount: number;
+  readyToProcessCount: number;
+  ignoredCount: number;
+  alreadyEnrolledCount: number;
+  notFoundForEnrollCount: number;
+  eligibleEnrollCount: number;
+}
+
+export interface ImportValidationResponse {
+  success: boolean;
+  error?: string;
+  ambiguousDelimiter?: boolean;
+  candidateDelimiters?: ImportDelimiter[];
+  detectedDelimiter?: ImportDelimiter;
+  mode: ImportOperationMode;
+  tournament?: {
+    id: string;
+    name: string;
+    modality: 'individual' | 'doubles';
+    status: string;
+    currentEntriesCount: number;
+    compatible: boolean;
+    incompatibilityReason?: string;
+  };
+  summary?: ImportValidationSummary;
+  rows: ImportValidationRow[];
+  previewHash?: string;
+}
+
+export interface ImportBatchItem {
+  lineNumber: number;
+  username: string;
+  displayName?: string;
+  userId?: string;
+  userTag?: string;
+  relationType: 'created_by_batch' | 'existing_enrolled_only' | 'none';
+  outcome: ImportItemOutcome;
+  enrolledInTournament: boolean;
+  reasonCode?: string;
+  reasonMessage?: string;
+}
+
+export interface ImportAuditEvent {
+  at: string;
+  actorUserId: string;
+  actorUsername: string;
+  action:
+    | 'batch_started'
+    | 'batch_completed'
+    | 'batch_reconciled'
+    | 'user_disabled'
+    | 'user_archived'
+    | 'user_reactivated'
+    | 'user_deleted';
+  targetUserIds?: string[];
+  details?: string;
+}
+
+export interface ImportBatch {
+  importBatchId: string;
+  name: string;
+  importTag: string;
+  description?: string;
+  mode: ImportOperationMode;
+  sourceType: ImportSourceType;
+  delimiterUsed: ImportDelimiter;
+  tournamentId?: string;
+  tournamentName?: string;
+  idempotencyKey: string;
+  createdAt: string;
+  createdByUserId: string;
+  createdByUsername: string;
+  status: ImportBatchStatus;
+  stepsCompleted: {
+    usersSaved: boolean;
+    tournamentSaved: boolean;
+    batchFinalized: boolean;
+  };
+  summary: {
+    totalReceived: number;
+    totalValid: number;
+    totalCreated: number;
+    totalEnrolled: number;
+    totalSkipped: number;
+    totalRejected: number;
+    totalFailed: number;
+  };
+  items: ImportBatchItem[];
+  auditTrail: ImportAuditEvent[];
+}
+
+export interface ImportBatchDetailUser {
+  lineNumber: number;
+  username: string;
+  displayName: string;
+  userId?: string;
+  userTag?: string;
+  relationType: 'created_by_batch' | 'existing_enrolled_only' | 'none';
+  outcome: ImportItemOutcome;
+  enrolledInTournament: boolean;
+  accountStatus: UserAccountStatus | 'deleted' | 'not_created';
+  createdAt?: string;
+  isCurrentlyInTournament?: boolean;
+  reasonCode?: string;
+  reasonMessage?: string;
+}
+
+export type ImportUserManageAction = 'disable' | 'archive' | 'reactivate' | 'delete';
+
+export interface ImportUserDependencyItem {
+  userId: string;
+  username: string;
+  displayName: string;
+  userTag?: string;
+  relationType: 'created_by_batch' | 'existing_enrolled_only' | 'none';
+  accountStatus: UserAccountStatus | 'deleted';
+  canManageInBatch: boolean;
+  canDelete: boolean;
+  dependencies: string[];
+  recommendedAction: 'delete_allowed' | 'disable_or_archive' | 'protected_preexisting';
+}
+
+export interface ImportImpactReport {
+  batchId: string;
+  requestedAction: ImportUserManageAction;
+  users: ImportUserDependencyItem[];
+}
+
 

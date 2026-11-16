@@ -1,4 +1,17 @@
-import { AuthResponse, UserProfile, UserRole, InviteCode } from '../types/uno.js';
+import {
+  AuthResponse,
+  UserProfile,
+  UserRole,
+  InviteCode,
+  ImportBatch,
+  ImportBatchDetailUser,
+  ImportDelimiter,
+  ImportImpactReport,
+  ImportOperationMode,
+  ImportSourceType,
+  ImportUserManageAction,
+  ImportValidationResponse,
+} from '../types/uno.js';
 
 const TOKEN_KEY = 'kawihe_auth_token';
 
@@ -304,6 +317,175 @@ class AuthService {
       return await res.json();
     } catch {
       return { success: false, error: 'Erro ao conectar com o servidor.' };
+    }
+  }
+
+  public async validateBulkImport(params: {
+    rawText: string;
+    mode: ImportOperationMode;
+    delimiter?: ImportDelimiter | 'auto';
+    tournamentId?: string;
+    ignoreExistingUsers?: boolean;
+  }): Promise<ImportValidationResponse> {
+    if (!this.token) {
+      return { success: false, mode: params.mode, rows: [], error: 'Não autenticado como administrador.' };
+    }
+    try {
+      const res = await fetch('/api/admin/import/validate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(params),
+      });
+      return await res.json();
+    } catch {
+      return { success: false, mode: params.mode, rows: [], error: 'Erro ao validar importação no servidor.' };
+    }
+  }
+
+  public async commitBulkImport(params: {
+    rawText: string;
+    mode: ImportOperationMode;
+    sourceType: ImportSourceType;
+    delimiter?: ImportDelimiter | 'auto';
+    tournamentId?: string;
+    ignoreExistingUsers?: boolean;
+    name: string;
+    importTag?: string;
+    description?: string;
+    idempotencyKey?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    batch?: ImportBatch;
+    validation?: ImportValidationResponse;
+    idempotentHit?: boolean;
+  }> {
+    if (!this.token) {
+      return { success: false, error: 'Não autenticado como administrador.' };
+    }
+    try {
+      const res = await fetch('/api/admin/import/commit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(params),
+      });
+      return await res.json();
+    } catch {
+      return { success: false, error: 'Erro de conexão ao gravar importação em massa.' };
+    }
+  }
+
+  public async downloadImportTemplate(mode: ImportOperationMode): Promise<void> {
+    if (!this.token) return;
+    try {
+      const res = await fetch(`/api/admin/import/template?mode=${encodeURIComponent(mode)}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `modelo_importacao_${mode}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {}
+  }
+
+  public async listImportBatches(filters?: {
+    search?: string;
+    mode?: ImportOperationMode | 'all';
+    status?: string;
+  }): Promise<{ success: boolean; batches: ImportBatch[]; error?: string }> {
+    if (!this.token) return { success: false, batches: [], error: 'Não autenticado.' };
+    try {
+      const qs = new URLSearchParams();
+      if (filters?.search) qs.set('search', filters.search);
+      if (filters?.mode && filters.mode !== 'all') qs.set('mode', filters.mode);
+      if (filters?.status && filters.status !== 'all') qs.set('status', filters.status);
+      const res = await fetch(`/api/admin/import/batches?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      return await res.json();
+    } catch {
+      return { success: false, batches: [], error: 'Erro ao carregar histórico de lotes.' };
+    }
+  }
+
+  public async getImportBatchDetail(batchId: string): Promise<{
+    success: boolean;
+    batch?: ImportBatch;
+    users?: ImportBatchDetailUser[];
+    error?: string;
+  }> {
+    if (!this.token) return { success: false, error: 'Não autenticado.' };
+    try {
+      const res = await fetch(`/api/admin/import/batches/${encodeURIComponent(batchId)}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      return await res.json();
+    } catch {
+      return { success: false, error: 'Erro ao carregar detalhes do lote.' };
+    }
+  }
+
+  public async analyzeImportUsersImpact(
+    batchId: string,
+    userIds: string[],
+    action: ImportUserManageAction
+  ): Promise<{ success: boolean; impact?: ImportImpactReport; error?: string }> {
+    if (!this.token) return { success: false, error: 'Não autenticado.' };
+    try {
+      const res = await fetch(`/api/admin/import/batches/${encodeURIComponent(batchId)}/users/impact`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({ userIds, action }),
+      });
+      return await res.json();
+    } catch {
+      return { success: false, error: 'Erro ao analisar impacto nos usuários.' };
+    }
+  }
+
+  public async manageImportBatchUsers(params: {
+    batchId: string;
+    userIds: string[];
+    action: ImportUserManageAction;
+    reason?: string;
+  }): Promise<{
+    success: boolean;
+    affectedUserIds?: string[];
+    skipped?: Array<{ userId: string; username: string; reason: string }>;
+    error?: string;
+  }> {
+    if (!this.token) return { success: false, error: 'Não autenticado.' };
+    try {
+      const res = await fetch(`/api/admin/import/batches/${encodeURIComponent(params.batchId)}/users/manage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({
+          userIds: params.userIds,
+          action: params.action,
+          reason: params.reason,
+        }),
+      });
+      return await res.json();
+    } catch {
+      return { success: false, error: 'Erro ao executar gestão dos usuários do lote.' };
     }
   }
 

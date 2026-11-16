@@ -10,8 +10,112 @@ const PORT = Number(process.env.PORT) || 4000;
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const INVITES_FILE = path.join(DATA_DIR, 'invites.json');
+const LOCK_FILE = path.join(DATA_DIR, '.kawihe.lock');
 const JWT_SECRET = process.env.JWT_SECRET || 'kawihe_jwt_super_secret_key_2026';
 const ADMIN_PIN = process.env.ADMIN_PIN || '';
+
+const MIN_USERNAME_LENGTH = 3;
+const MAX_USERNAME_LENGTH = 32;
+const MIN_PASSWORD_LENGTH = 4;
+const MAX_PASSWORD_LENGTH = 128;
+const MIN_DISPLAY_NAME_LENGTH = 2;
+const MAX_DISPLAY_NAME_LENGTH = 18;
+
+// Shared concurrency lock matching server/dataLock.ts
+let inProcessQueue: Promise<void> = Promise.resolve();
+const STALE_LOCK_MS = 15_000;
+const LOCK_RETRY_DELAY_MS = 15;
+const LOCK_MAX_WAIT_MS = 10_000;
+
+function ensureDirExists(dirPath: string): void {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function atomicWriteFileSync(filePath: string, data: string): void {
+  ensureDirExists(path.dirname(filePath));
+  const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const fd = fs.openSync(tempPath, 'w');
+  try {
+    fs.writeSync(fd, data, 0, 'utf-8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tempPath, filePath);
+}
+
+async function acquireAdvisoryFileLock(): Promise<() => void> {
+  ensureDirExists(DATA_DIR);
+  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
+  while (true) {
+    try {
+      const fd = fs.openSync(LOCK_FILE, 'wx');
+      try {
+        fs.writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }), 0, 'utf-8');
+      } finally {
+        fs.closeSync(fd);
+      }
+      return () => {
+        try {
+          if (fs.existsSync(LOCK_FILE)) fs.unlinkSync(LOCK_FILE);
+        } catch {}
+      };
+    } catch (err: any) {
+      if (err?.code !== 'EEXIST') throw err;
+      try {
+        const stat = fs.statSync(LOCK_FILE);
+        if (Date.now() - stat.mtimeMs > STALE_LOCK_MS) {
+          fs.unlinkSync(LOCK_FILE);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error('Timeout aguardando lock de persistência.');
+      }
+      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
+    }
+  }
+}
+
+async function withDataLock<T>(fn: () => Promise<T> | T): Promise<T> {
+  const prev = inProcessQueue;
+  let releaseInProcess!: () => void;
+  inProcessQueue = new Promise<void>((resolve) => {
+    releaseInProcess = resolve;
+  });
+  await prev;
+
+  let releaseFileLock: (() => void) | null = null;
+  try {
+    releaseFileLock = await acquireAdvisoryFileLock();
+    return await fn();
+  } finally {
+    if (releaseFileLock) releaseFileLock();
+    releaseInProcess();
+  }
+}
+
+function normalizeDisplayName(name: string): string {
+  if (!name) return '';
+  return name
+    .normalize('NFKC')
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u0000-\u001F\u007F]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeUsername(raw: string): string {
+  if (!raw) return '';
+  return raw
+    .normalize('NFKC')
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF\u202A-\u202E\u0000-\u001F\u007F]/g, '')
+    .toLowerCase();
+}
 
 function getInitialAdminPassword(): string {
   if (process.env.INITIAL_ADMIN_PASSWORD && process.env.INITIAL_ADMIN_PASSWORD.trim().length > 0) {
@@ -48,6 +152,8 @@ app.use((_req, res, next) => {
 
 app.use(express.json());
 
+type UserAccountStatus = 'active' | 'disabled' | 'archived';
+
 interface UserRecord {
   id: string;
   username: string;
@@ -55,16 +161,19 @@ interface UserRecord {
   displayName: string;
   avatar: string;
   role: 'admin' | 'player';
-  tag?: string; // e.g. '#0001', '#1001'
+  tag?: string;
   createdAt: string;
+  status?: UserAccountStatus;
+  statusUpdatedAt?: string;
+  statusReason?: string;
   stats?: any;
 }
 
 interface InviteRecord {
-  code: string; // e.g. "@K9W2"
+  code: string;
   createdBy: string;
   createdAt: string;
-  expiresAt: string; // ISO string or "never"
+  expiresAt: string;
   maxUses: number;
   usedCount: number;
   usedBy: Array<{ username: string; usedAt: string }>;
@@ -88,16 +197,35 @@ const INITIAL_USERS: Array<{
   { username: 'guilherme', getPassword: () => getInitialPlayerPassword('guilherme'), displayName: 'Guilherme', avatar: '🦁', role: 'player', tag: '#1006' },
 ];
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+function getEffectiveUserStatus(user: Pick<UserRecord, 'status'>): UserAccountStatus {
+  return user.status === 'disabled' || user.status === 'archived' ? user.status : 'active';
+}
 
-  // Users Seeding
+function isUserActive(user: Pick<UserRecord, 'status'>): boolean {
+  return getEffectiveUserStatus(user) === 'active';
+}
+
+function generateUniqueTag(existingTags: Set<string | undefined>): string {
+  for (let i = 0; i < 5000; i++) {
+    const candidate = `#${crypto.randomInt(1000, 10000)}`;
+    if (!existingTags.has(candidate)) {
+      existingTags.add(candidate);
+      return candidate;
+    }
+  }
+  let ext = 10000;
+  while (existingTags.has(`#${ext}`)) ext++;
+  return `#${ext}`;
+}
+
+function ensureDataDir() {
+  ensureDirExists(DATA_DIR);
+
   let currentUsers: UserRecord[] = [];
   if (fs.existsSync(USERS_FILE)) {
     try {
       currentUsers = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+      if (!Array.isArray(currentUsers)) currentUsers = [];
     } catch {
       currentUsers = [];
     }
@@ -116,28 +244,28 @@ function ensureDataDir() {
         role: initUser.role,
         tag: initUser.tag,
         createdAt: new Date().toISOString(),
+        status: 'active',
       });
       usersUpdated = true;
     }
   });
 
   if (usersUpdated || !fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(currentUsers, null, 2), 'utf-8');
+    atomicWriteFileSync(USERS_FILE, JSON.stringify(currentUsers, null, 2));
   }
 
-  // Invites Seeding
   if (!fs.existsSync(INVITES_FILE)) {
     const defaultInvite: InviteRecord = {
       code: '@KWH1',
       createdBy: 'Edinho (Sistema)',
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       maxUses: 10,
       usedCount: 0,
       usedBy: [],
       status: 'active',
     };
-    fs.writeFileSync(INVITES_FILE, JSON.stringify([defaultInvite], null, 2), 'utf-8');
+    atomicWriteFileSync(INVITES_FILE, JSON.stringify([defaultInvite], null, 2));
   }
 }
 
@@ -145,15 +273,16 @@ function getAllUsers(): UserRecord[] {
   ensureDataDir();
   try {
     const raw = fs.readFileSync(USERS_FILE, 'utf-8');
-    return JSON.parse(raw);
-  } catch (err) {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
     return [];
   }
 }
 
 function saveUsers(users: UserRecord[]): void {
   ensureDataDir();
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+  atomicWriteFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
 function getAllInvites(): InviteRecord[] {
@@ -172,7 +301,7 @@ function getAllInvites(): InviteRecord[] {
     });
 
     if (updated) {
-      fs.writeFileSync(INVITES_FILE, JSON.stringify(invites, null, 2), 'utf-8');
+      atomicWriteFileSync(INVITES_FILE, JSON.stringify(invites, null, 2));
     }
     return invites;
   } catch {
@@ -182,7 +311,7 @@ function getAllInvites(): InviteRecord[] {
 
 function saveInvites(invites: InviteRecord[]): void {
   ensureDataDir();
-  fs.writeFileSync(INVITES_FILE, JSON.stringify(invites, null, 2), 'utf-8');
+  atomicWriteFileSync(INVITES_FILE, JSON.stringify(invites, null, 2));
 }
 
 function toPublicProfile(user: UserRecord) {
@@ -194,6 +323,9 @@ function toPublicProfile(user: UserRecord) {
     role: user.role,
     tag: user.tag || '#1000',
     createdAt: user.createdAt,
+    status: getEffectiveUserStatus(user),
+    statusUpdatedAt: user.statusUpdatedAt,
+    statusReason: user.statusReason,
   };
 }
 
@@ -207,18 +339,16 @@ function verifyAdminRequest(req: express.Request): boolean {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     const users = getAllUsers();
     const user = users.find((u) => u.id === decoded.id);
-    return !!(user && user.role === 'admin');
+    return !!(user && user.role === 'admin' && isUserActive(user));
   } catch {
     return false;
   }
 }
 
-// Health check
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'kawihe-auth', timestamp: new Date().toISOString() });
 });
 
-// Validate Invite Code (Public)
 app.get('/api/invites/validate/:code', (req, res) => {
   let code = req.params.code?.trim().toUpperCase();
   if (!code) {
@@ -234,15 +364,12 @@ app.get('/api/invites/validate/:code', (req, res) => {
   if (!invite) {
     return res.json({ valid: false, error: 'Código de convite não encontrado.' });
   }
-
   if (invite.status === 'revoked') {
     return res.json({ valid: false, error: 'Este convite foi cancelado pelo Administrador.' });
   }
-
   if (invite.status === 'expired' || (invite.expiresAt !== 'never' && new Date(invite.expiresAt) < new Date())) {
     return res.json({ valid: false, error: 'Este convite já expirou! Peça um novo convite ao Edinho.' });
   }
-
   if (invite.usedCount >= invite.maxUses || invite.status === 'used') {
     return res.json({ valid: false, error: 'Este convite já foi utilizado o número máximo de vezes.' });
   }
@@ -255,7 +382,6 @@ app.get('/api/invites/validate/:code', (req, res) => {
   });
 });
 
-// List Invites (Admin only)
 app.get('/api/invites', (req, res) => {
   if (!verifyAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
@@ -264,8 +390,7 @@ app.get('/api/invites', (req, res) => {
   return res.json({ success: true, invites });
 });
 
-// Create New Invite (Admin only)
-app.post('/api/invites', (req, res) => {
+app.post('/api/invites', async (req, res) => {
   if (!verifyAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
@@ -282,44 +407,44 @@ app.post('/api/invites', (req, res) => {
     }
     code = `@${clean}`;
   } else {
-    // Generate random 4 characters: e.g. @K9W2
     const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
     let rand = '';
     for (let i = 0; i < 4; i++) {
-      rand += chars.charAt(Math.floor(Math.random() * chars.length));
+      rand += chars.charAt(crypto.randomInt(0, chars.length));
     }
     code = `@${rand}`;
   }
 
-  const invites = getAllInvites();
-  if (invites.some((i) => i.code === code && i.status === 'active')) {
-    return res.status(400).json({ success: false, error: 'Este código de convite já existe e está ativo. Escolha outro!' });
-  }
+  return withDataLock(() => {
+    const invites = getAllInvites();
+    if (invites.some((i) => i.code === code && i.status === 'active')) {
+      return res.status(400).json({ success: false, error: 'Este código de convite já existe e está ativo. Escolha outro!' });
+    }
 
-  let expiresAt = 'never';
-  if (durationHours > 0) {
-    expiresAt = new Date(Date.now() + durationHours * 3600 * 1000).toISOString();
-  }
+    let expiresAt = 'never';
+    if (durationHours > 0) {
+      expiresAt = new Date(Date.now() + durationHours * 3600 * 1000).toISOString();
+    }
 
-  const newInvite: InviteRecord = {
-    code,
-    createdBy,
-    createdAt: new Date().toISOString(),
-    expiresAt,
-    maxUses: Math.max(1, Number(maxUses) || 1),
-    usedCount: 0,
-    usedBy: [],
-    status: 'active',
-  };
+    const newInvite: InviteRecord = {
+      code,
+      createdBy,
+      createdAt: new Date().toISOString(),
+      expiresAt,
+      maxUses: Math.max(1, Number(maxUses) || 1),
+      usedCount: 0,
+      usedBy: [],
+      status: 'active',
+    };
 
-  invites.unshift(newInvite);
-  saveInvites(invites);
+    invites.unshift(newInvite);
+    saveInvites(invites);
 
-  return res.json({ success: true, invite: newInvite });
+    return res.json({ success: true, invite: newInvite });
+  });
 });
 
-// Revoke Invite (Admin only)
-app.delete('/api/invites/:code', (req, res) => {
+app.delete('/api/invites/:code', async (req, res) => {
   if (!verifyAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
@@ -327,146 +452,128 @@ app.delete('/api/invites/:code', (req, res) => {
   let code = req.params.code?.trim().toUpperCase();
   if (!code.startsWith('@')) code = '@' + code;
 
-  const invites = getAllInvites();
-  const invite = invites.find((i) => i.code.toUpperCase() === code);
-
-  if (!invite) {
-    return res.status(404).json({ success: false, error: 'Convite não encontrado.' });
-  }
-
-  invite.status = 'revoked';
-  saveInvites(invites);
-
-  return res.json({ success: true, message: 'Convite revogado com sucesso.' });
-});
-
-// Register (Requires Invite Code)
-app.post('/api/auth/register', async (req, res) => {
-  const { username, password, displayName, avatar, role, adminSecret, inviteCode } = req.body;
-
-  if (!username || username.trim().length < 3) {
-    return res.status(400).json({ success: false, error: 'O nome de usuário deve ter no mínimo 3 caracteres.' });
-  }
-  if (!password || password.length < 4) {
-    return res.status(400).json({ success: false, error: 'A senha deve ter no mínimo 4 caracteres.' });
-  }
-
-  const cleanUsername = username.trim().toLowerCase();
-  const users = getAllUsers();
-
-  if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
-    return res.status(400).json({ success: false, error: 'Este nome de usuário já está cadastrado. Escolha outro!' });
-  }
-
-  const hasValidAdminPin = !!(adminSecret && ADMIN_PIN && adminSecret === ADMIN_PIN);
-
-  let foundInvite: InviteRecord | undefined;
-  if (!hasValidAdminPin) {
-    // Validate Invite Code (MANDATORY for regular new users)
-    if (!inviteCode || typeof inviteCode !== 'string') {
-      return res.status(403).json({
-        success: false,
-        error: '🔒 O Uno KaWiHe é privado! É obrigatório inserir um Código de Convite (@XXXX) válido fornecido pelo Administrador Edinho.',
-      });
-    }
-
-    let cleanInvite = inviteCode.trim().toUpperCase();
-    if (!cleanInvite.startsWith('@')) {
-      cleanInvite = '@' + cleanInvite;
-    }
-
+  return withDataLock(() => {
     const invites = getAllInvites();
-    foundInvite = invites.find((i) => i.code.toUpperCase() === cleanInvite);
+    const invite = invites.find((i) => i.code.toUpperCase() === code);
 
-    if (!foundInvite) {
-      return res.status(403).json({
-        success: false,
-        error: `❌ Código de convite ${cleanInvite} não existe! Verifique as letras ou peça um novo ao Edinho.`,
-      });
+    if (!invite) {
+      return res.status(404).json({ success: false, error: 'Convite não encontrado.' });
     }
 
-    if (foundInvite.status === 'revoked') {
-      return res.status(403).json({
-        success: false,
-        error: '❌ Este convite foi cancelado pelo Administrador.',
-      });
-    }
+    invite.status = 'revoked';
+    saveInvites(invites);
 
-    if (foundInvite.status === 'expired' || (foundInvite.expiresAt !== 'never' && new Date(foundInvite.expiresAt) < new Date())) {
-      foundInvite.status = 'expired';
-      saveInvites(invites);
-      return res.status(403).json({
-        success: false,
-        error: '⏰ Este código de convite expirou! Peça um novo convite ao Administrador Edinho.',
-      });
-    }
-
-    if (foundInvite.usedCount >= foundInvite.maxUses || foundInvite.status === 'used') {
-      foundInvite.status = 'used';
-      saveInvites(invites);
-      return res.status(403).json({
-        success: false,
-        error: '⚠️ Este código de convite já foi utilizado o número máximo de vezes.',
-      });
-    }
-  }
-
-  // Determine role: Edinho or valid adminSecret matches ADMIN_PIN
-  let assignedRole: 'admin' | 'player' = 'player';
-  if ((role === 'admin' || hasValidAdminPin) && hasValidAdminPin) {
-    assignedRole = 'admin';
-  }
-
-  // Generate unique player tag (e.g. #1042)
-  const existingTags = new Set(users.map((u) => u.tag));
-  let playerTag = `#${Math.floor(1000 + Math.random() * 9000)}`;
-  while (existingTags.has(playerTag)) {
-    playerTag = `#${Math.floor(1000 + Math.random() * 9000)}`;
-  }
-
-  const passwordHash = await bcrypt.hash(password, 10);
-  const newUser: UserRecord = {
-    id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    username: cleanUsername,
-    passwordHash,
-    displayName: displayName?.trim() || cleanUsername,
-    avatar: avatar || '🦸‍♂️',
-    role: assignedRole,
-    tag: playerTag,
-    createdAt: new Date().toISOString(),
-  };
-
-  users.push(newUser);
-  saveUsers(users);
-
-  // Mark invite as used if provided
-  if (foundInvite) {
-    const invites = getAllInvites();
-    const inv = invites.find((i) => i.code === foundInvite?.code);
-    if (inv) {
-      inv.usedCount += 1;
-      inv.usedBy.push({ username: cleanUsername, usedAt: new Date().toISOString() });
-      if (inv.usedCount >= inv.maxUses) {
-        inv.status = 'used';
-      }
-      saveInvites(invites);
-    }
-  }
-
-  const token = jwt.sign(
-    { id: newUser.id, username: newUser.username, displayName: newUser.displayName, role: newUser.role },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-
-  return res.json({
-    success: true,
-    token,
-    user: toPublicProfile(newUser),
+    return res.json({ success: true, message: 'Convite revogado com sucesso.' });
   });
 });
 
-// Login
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password, displayName, avatar, role, adminSecret, inviteCode } = req.body;
+
+  const cleanUsername = normalizeUsername(username || '');
+  if (!cleanUsername || /\s/.test(cleanUsername) || cleanUsername.length < MIN_USERNAME_LENGTH || cleanUsername.length > MAX_USERNAME_LENGTH || !/^[a-z0-9._-]+$/.test(cleanUsername)) {
+    return res.status(400).json({ success: false, error: 'O nome de usuário deve ter entre 3 e 32 caracteres válidos (letras, números, ., -, _).' });
+  }
+  if (!password || typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+    return res.status(400).json({ success: false, error: `A senha deve ter no mínimo ${MIN_PASSWORD_LENGTH} caracteres.` });
+  }
+  const cleanDisplayName = normalizeDisplayName(displayName || cleanUsername);
+  if (cleanDisplayName.length < MIN_DISPLAY_NAME_LENGTH || cleanDisplayName.length > MAX_DISPLAY_NAME_LENGTH) {
+    return res.status(400).json({ success: false, error: `O nome de exibição deve ter entre ${MIN_DISPLAY_NAME_LENGTH} e ${MAX_DISPLAY_NAME_LENGTH} caracteres.` });
+  }
+
+  const hasValidAdminPin = !!(adminSecret && ADMIN_PIN && adminSecret === ADMIN_PIN);
+  if (!hasValidAdminPin && (!inviteCode || typeof inviteCode !== 'string')) {
+    return res.status(403).json({
+      success: false,
+      error: '🔒 O Uno KaWiHe é privado! É obrigatório inserir um Código de Convite (@XXXX) válido fornecido pelo Administrador Edinho.',
+    });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  return withDataLock(() => {
+    const users = getAllUsers();
+
+    if (users.some((u) => normalizeUsername(u.username) === cleanUsername)) {
+      return res.status(400).json({ success: false, error: 'Este nome de usuário já está cadastrado. Escolha outro!' });
+    }
+    if (users.some((u) => normalizeDisplayName(u.displayName).toLowerCase() === cleanDisplayName.toLowerCase())) {
+      return res.status(400).json({ success: false, error: `O nome de jogador "${cleanDisplayName}" já foi escolhido por outro usuário!` });
+    }
+
+    if (!hasValidAdminPin) {
+      let cleanInvite = (inviteCode || '').trim().toUpperCase();
+      if (!cleanInvite.startsWith('@')) cleanInvite = '@' + cleanInvite;
+
+      const invites = getAllInvites();
+      const foundInvite = invites.find((i) => i.code.toUpperCase() === cleanInvite);
+
+      if (!foundInvite) {
+        return res.status(403).json({
+          success: false,
+          error: `❌ Código de convite ${cleanInvite} não existe! Verifique as letras ou peça um novo ao Edinho.`,
+        });
+      }
+      if (foundInvite.status === 'revoked') {
+        return res.status(403).json({ success: false, error: '❌ Este convite foi cancelado pelo Administrador.' });
+      }
+      if (foundInvite.status === 'expired' || (foundInvite.expiresAt !== 'never' && new Date(foundInvite.expiresAt) < new Date())) {
+        foundInvite.status = 'expired';
+        saveInvites(invites);
+        return res.status(403).json({ success: false, error: '⏰ Este código de convite expirou! Peça um novo convite ao Administrador Edinho.' });
+      }
+      if (foundInvite.usedCount >= foundInvite.maxUses || foundInvite.status === 'used') {
+        foundInvite.status = 'used';
+        saveInvites(invites);
+        return res.status(403).json({ success: false, error: '⚠️ Este código de convite já foi utilizado o número máximo de vezes.' });
+      }
+
+      foundInvite.usedCount += 1;
+      foundInvite.usedBy.push({ username: cleanUsername, usedAt: new Date().toISOString() });
+      if (foundInvite.usedCount >= foundInvite.maxUses) {
+        foundInvite.status = 'used';
+      }
+      saveInvites(invites);
+    }
+
+    let assignedRole: 'admin' | 'player' = 'player';
+    if ((role === 'admin' || hasValidAdminPin) && hasValidAdminPin) {
+      assignedRole = 'admin';
+    }
+
+    const existingTags = new Set(users.map((u) => u.tag));
+    const playerTag = generateUniqueTag(existingTags);
+
+    const newUser: UserRecord = {
+      id: `usr_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      username: cleanUsername,
+      passwordHash,
+      displayName: cleanDisplayName,
+      avatar: avatar || '🦸‍♂️',
+      role: assignedRole,
+      tag: playerTag,
+      createdAt: new Date().toISOString(),
+      status: 'active',
+    };
+
+    users.push(newUser);
+    saveUsers(users);
+
+    const token = jwt.sign(
+      { id: newUser.id, username: newUser.username, displayName: newUser.displayName, role: newUser.role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    return res.json({
+      success: true,
+      token,
+      user: toPublicProfile(newUser),
+    });
+  });
+});
+
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
 
@@ -474,12 +581,20 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Informe usuário e senha.' });
   }
 
-  const cleanUsername = username.trim().toLowerCase();
+  const cleanUsername = normalizeUsername(username);
   const users = getAllUsers();
-  const user = users.find((u) => u.username.toLowerCase() === cleanUsername);
+  const user = users.find((u) => normalizeUsername(u.username) === cleanUsername);
 
   if (!user) {
     return res.status(401).json({ success: false, error: 'Usuário não encontrado. Peça um convite para criar sua conta!' });
+  }
+
+  const status = getEffectiveUserStatus(user);
+  if (status === 'disabled') {
+    return res.status(403).json({ success: false, error: 'Esta conta foi desativada pelo administrador e não pode acessar o sistema.' });
+  }
+  if (status === 'archived') {
+    return res.status(403).json({ success: false, error: 'Esta conta foi arquivada pelo administrador e está bloqueada para login.' });
   }
 
   const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
@@ -500,7 +615,6 @@ app.post('/api/auth/login', async (req, res) => {
   });
 });
 
-// Me (Check session token)
 app.get('/api/auth/me', (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -516,17 +630,19 @@ app.get('/api/auth/me', (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
     }
+    if (!isUserActive(user)) {
+      return res.status(403).json({ success: false, error: 'Conta desativada ou arquivada.' });
+    }
 
     return res.json({
       success: true,
       user: toPublicProfile(user),
     });
-  } catch (err) {
+  } catch {
     return res.status(401).json({ success: false, error: 'Sessão expirada ou inválida.' });
   }
 });
 
-// Verify Admin PIN (Edinho PIN: )
 app.post('/api/auth/verify-admin-pin', (req, res) => {
   const { pin } = req.body;
   if (!pin) {
@@ -542,7 +658,6 @@ app.post('/api/auth/verify-admin-pin', (req, res) => {
   }
 });
 
-// User Stats persistence
 app.get('/api/user/stats', (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -554,8 +669,8 @@ app.get('/api/user/stats', (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     const users = getAllUsers();
     const user = users.find((u) => u.id === decoded.id);
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    if (!user || !isUserActive(user)) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado ou inativo.' });
     }
     return res.json({ success: true, stats: user.stats || null });
   } catch {
@@ -563,7 +678,7 @@ app.get('/api/user/stats', (req, res) => {
   }
 });
 
-app.post('/api/user/stats', (req, res) => {
+app.post('/api/user/stats', async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ success: false, error: 'Não autorizado.' });
@@ -572,21 +687,21 @@ app.post('/api/user/stats', (req, res) => {
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    const users = getAllUsers();
-    const user = users.find((u) => u.id === decoded.id);
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
-    }
-
-    user.stats = req.body.stats;
-    saveUsers(users);
-    return res.json({ success: true, message: 'Estatísticas salvas com sucesso!' });
+    return await withDataLock(() => {
+      const users = getAllUsers();
+      const user = users.find((u) => u.id === decoded.id);
+      if (!user || !isUserActive(user)) {
+        return res.status(404).json({ success: false, error: 'Usuário não encontrado ou inativo.' });
+      }
+      user.stats = req.body.stats;
+      saveUsers(users);
+      return res.json({ success: true, message: 'Estatísticas salvas com sucesso!' });
+    });
   } catch {
     return res.status(401).json({ success: false, error: 'Sessão inválida.' });
   }
 });
 
-// Admin Request Helper
 function isAuthAdminRequest(req: any): boolean {
   const pinHeader = req.headers['x-admin-pin'];
   if (ADMIN_PIN && pinHeader && pinHeader === ADMIN_PIN) {
@@ -596,7 +711,9 @@ function isAuthAdminRequest(req: any): boolean {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
       const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET) as any;
-      if (decoded && (decoded.role === 'admin' || decoded.username?.toLowerCase() === 'edinho')) {
+      const users = getAllUsers();
+      const user = users.find((u) => u.id === decoded.id);
+      if (user && user.role === 'admin' && isUserActive(user)) {
         return true;
       }
     } catch {}
@@ -604,7 +721,6 @@ function isAuthAdminRequest(req: any): boolean {
   return false;
 }
 
-// Admin Users List
 app.get('/api/admin/users', (req, res) => {
   if (!isAuthAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
@@ -619,6 +735,8 @@ app.get('/api/admin/users', (req, res) => {
     role: u.role,
     tag: u.tag,
     createdAt: u.createdAt,
+    status: getEffectiveUserStatus(u),
+    statusUpdatedAt: u.statusUpdatedAt,
     isOnline: false,
     currentRoomId: null,
     roomStatus: null,
@@ -627,94 +745,105 @@ app.get('/api/admin/users', (req, res) => {
   return res.json({ success: true, users: userList });
 });
 
-// Admin Create User Direct
 app.post('/api/admin/users/create', async (req, res) => {
   if (!isAuthAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
   const { username, password, displayName, avatar, role = 'player' } = req.body;
-  if (!username || username.trim().length < 3) {
-    return res.status(400).json({ success: false, error: 'O nome de usuário deve ter no mínimo 3 caracteres.' });
+  const cleanUsername = normalizeUsername(username || '');
+  if (!cleanUsername || /\s/.test(cleanUsername) || cleanUsername.length < MIN_USERNAME_LENGTH || cleanUsername.length > MAX_USERNAME_LENGTH || !/^[a-z0-9._-]+$/.test(cleanUsername)) {
+    return res.status(400).json({ success: false, error: 'O nome de usuário deve ter entre 3 e 32 caracteres válidos.' });
   }
-  if (!password || password.length < 3) {
-    return res.status(400).json({ success: false, error: 'A senha deve ter no mínimo 3 caracteres.' });
+  if (!password || typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+    return res.status(400).json({ success: false, error: `A senha deve ter no mínimo ${MIN_PASSWORD_LENGTH} caracteres.` });
   }
-
-  const cleanUsername = username.trim().toLowerCase().replace(/\s+/g, '');
-  const users = getAllUsers();
-  if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
-    return res.status(400).json({ success: false, error: `O usuário @${cleanUsername} já existe.` });
-  }
-
-  const existingTags = new Set(users.map((u) => u.tag));
-  let playerTag = `#${Math.floor(1000 + Math.random() * 9000)}`;
-  while (existingTags.has(playerTag)) {
-    playerTag = `#${Math.floor(1000 + Math.random() * 9000)}`;
+  const cleanDisplayName = normalizeDisplayName(displayName || cleanUsername);
+  if (cleanDisplayName.length < MIN_DISPLAY_NAME_LENGTH || cleanDisplayName.length > MAX_DISPLAY_NAME_LENGTH) {
+    return res.status(400).json({ success: false, error: `O nome de exibição deve ter entre ${MIN_DISPLAY_NAME_LENGTH} e ${MAX_DISPLAY_NAME_LENGTH} caracteres.` });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const newUser: UserRecord = {
-    id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    username: cleanUsername,
-    passwordHash,
-    displayName: displayName?.trim() || cleanUsername,
-    avatar: avatar || '🦸‍♂️',
-    role: role === 'admin' ? 'admin' : 'player',
-    tag: playerTag,
-    createdAt: new Date().toISOString(),
-  };
 
-  users.push(newUser);
-  saveUsers(users);
+  return withDataLock(() => {
+    const users = getAllUsers();
+    if (users.some((u) => normalizeUsername(u.username) === cleanUsername)) {
+      return res.status(400).json({ success: false, error: `O usuário @${cleanUsername} já existe.` });
+    }
+    if (users.some((u) => normalizeDisplayName(u.displayName).toLowerCase() === cleanDisplayName.toLowerCase())) {
+      return res.status(400).json({ success: false, error: `O nome de exibição "${cleanDisplayName}" já está em uso.` });
+    }
 
-  return res.json({ success: true, user: toPublicProfile(newUser) });
+    const existingTags = new Set(users.map((u) => u.tag));
+    const playerTag = generateUniqueTag(existingTags);
+
+    const newUser: UserRecord = {
+      id: `usr_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      username: cleanUsername,
+      passwordHash,
+      displayName: cleanDisplayName,
+      avatar: avatar || '🦸‍♂️',
+      role: role === 'admin' ? 'admin' : 'player',
+      tag: playerTag,
+      createdAt: new Date().toISOString(),
+      status: 'active',
+    };
+
+    users.push(newUser);
+    saveUsers(users);
+
+    return res.json({ success: true, user: toPublicProfile(newUser) });
+  });
 });
 
-// Admin Reset Password
 app.post('/api/admin/users/:id/reset-password', async (req, res) => {
   if (!isAuthAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
   const { newPassword } = req.body;
-  if (!newPassword || newPassword.length < 3) {
-    return res.status(400).json({ success: false, error: 'A nova senha deve ter no mínimo 3 caracteres.' });
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH || newPassword.length > MAX_PASSWORD_LENGTH) {
+    return res.status(400).json({ success: false, error: `A nova senha deve ter no mínimo ${MIN_PASSWORD_LENGTH} caracteres.` });
   }
 
-  const users = getAllUsers();
-  const user = users.find((u) => u.id === req.params.id || u.username.toLowerCase() === req.params.id.toLowerCase());
-  if (!user) {
-    return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
-  }
+  const passwordHash = await bcrypt.hash(newPassword, 10);
 
-  user.passwordHash = await bcrypt.hash(newPassword, 10);
-  saveUsers(users);
+  return withDataLock(() => {
+    const users = getAllUsers();
+    const user = users.find((u) => u.id === req.params.id || u.username.toLowerCase() === req.params.id.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
 
-  return res.json({ success: true, message: `Senha de @${user.username} redefinida com sucesso!` });
+    user.passwordHash = passwordHash;
+    saveUsers(users);
+
+    return res.json({ success: true, message: `Senha de @${user.username} redefinida com sucesso!` });
+  });
 });
 
-// Admin Delete User
-app.delete('/api/admin/users/:id', (req, res) => {
+app.delete('/api/admin/users/:id', async (req, res) => {
   if (!isAuthAdminRequest(req)) {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
-  const users = getAllUsers();
-  const index = users.findIndex((u) => u.id === req.params.id || u.username.toLowerCase() === req.params.id.toLowerCase());
-  if (index === -1) {
-    return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
-  }
+  return withDataLock(() => {
+    const users = getAllUsers();
+    const index = users.findIndex((u) => u.id === req.params.id || u.username.toLowerCase() === req.params.id.toLowerCase());
+    if (index === -1) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
 
-  const user = users[index];
-  if (user.username.toLowerCase() === 'edinho') {
-    return res.status(400).json({ success: false, error: 'Não é permitido excluir o usuário principal Edinho.' });
-  }
+    const user = users[index];
+    if (user.username.toLowerCase() === 'edinho') {
+      return res.status(400).json({ success: false, error: 'Não é permitido excluir o usuário principal Edinho.' });
+    }
 
-  users.splice(index, 1);
-  saveUsers(users);
+    users.splice(index, 1);
+    saveUsers(users);
 
-  return res.json({ success: true, message: `Usuário @${user.username} excluído com sucesso.` });
+    return res.json({ success: true, message: `Usuário @${user.username} excluído com sucesso.` });
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
