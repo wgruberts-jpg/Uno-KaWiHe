@@ -55,6 +55,14 @@ Fonte de verdade das regras. Cada regra tem ID e status: **C** = CONFIRMADO, **P
 - **REG-2V2-05** Pontuação da vitória: soma dos pontos das cartas restantes de ambos os adversários da equipe perdedora.
 - **REG-2V2-06** Fogo amigo de UNO: bloqueado acusar ou penalizar o próprio parceiro via `catch_uno`.
 
+## Torneios (`tournamentEngine.ts`)
+- **REG-TOR-01** Criação, início, simulação e decisões administrativas de torneio exigem `role === 'admin'`.
+- **REG-TOR-02** Individual distribui mesas de 2 a 4 jogadores de forma determinística (por `seed`); Duplas 2v2 usa chaveamento eliminatório em potência de 2 com byes e séries ímpares (Md1, Md3 ou Md5) com *early clinch*.
+- **REG-TOR-03** Classificação individual na V1 ordena por vitórias; `roundPointsWon` é apenas informativo e **nunca** desempata. Empates na linha de corte exigem partida extra (`extra_match`) ou decisão admin (`admin_decision`).
+- **REG-TOR-04** W.O. individual só se aplica a salas com `tournamentId` após `reconnectGraceMs`: remove o jogador, preserva as 108 cartas devolvendo sua mão (e eventual `stagedCardPlay`) abaixo do topo do descarte, e encerra com `void_insufficient_players` se restar menos de 2 ativos.
+- **REG-TOR-05** Proibido W.O. individual em salas 2v2 (`team_2v2` / `doubles_elimination`); em duplas, desistência/W.O. de 1 integrante concede vitória da partida à equipe adversária.
+- **REG-TOR-06** Em reinício do servidor com partidas em andamento, o torneio é pausado (`server_restart`) sem inventar vencedor automático.
+
 ## Admin e Segurança
-- **REG-ADM-01** Rotas `/api/admin/*` exigem JWT com `role === 'admin'`.
-- **REG-SEG-01** `JWT_SECRET` obrigatório; senhas com bcrypt. Nenhuma cobrança ou dependência paga.
+- **REG-ADM-01** Rotas `/api/admin/*` exigem JWT com `role === 'admin'` (ou `ADMIN_PIN` apenas quando configurado explicitamente via variável de ambiente).
+- **REG-SEG-01** `JWT_SECRET` via ambiente em produção; senhas com bcrypt (fator 10 no cadastro, 12 no bootstrap/CLI). Nenhuma cobrança ou dependência paga.

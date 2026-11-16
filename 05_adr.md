@@ -14,3 +14,9 @@ Motivo: custo zero e simplicidade. Consequência: WebRTC direto entre navegadore
 
 ## ADR-005 · v2.2 · Regra Inquebrável AI Studio Free Tier
 Motivo: garantir que nenhuma dependência ou serviço pago seja introduzido sem validação prévia. Consequência: proibição estrita de serviços cobrados.
+
+## ADR-006 · v2.2.3 · Domínio Puro de Torneios (`tournamentEngine.ts`)
+Motivo: isolar chaves, byes, classificação V1 (sem desempate por `roundPointsWon`) e recuperação pós-reinício de transporte HTTP/WS. Consequência: lógica 100% determinística e testável sem mocks de rede.
+
+## ADR-007 · v2.2.3 · Remoção por W.O. com Preservação das 108 Cartas
+Motivo: em torneios individuais, desconexão após prazo não pode travar a mesa nem duplicar/sumir cartas. Consequência: `removeTournamentPlayerWO` devolve mão e `stagedCardPlay` abaixo do topo do descarte e ajusta `currentTurnIndex` nos dois sentidos.

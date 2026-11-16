@@ -25,6 +25,7 @@ import { AdminInvitesModal } from './components/AdminInvitesModal.js';
 import { AdminRoomsModal } from './components/AdminRoomsModal.js';
 import { LoginScreen } from './components/LoginScreen.js';
 import { RoomPreviewModal } from './components/RoomPreviewModal.js';
+import { TournamentModal } from './components/TournamentModal.js';
 import { sound } from './services/sound.js';
 import { auth } from './services/auth.js';
 import { statsManager } from './services/statsManager.js';
@@ -47,6 +48,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [isTournamentOpen, setIsTournamentOpen] = useState(false);
   const [isAdminInvitesOpen, setIsAdminInvitesOpen] = useState(false);
   const [isAdminRoomsOpen, setIsAdminRoomsOpen] = useState(false);
   const [adminModalTab, setAdminModalTab] = useState<'rooms' | 'users' | 'messages'>('rooms');
@@ -816,6 +818,7 @@ export default function App() {
               setAdminModalTab('users');
               setIsAdminRoomsOpen(true);
             }}
+            onOpenTournament={() => setIsTournamentOpen(true)}
             onKickPlayer={handleKickPlayer}
             onTransferHost={handleTransferHost}
             onClaimHost={handleClaimHost}
@@ -973,6 +976,23 @@ export default function App() {
           );
         }}
       />
+
+      {/* KaWiHe Tournaments Hub Modal */}
+      {isTournamentOpen && (
+        <TournamentModal
+          currentUser={currentUser}
+          token={localStorage.getItem('kawihe_auth_token') || undefined}
+          onClose={() => setIsTournamentOpen(false)}
+          onJoinTournamentRoom={(roomId) => {
+            setIsTournamentOpen(false);
+            handleJoinRoom(
+              roomId,
+              currentUser?.displayName || 'Jogador',
+              currentUser?.avatar || '🦸‍♂️'
+            );
+          }}
+        />
+      )}
 
       {/* Global Server Announcement Banner */}
       {globalAnnouncement && (

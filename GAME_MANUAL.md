@@ -96,3 +96,19 @@ Caso mude de ideia e queira aplicar no Chrome do computador, o passo a passo fun
 3. Digite o **IP ou URL** da sua VM/site no campo de texto exibido (ex: `http://SEU_IP:3000`).
 4. Clique no botão **Relaunch** no rodapé para reiniciar o Chrome.
 
+---
+
+## 🤝 9. Modo Duplas 2v2
+No modo **Duplas 2v2**, 4 jogadores formam duas equipes (**Equipe A** e **Equipe B**) em assentos alternados (`A1 → B1 → A2 → B2`):
+- **Visão de Parceiro:** Você consegue ver as cartas do seu parceiro de equipe na interface para planejar jogadas em conjunto, enquanto as cartas dos adversários continuam ocultas.
+- **Proteção de Equipe:** Não é possível acusar ou punir o próprio parceiro no botão de UNO.
+- **Vitória:** Assim que qualquer um dos dois parceiros bater (0 cartas), a dupla inteira vence a rodada e soma os pontos das cartas restantes na mão dos dois adversários.
+
+---
+
+## 🏆 10. Modo Torneios (Individual e Duplas)
+O Administrador pode organizar **Torneios** diretamente pelo menu **Torneios**:
+- **Modalidade Individual:** Distribui os inscritos em mesas de 2 a 4 jogadores. A classificação prioriza o número de vitórias; se houver empate na vaga de classificação, ocorre uma partida extra de desempate ou decisão administrativa.
+- **Modalidade Duplas 2v2:** Chaveamento eliminatório em séries **Melhor de 1 (Md1)**, **Melhor de 3 (Md3)** ou **Melhor de 5 (Md5)**, com avanço automático (*bye*) quando necessário.
+- **W.O. Automático:** Caso um jogador desconecte em torneio individual e não retorne dentro do prazo de tolerância, ele é removido da mesa por W.O. e a partida continua normalmente com os demais participantes.
+

@@ -76,12 +76,20 @@ export function createDeck(): Card[] {
 export interface InternalPlayer extends Player {
   hand: Card[];
   hasDrawnThisTurn: boolean;
+  userId?: string;
+  tournamentEntryId?: string;
 }
 
 export interface RoomData {
   id: string;
   creatorName?: string;
   ownerUserId?: string;
+  tournamentId?: string;
+  tournamentGroupId?: string;
+  tournamentGameId?: string;
+  tournamentSpectatorMode?: 'table_only' | 'tv_hidden' | 'tv_reveal';
+  woRemovedPlayerIds?: string[];
+  pendingWoPlayerIds?: string[];
   settings: RoomSettings;
   status: 'waiting' | 'playing' | 'paused' | 'ended';
   players: InternalPlayer[];
@@ -159,7 +167,7 @@ export function drawCardsFromDeck(room: RoomData, count: number): Card[] {
 export function getNextPlayerIndex(currentIndex: number, direction: TurnDirection, totalPlayers: number, steps = 1): number {
   let next = (currentIndex + direction * steps) % totalPlayers;
   if (next < 0) next += totalPlayers;
-  return next;
+  return next === 0 ? 0 : next;
 }
 
 export function expireUnoVulnerability(room: RoomData) {
@@ -208,6 +216,226 @@ export function handleTimeoutEngine(room: RoomData): { player: InternalPlayer; d
   player.hasDrawnThisTurn = false;
   advanceTurnEngine(room, 1);
   return { player, drewCard };
+}
+
+export interface TournamentWoRemovalResult {
+  outcome:
+    | 'removed'
+    | 'void_insufficient_players'
+    | 'deferred_staged_play'
+    | 'not_tournament_room'
+    | 'rejected_2v2_doubles'
+    | 'already_removed'
+    | 'player_not_found'
+    | 'game_not_active';
+  removedPlayerId?: string;
+  removedPlayerName?: string;
+  discardedCardsCount: number;
+  remainingPlayersCount: number;
+  wasCurrentTurn: boolean;
+  cancelledStagedPlay: boolean;
+  nextTurnPlayerId?: string;
+}
+
+/**
+ * Remove um jogador por W.O. durante uma partida de sala de torneio individual (100% puro, sem timers):
+ *  - Exclusivo para salas com `room.tournamentId` e modalidade individual (rejeita `team_2v2` / `doubles_elimination`)
+ *  - Protegido contra execução duplicada do mesmo W.O.
+ *  - Serializa remoção se outro jogador possuir `stagedCardPlay` em andamento
+ *  - Cancela `stagedCardPlay` se pertencer ao jogador eliminado e conserva sua carta no descarte sem duplicação
+ *  - Move todas as cartas da mão do jogador eliminado para a pilha de descarte imediatamente abaixo do topo
+ *  - Preserva `currentColor`, `turnDirection` e a carta do topo
+ *  - Limpa estados de UNO relacionados ao jogador eliminado e reinicializa estado do próximo turno
+ *  - Ajusta `currentTurnIndex` em todas as posições/direções ou retorna `void_insufficient_players` se restarem < 2
+ */
+export function removeTournamentPlayerWO(room: RoomData, playerId: string): TournamentWoRemovalResult {
+  if (!room.tournamentId) {
+    return {
+      outcome: 'not_tournament_room',
+      discardedCardsCount: 0,
+      remainingPlayersCount: room.players.length,
+      wasCurrentTurn: false,
+      cancelledStagedPlay: false,
+    };
+  }
+
+  if (
+    room.settings?.gameMode === 'team_2v2' ||
+    room.settings?.tournamentFormat === 'doubles_elimination'
+  ) {
+    return {
+      outcome: 'rejected_2v2_doubles',
+      discardedCardsCount: 0,
+      remainingPlayersCount: room.players.length,
+      wasCurrentTurn: false,
+      cancelledStagedPlay: false,
+    };
+  }
+
+  if (room.status !== 'playing' && room.status !== 'paused') {
+    return {
+      outcome: 'game_not_active',
+      discardedCardsCount: 0,
+      remainingPlayersCount: room.players.length,
+      wasCurrentTurn: false,
+      cancelledStagedPlay: false,
+    };
+  }
+
+  if (room.woRemovedPlayerIds?.includes(playerId)) {
+    return {
+      outcome: 'already_removed',
+      discardedCardsCount: 0,
+      remainingPlayersCount: room.players.length,
+      wasCurrentTurn: false,
+      cancelledStagedPlay: false,
+    };
+  }
+
+  const removeIdx = room.players.findIndex((p) => p.id === playerId);
+  if (removeIdx === -1) {
+    return {
+      outcome: 'player_not_found',
+      discardedCardsCount: 0,
+      remainingPlayersCount: room.players.length,
+      wasCurrentTurn: false,
+      cancelledStagedPlay: false,
+    };
+  }
+
+  let cancelledStagedPlay = false;
+  let recoveredStagedCard: Card | null = null;
+  if (room.stagedCardPlay) {
+    if (room.stagedCardPlay.playerId !== playerId) {
+      if (!room.pendingWoPlayerIds) room.pendingWoPlayerIds = [];
+      if (!room.pendingWoPlayerIds.includes(playerId)) {
+        room.pendingWoPlayerIds.push(playerId);
+      }
+      return {
+        outcome: 'deferred_staged_play',
+        discardedCardsCount: 0,
+        remainingPlayersCount: room.players.length,
+        wasCurrentTurn: removeIdx === room.currentTurnIndex,
+        cancelledStagedPlay: false,
+      };
+    }
+    recoveredStagedCard = room.stagedCardPlay.card;
+    room.stagedCardPlay = null;
+    cancelledStagedPlay = true;
+  }
+
+  if (!room.woRemovedPlayerIds) room.woRemovedPlayerIds = [];
+  room.woRemovedPlayerIds.push(playerId);
+  if (room.pendingWoPlayerIds?.length) {
+    room.pendingWoPlayerIds = room.pendingWoPlayerIds.filter((id) => id !== playerId);
+  }
+
+  const oldTurnIdx = room.currentTurnIndex;
+  const wasCurrentTurn = removeIdx === oldTurnIdx;
+  const removedPlayer = room.players[removeIdx];
+
+  // Limpa estados de UNO e turno relacionados ao jogador removido
+  removedPlayer.hasCalledUno = false;
+  removedPlayer.hasDrawnThisTurn = false;
+  if (room.unoVulnerablePlayerId === removedPlayer.id) {
+    room.unoVulnerablePlayerId = null;
+    delete room.unoVulnerableTurnCount;
+  }
+
+  // Move cartas da mão para a pilha de descarte imediatamente abaixo do topo (preservando topo e currentColor)
+  const removedHand = removedPlayer.hand.splice(0, removedPlayer.hand.length);
+  removedPlayer.cardsCount = 0;
+
+  // Se stagedCardPlay já havia retirado a carta da mão (zona transitória), incorpora sem duplicar nem perder
+  if (
+    recoveredStagedCard &&
+    !removedHand.some((c) => c.id === recoveredStagedCard!.id) &&
+    !room.discardPile.some((c) => c.id === recoveredStagedCard!.id) &&
+    !room.deck.some((c) => c.id === recoveredStagedCard!.id)
+  ) {
+    removedHand.push(recoveredStagedCard);
+  }
+
+  if (removedHand.length > 0) {
+    if (room.discardPile.length > 0) {
+      const topCard = room.discardPile.pop()!;
+      room.discardPile.push(...removedHand, topCard);
+    } else {
+      room.discardPile.push(...removedHand);
+    }
+  }
+
+  // Remove participante ativo da sala
+  room.players.splice(removeIdx, 1);
+  const remaining = room.players.length;
+
+  // Menos de 2 jogadores restantes -> partida inválida (sem escolher vencedor automático)
+  if (remaining < 2) {
+    room.currentTurnIndex = 0;
+    room.status = 'ended';
+    room.winnerId = null;
+    room.winnerTeam = null;
+    room.pendingWoPlayerIds = [];
+    return {
+      outcome: 'void_insufficient_players',
+      removedPlayerId: removedPlayer.id,
+      removedPlayerName: removedPlayer.name,
+      discardedCardsCount: removedHand.length,
+      remainingPlayersCount: remaining,
+      wasCurrentTurn,
+      cancelledStagedPlay,
+    };
+  }
+
+  // Ajusta currentTurnIndex preservando turnDirection atual
+  if (removeIdx < oldTurnIdx) {
+    room.currentTurnIndex = oldTurnIdx - 1;
+  } else if (removeIdx > oldTurnIdx) {
+    room.currentTurnIndex = oldTurnIdx % remaining;
+  } else {
+    // O jogador removido era exatamente o jogador da vez
+    if (room.turnDirection === 1) {
+      room.currentTurnIndex = oldTurnIdx % remaining;
+    } else {
+      room.currentTurnIndex = (oldTurnIdx - 1 + remaining) % remaining;
+    }
+  }
+
+  const nextPlayer = room.players[room.currentTurnIndex];
+
+  // Quando houve transferência de vez por W.O., garante início limpo de turno para o próximo jogador
+  if (wasCurrentTurn && nextPlayer) {
+    nextPlayer.hasDrawnThisTurn = false;
+    room.roundTurnCount = (room.roundTurnCount || 0) + 1;
+    expireUnoVulnerability(room);
+  }
+
+  return {
+    outcome: 'removed',
+    removedPlayerId: removedPlayer.id,
+    removedPlayerName: removedPlayer.name,
+    discardedCardsCount: removedHand.length,
+    remainingPlayersCount: remaining,
+    wasCurrentTurn,
+    cancelledStagedPlay,
+    nextTurnPlayerId: nextPlayer?.id,
+  };
+}
+
+export function flushPendingTournamentWOs(room: RoomData): TournamentWoRemovalResult[] {
+  if (!room.tournamentId || !room.pendingWoPlayerIds?.length || room.stagedCardPlay) {
+    return [];
+  }
+  const results: TournamentWoRemovalResult[] = [];
+  while (room.pendingWoPlayerIds.length > 0 && (room.status === 'playing' || room.status === 'paused')) {
+    const nextId = room.pendingWoPlayerIds.shift()!;
+    const res = removeTournamentPlayerWO(room, nextId);
+    results.push(res);
+    if (res.outcome === 'void_insufficient_players') {
+      break;
+    }
+  }
+  return results;
 }
 
 export function getTeammate(room: RoomData, player: InternalPlayer): InternalPlayer | undefined {

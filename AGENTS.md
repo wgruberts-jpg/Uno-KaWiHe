@@ -11,41 +11,47 @@ Como este projeto é um ambiente de jogo real-time, Agentes devem seguir rigoros
    - É terminantemente proibido introduzir dependências, serviços externos pagos, bancos de dados corporativos pagos (como Oracle Cloud pago, RDS cobrado, etc.) ou APIs cobradas.
    - Utilize sempre recursos nativos, locais, self-hosted ou planos gratuitos (ex: persistência atômica em arquivos JSON locais, WebSockets integrados no Node.js e WebRTC P2P para voz).
    - Na dúvida se algo requer pagamento ou suporte no AI Studio, adote a alternativa gratuita local ou pergunte.
-2. **O Servidor é a Única Autoridade:** O cliente apenas envia intenções. Toda validação (regras de UNO, identidade, contagem de cartas, penalidades) ocorre estritamente no `server.ts` e `server/unoEngine.ts`.
+2. **O Servidor é a Única Autoridade:** O cliente apenas envia intenções. Toda validação (regras de UNO, identidade, contagem de cartas, penalidades, modo 2v2 e chaves de torneio) ocorre estritamente no `server.ts`, `server/unoEngine.ts` e `server/tournamentEngine.ts`.
 3. **Segurança em Primeiro Lugar:**
-   - Nunca hardcode segredos.
-   - Use apenas as rotas de autenticação via JWT.
+   - Nunca hardcode segredos em produção (configure `JWT_SECRET` e `INITIAL_ADMIN_PASSWORD` via `.env`).
+   - Use apenas as rotas de autenticação via JWT (`role === 'admin'` para rotas administrativas).
    - Scripts de manutenção (na pasta `/scripts/`) devem ser executados com cautela e em ambiente seguro.
-4. **Contrato Funcional:** Antes de qualquer alteração, consulte `/Game_funcionalidades`. Se o comportamento real do código divergir deste contrato, priorize a correção do código e, posteriormente, a atualização do contrato.
+4. **Contrato Funcional:** Antes de qualquer alteração, consulte `/Game_funcionalidades` e `/02_regras.md`. Se o comportamento real do código divergir deste contrato, priorize a correção do código e, posteriormente, a atualização do contrato.
 5. **Validar antes de Confirmar:**
-   - Sempre execute `npm test` antes de assumir que o sistema está saudável.
-   - Se uma tarefa resultar em mudanças estruturais, execute `npx tsc --noEmit` e `npm run build` para garantir a integridade.
+   - Sempre execute `npm test` antes de assumir que o sistema está saudável (91 testes em 5 suítes).
+   - Se uma tarefa resultar em mudanças estruturais, execute `npm run lint` (`tsc --noEmit`) e `npm run build` para garantir a integridade.
 
 ## 3. Estado Atual do Sistema
-- **Status:** Operacional.
-- **Protocolo de Comunicação:** WebSocket com envelope versionado (`protocolVersion: 2`).
-- **Persistência:** Arquivos JSON atômicos em `/data/` com sincronização `fsync`.
-- **Destaques Recentes:** 
-  - Correção de dupla sala ao iniciar treino.
-  - Implementação de proteção contra clique duplo.
-  - Guia de liberação de microfone para Firefox e Chrome via HTTP/IP.
-  - Painel de diagnóstico e moderação administrativa.
+- **Versão / Status:** `v2.2.3` · Operacional.
+- **Protocolo de Comunicação:** WebSocket com envelope versionado (`protocolVersion: 2`), idempotência por `messageId` (60s) e `reconnectToken` secreto.
+- **Persistência (JSON Atômico em `/data/` com `fsync` + `rename`):**
+  - `data/users.json` (`UserRecord`: `id`, `username`, `passwordHash`, `displayName`, `avatar`, `role`, `tag`, `createdAt`)
+  - `data/invites.json` (`InviteCode`: `code`, `createdBy`, `createdAt`, `expiresAt`, `maxUses`, `usedCount`, `usedBy`, `status`)
+  - `data/stats.json` (mapa de estatísticas de carreira `PlayerCareerStats` por usuário)
+  - `data/tournaments.json` (estado completo de torneios, chaves, rodadas e partidas)
+- **Funcionalidades & Destaques Atuais:**
+  - Modo **Duplas 2v2** (`team_2v2`) com assentos alternados `[A1, B1, A2, B2]`, visão da mão do parceiro (`teammateHand`) e proteção contra fogo amigo no `catch_uno`.
+  - **Sistema de Torneios** (`server/tournamentEngine.ts`): modalidades Individual (mesas 2..4, desempate por partida extra ou decisão admin) e Duplas 2v2 (Md1/Md3/Md5 com byes e early clinch), simulação pré-início, W.O. seguro (preservando invariante das 108 cartas) e pausa automática para decisão em reinício de servidor.
+  - Painel de diagnóstico de jogadores (`/api/admin/player-report/:target`), moderação administrativa e monitor de métricas da VM (`/api/admin/vm-metrics`).
+  - Correção de dupla sala ao iniciar treino, proteção contra clique duplo e guia de liberação de microfone (Firefox/Chrome via HTTP/IP).
+- **Suíte de Testes:** **91 testes** passando via Vitest (`unoEngine.test.ts`: 26, `serverIntegration.test.ts`: 19, `tournamentEngine.test.ts`: 22, `tournamentWo.test.ts`: 19, `tournamentIntegration.test.ts`: 5).
 
-## 4. Estrutura de Documentação (Para referência rápida na raiz)
-- `/00_visao.md` a `/09_prompts.md`: Contrato modular de comportamento, arquitetura, regras, status, testes e prompts de auditoria.
+## 4. Estrutura de Documentação e Planejamento (Raiz)
+- `/00_visao.md` a `/09_prompts.md`: Contrato modular de visão, casos de uso, regras, arquitetura, status/planejamento, ADRs, testes, histórico, handoff e prompts de auditoria.
 - `/Game_funcionalidades`: Contrato normativo detalhado do jogo.
-- `/SYSTEM_SPECIFICATION.md`: Arquitetura técnica e protocolo de rede.
-- `/GAME_MANUAL.md`: Manual oficial de regras do jogo e guia de microfone para PC.
-- `/manualSH.md`: Guia de scripts shell de automação e deploy.
+- `/Game_changes.MD`: Evolução técnica, auditoria de regras e roteiro de entregas.
+- `/SYSTEM_SPECIFICATION.md`: Arquitetura técnica, esquema de dados JSON e protocolo de rede.
+- `/GAME_MANUAL.md`: Manual oficial de regras do jogo, 2v2, torneios e guia de microfone para PC.
+- `/manualSH.md`: Guia de scripts shell de automação, limpeza, testes de carga e deploy.
 - `/USE_CASES.md`: Mapeamento de casos de uso e cenários de teste.
 
 ## 5. Protocolo de Ação do Agente
 Ao assumir a próxima tarefa, o Agente deve:
-1. **Auditoria:** Ler o `.md` correspondente à tarefa ou o `Game_funcionalidades`.
-2. **Verificação:** Executar os testes (`npm test`) para garantir a linha de base.
-3. **Implementação:** Seguir os padrões de TypeScript do projeto.
-4. **Verificação de Regressão:** Executar os testes novamente.
-5. **Atualização:** Se a tarefa alterou regras de negócio, atualizar o `Game_funcionalidades` e outros arquivos `.md` pertinentes.
+1. **Auditoria:** Ler `04_status.md`, `02_regras.md` e a seção pertinente de `Game_funcionalidades`.
+2. **Verificação:** Executar `npm test` para garantir a linha de base (91/91).
+3. **Implementação:** Seguir os padrões de TypeScript do projeto e a regra AI Studio Free Tier.
+4. **Verificação de Regressão:** Executar `npm test`, `npm run lint` e `npm run build`.
+5. **Atualização:** Atualizar `04_status.md`, `07_historico.md`, `08_handoff.md` e os documentos normativos impactados.
 
 ---
 *Este documento é a fonte da verdade para qualquer Agente que assuma este ambiente.*

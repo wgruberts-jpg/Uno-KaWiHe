@@ -1,6 +1,6 @@
-# 📊 CASOS DE USO — UNO KAWIHE v2.2
+# 📊 CASOS DE USO — UNO KAWIHE v2.2.3
 
-Este documento mapeia os principais fluxos de uso, interações, cenários de segurança e validações de testes do sistema **Uno KaWiHe v2.2**, detalhando pré-condições, fluxos principais, cenários alternativos e comportamentos esperados.
+Este documento mapeia os principais fluxos de uso, interações, cenários de segurança e validações de testes do sistema **Uno KaWiHe v2.2.3**, detalhando pré-condições, fluxos principais, cenários alternativos e comportamentos esperados.
 
 ---
 
@@ -38,7 +38,7 @@ Este documento mapeia os principais fluxos de uso, interações, cenários de se
   3. Ao acessar rotas como `/api/admin/users`, `/api/admin/rooms`, `/api/admin/cli-status` ou `/api/admin/users/:id/reset-password`, o token é transmitido no header `Authorization: Bearer <token>`.
   4. O servidor valida a assinatura e o perfil do usuário, concedendo acesso aos dados de telemetria e ações de moderação.
 * **Fluxos Alternativos / Exceções:**
-  * *Tentativa de Acesso com PIN antigo (`x-admin-pin`):* O servidor ignora o PIN e retorna **HTTP 403 Forbidden**.
+  * *Tentativa de Acesso com `x-admin-pin` sem `ADMIN_PIN` configurado no ambiente:* O servidor rejeita e retorna **HTTP 403 Forbidden**.
   * *Tentativa de Acesso com JWT de Jogador Comum (`role: 'player'`):* O servidor rejeita a requisição e retorna **HTTP 403 Forbidden**.
   * *Requisição Anônima:* O servidor rejeita imediatamente com **HTTP 403 Forbidden**.
 
@@ -91,10 +91,35 @@ Este documento mapeia os principais fluxos de uso, interações, cenários de se
 
 ---
 
-## 🧪 Caso de Uso 7: Execução da Suíte Completa de Testes (`npm test`)
-* **Descrição:** Permite validar regras de negócio, integridade de WebSocket e políticas de segurança em menos de 2 segundos.
+## 🤝 Caso de Uso 7: Partida em Duplas 2v2 (`team_2v2`)
+* **Descrição:** Quatro jogadores competem em duas duplas (Equipe A e Equipe B).
 * **Fluxo Principal:**
-  1. O desenvolvedor executa `npx vitest run --reporter=verbose` no terminal.
-  2. O runner executa **42 testes automatizados** com 100% de aprovação:
-     - **24 testes unitários** no `tests/unoEngine.test.ts` (108 cartas, regras de descarte, rotação, Skip/UNO, vitória, penalidades e temporizadores).
-     - **18 testes de integração e segurança** no `tests/serverIntegration.test.ts` (proteção de socket ativo da vítima, envelopes versionados, rejeição de `x-admin-pin`, bloqueio de JWT de jogador comum em rotas admin, autorização de admin via JWT, validação de relatórios de diagnóstico de jogadores e rate limits).
+  1. O anfitrião configura a sala para o modo `team_2v2` (4 vagas).
+  2. O servidor organiza os assentos alternados `[A1, B1, A2, B2]` para intercalar os turnos entre as equipes.
+  3. Cada jogador recebe no próprio socket a mão do seu parceiro (`teammateHand`), mantendo as cartas dos adversários ocultas.
+  4. Tentativas de aplicar `catch_uno` contra o próprio parceiro são bloqueadas pelo servidor.
+  5. Quando qualquer jogador bate (0 cartas), toda a dupla vence e recebe a soma dos pontos das cartas restantes dos dois adversários.
+
+---
+
+## 🏆 Caso de Uso 8: Torneios (Individual e Duplas 2v2)
+* **Descrição:** O Administrador organiza campeonatos oficiais diretamente pelo painel `TournamentModal`.
+* **Fluxo Principal:**
+  1. O Admin configura a modalidade (`individual` ou `doubles`), regras (jogos por grupo e vagas, ou melhor de 1/3/5), política de desempate (`extra_match` ou `admin_decision`) e prazo de reconexão (`reconnectGraceMs`).
+  2. Antes de iniciar, pode executar uma **Simulação** (`/api/tournaments/:id/simulate`) para validar distribuição de mesas, byes e estimativa de duração.
+  3. Jogadores individuais ou duplas de 2 usuários distintos são inscritos.
+  4. Ao iniciar, as partidas abrem salas vinculadas (`tournamentId`). Desconexões além do prazo em torneio individual acionam W.O. seguro devolvendo as cartas ao descarte sem perder nenhuma das 108 cartas.
+  5. Em caso de reinício do servidor durante partidas ativas, o torneio entra em pausa (`server_restart`) aguardando intervenção administrativa sem inventar vencedores.
+
+---
+
+## 🧪 Caso de Uso 9: Execução da Suíte Completa de Testes (`npm test`)
+* **Descrição:** Permite validar regras de negócio, modo 2v2, torneios, W.O., integridade de WebSocket e políticas de segurança.
+* **Fluxo Principal:**
+  1. O desenvolvedor executa `npm test` (ou `npx vitest run --reporter=verbose`) no terminal.
+  2. O runner executa **91 testes automatizados** em 5 suítes com 100% de aprovação:
+     - **26 testes unitários** no `tests/unoEngine.test.ts`
+     - **19 testes de integração e segurança** no `tests/serverIntegration.test.ts`
+     - **22 testes de domínio puro de torneios** no `tests/tournamentEngine.test.ts`
+     - **19 testes de remoção segura por W.O.** no `tests/tournamentWo.test.ts`
+     - **5 testes de integração real de torneios HTTP/WS** no `tests/tournamentIntegration.test.ts`

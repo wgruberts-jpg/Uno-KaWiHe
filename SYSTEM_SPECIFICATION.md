@@ -1,20 +1,20 @@
-# 📄 ESPECIFICAÇÃO TÉCNICA E ARQUITETURA — UNO KAWIHE v2.2
+# 📄 ESPECIFICAÇÃO TÉCNICA E ARQUITETURA — UNO KAWIHE v2.2.3
 
-Este documento descreve detalhadamente a arquitetura, protocolos de comunicação, modelo de dados, políticas de segurança e decisões de implementação do **Uno KaWiHe v2.2**. Ele foi estruturado de forma a servir como um manual completo para recriação total e idêntica do sistema a partir do zero por qualquer engenheiro de software ou modelo de Inteligência Artificial.
+Este documento descreve detalhadamente a arquitetura, protocolos de comunicação, modelo de dados, políticas de segurança e decisões de implementação do **Uno KaWiHe v2.2.3**. Ele foi estruturado de forma a servir como um manual completo para análise, manutenção e evolução do sistema.
 
 ---
 
 ## 1. Visão Geral do Sistema
-O **Uno KaWiHe v2.2** é uma plataforma full-stack de jogo de cartas UNO multiplayer em tempo real, focada em ambientes familiares e infantis (*Kids & Família*). O sistema opera sem banco de dados SQL pesado convencional para simplificar o deploy (utilizando armazenamento JSON estruturado com escrita atômica física `fsync` em disco) e oferece comunicação de voz direta **Peer-to-Peer (P2P)** via WebRTC (0% consumo de servidor de mídia) e comunicação de estado do jogo via WebSockets com envelope de mensagens versão 2 (`protocolVersion: 2`).
+O **Uno KaWiHe v2.2.3** é uma plataforma full-stack de jogo de cartas UNO multiplayer em tempo real, focada em ambientes familiares, infantis (*Kids & Família*), partidas em **Duplas 2v2** e **Torneios**. O sistema opera sem banco de dados SQL externo para simplificar o deploy e manter custo zero (utilizando armazenamento JSON estruturado com escrita atômica física `fsync` em disco), oferece comunicação de voz direta **Peer-to-Peer (P2P)** via WebRTC e comunicação de estado do jogo via WebSockets com envelope versão 2 (`protocolVersion: 2`).
 
 ### Pilhas de Tecnologia (Tech Stack)
-* **Frontend:** React 19, Vite, TypeScript, Tailwind CSS, Lucide Icons.
-* **Backend:** Node.js, Express, WebSockets (`ws`), TypeScript.
-* **Testes Automatizados:** Vitest (42 testes automatizados: 24 unitários cobrindo o motor de jogo `unoEngine` e 18 de integração e segurança em `serverIntegration`).
-* **Segurança & Autenticação:** JWT (JSON Web Tokens) com verificação estrita de assinatura e perfil (`role: 'admin' | 'player'`), Rate Limiting composto em memória com suporte a Cloudflare (`CF-Connecting-IP` e `trust proxy`), e criptografia nativa `crypto` (`randomUUID`, `randomInt`, `randomBytes`).
-* **Comunicação em Tempo Real:** WebSockets (sincronização de estado da partida, chat da sala e lobbies) e WebRTC (voz P2P direta com sinalização sanitizada via WebSocket).
-* **Persistência Atômica:** Disco local (`data/users.json`, `data/invites.json`, `data/stats.json`) com sincronização física `fsyncSync` + `renameSync` e cache em memória.
-* **Deploy:** Docker, Docker Compose com fail-fast obrigatório de `JWT_SECRET`, compatível com qualquer VM (Oracle Cloud, AWS, GCP) com suporte a SSL (HTTPS) obrigatório para WebRTC.
+* **Frontend:** React 19, Vite, TypeScript, Tailwind CSS v4, Lucide Icons, Motion, Canvas Confetti.
+* **Backend:** Node.js, Express, WebSockets (`ws`), TypeScript (`tsx`).
+* **Testes Automatizados:** Vitest (**91 testes** em 5 suítes: `unoEngine`, `serverIntegration`, `tournamentEngine`, `tournamentWo`, `tournamentIntegration`).
+* **Segurança & Autenticação:** JWT (JSON Web Tokens) com verificação estrita de assinatura e perfil (`role: 'admin' | 'player'`), Rate Limiting composto em memória com suporte a Cloudflare (`CF-Connecting-IP` e `trust proxy`), `bcryptjs` e criptografia nativa `crypto` (`randomUUID`, `randomInt`, `randomBytes`).
+* **Comunicação em Tempo Real:** WebSockets (sincronização de estado da partida, torneios, chat e lobbies) e WebRTC (voz P2P direta com sinalização sanitizada via WebSocket).
+* **Persistência Atômica:** Disco local (`data/users.json`, `data/invites.json`, `data/stats.json`, `data/tournaments.json`) com sincronização física `fsyncSync` + `renameSync`.
+* **Deploy:** Docker, Docker Compose ou execução direta via Node.js/AI Studio (100% Free Tier).
 
 ---
 
@@ -22,41 +22,60 @@ O **Uno KaWiHe v2.2** é uma plataforma full-stack de jogo de cartas UNO multipl
 
 ```text
 /
-├── server.ts                 # Ponto de entrada do Servidor Express + WebSocket
+├── server.ts                       # Servidor HTTP Express + WebSocket v2 + Rotas Admin/Torneios
 ├── server/
-│   ├── unoEngine.ts          # Motor de Regras do Jogo UNO (Cartas, Turnos, Bots)
-│   └── authService.ts        # Serviço de Autenticação, Cadastro e Controle de Convites
+│   ├── unoEngine.ts                # Motor de Regras do Jogo UNO (Padrão, 2v2, W.O. e Bots)
+│   ├── tournamentEngine.ts         # Domínio Puro de Torneios (Individual, Duplas, Desempates, W.O.)
+│   └── authService.ts              # Serviço de Autenticação, Usuários, Convites e JWT
 ├── auth-service/
-│   ├── server.ts             # Microserviço Central de Autenticação KaWiHe (SSO / Multi-Jogos)
-│   └── Dockerfile            # Container isolado do Auth Service
+│   ├── server.ts                   # Microserviço Central de Autenticação KaWiHe (SSO opcional)
+│   └── Dockerfile                  # Container isolado do Auth Service
 ├── tests/
-│   ├── unoEngine.test.ts     # Suíte de Testes Unitários Automatizados (24 testes)
-│   └── serverIntegration.test.ts # Suíte de Testes de Integração e Segurança (18 testes)
+│   ├── unoEngine.test.ts           # Suíte Unitária do Motor UNO (26 testes)
+│   ├── serverIntegration.test.ts   # Suíte de Integração HTTP/WS e Segurança (19 testes)
+│   ├── tournamentEngine.test.ts    # Suíte Unitária do Domínio de Torneios (22 testes)
+│   ├── tournamentWo.test.ts        # Suíte de W.O. e Invariante das 108 Cartas (19 testes)
+│   └── tournamentIntegration.test.ts # Suíte de Integração Real de Torneios (5 testes)
 ├── src/
-│   ├── App.tsx               # Orquestrador Principal do Frontend (Modais e Estados)
-│   ├── main.tsx              # Inicialização do React
-│   ├── index.html            # Ponto de entrada HTML
-│   ├── types/
-│   │   └── uno.ts            # Definições de Tipos TypeScript Compartilhados
+│   ├── App.tsx                     # Orquestrador Principal do Frontend
+│   ├── main.tsx                    # Inicialização do React
+│   ├── types/uno.ts                # Definições de Tipos TypeScript Compartilhados
 │   ├── services/
-│   │   ├── auth.ts           # Cliente de Autenticação (REST API)
-│   │   └── voiceChat.ts      # Cliente WebRTC de Voz P2P (Malha de Conexões)
+│   │   ├── auth.ts                 # Cliente de Autenticação e Admin (REST API)
+│   │   ├── voiceChat.ts            # Cliente WebRTC de Voz P2P (Full Mesh)
+│   │   ├── sound.ts                # Efeitos Sonoros
+│   │   └── statsManager.ts         # Gerenciador de Estatísticas e Troféus
 │   ├── components/
-│   │   ├── Sidebar.tsx       # Menu Lateral Retrátil (Barra de Ícones / Expandido)
-│   │   ├── Lobby.tsx         # Lobby Central (Criação de Sala, Entrada e Treino)
-│   │   ├── GameBoard.tsx     # Tabuleiro de Jogo Ativo (Mesa Radial, Jogadores, Baralho)
-│   │   ├── VoiceControls.tsx # Controles de Voz (Microfone, Som, Sair)
-│   │   ├── OpenRoomsModal.tsx# Explorador de Salas Abertas ao Vivo
-│   │   ├── InviteShareModal.tsx # Modal de Compartilhamento de Convites (WhatsApp)
-│   │   ├── AvatarSelectModal.tsx # Seletor de Avatares Categorizados
-│   │   ├── ChatPanel.tsx     # Painel Lateral de Chat e Logs de Ações
-│   │   ├── StatsModal.tsx    # Modal de Troféus e Estatísticas do Usuário
-│   │   ├── SettingsModal.tsx # Modal de Configurações da Partida & Modo Kids
-│   │   ├── AdminRoomsModal.tsx # Painel Administrativo de Salas e Usuários
-│   │   └── AuthModal.tsx     # Modal de Cadastro e Login com Convite
+│   │   ├── Sidebar.tsx             # Menu Lateral Retrátil
+│   │   ├── LoginScreen.tsx         # Tela Inicial de Login/Cadastro
+│   │   ├── Lobby.tsx               # Lobby Central (Criação de Sala, Entrada e Treino)
+│   │   ├── GameBoard.tsx           # Tabuleiro Ativo (Mesa Radial, 2v2, Cartas, Ações)
+│   │   ├── TournamentModal.tsx     # Painel de Torneios (Individual & Duplas 2v2)
+│   │   ├── VoiceControls.tsx       # Controles de Voz P2P
+│   │   ├── OpenRoomsModal.tsx      # Explorador de Salas Abertas
+│   │   ├── RoomPreviewModal.tsx    # Pré-visualização de Sala
+│   │   ├── InviteShareModal.tsx    # Compartilhamento de Convites
+│   │   ├── AvatarSelectModal.tsx   # Seletor de Avatares
+│   │   ├── ChatPanel.tsx           # Painel de Chat e Logs
+│   │   ├── StatsModal.tsx          # Troféus e Estatísticas
+│   │   ├── TableScoreboardModal.tsx# Placar da Mesa
+│   │   ├── SettingsModal.tsx       # Configurações da Partida & Modo Kids
+│   │   ├── HowToPlayModal.tsx      # Regras e Instruções
+│   │   ├── GameOverModal.tsx       # Tela de Vitória/Revanche
+│   │   ├── AdminRoomsModal.tsx     # Painel Administrativo de Salas e Usuários
+│   │   ├── AdminInvitesModal.tsx   # Gestão de Convites pelo Admin
+│   │   ├── PlayerReportModal.tsx   # Relatório de Diagnóstico e Moderação
+│   │   ├── VmMonitorModal.tsx      # Monitor de Métricas da VM
+│   │   ├── VmGuideModal.tsx        # Guia de Infraestrutura/Microfone
+│   │   ├── AuthModal.tsx           # Modal de Cadastro e Login
+│   │   ├── UnoCard.tsx             # Componente Visual da Carta
+│   │   ├── ColorPickerModal.tsx    # Seletor de Cor (Coringas)
+│   │   ├── EmoteBubble.tsx         # Balão de Emote
+│   │   ├── EmotePicker.tsx         # Seletor de Emotes
+│   │   └── TableDirectionArrows.tsx# Indicador Visual de Sentido
 │   └── utils/
-│       ├── avatars.ts        # Catálogo de Avatares e Categorias
-│       └── cards.ts          # Utilitários de Geração de Cores e Cartas
+│       ├── avatars.ts              # Catálogo de Avatares
+│       └── emotes.ts               # Catálogo Oficial de Emotes
 ```
 
 ---
@@ -110,10 +129,10 @@ export interface ClientMessageEnvelope {
 
 ## 5. Arquitetura de Segurança, Rate Limiting e Gestão de Acesso
 
-### 5.1 Autenticação Administrativa Exclusiva via JWT
-O uso de senhas ou PINs fixos em rotas (`x-admin-pin`, `ADMIN_PIN`) foi completamente descontinuado:
-- **Painel e Rotas Admin (`/api/admin/*`):** Exigem autenticação estrita via Bearer Token JWT assinado com `JWT_SECRET`, pertencente a usuário com `role === 'admin'`.
-- Qualquer requisição com PIN, sem token ou com token de jogador regular (`role: 'player'`) recebe **HTTP 403 Forbidden**.
+### 5.1 Autenticação Administrativa via JWT (sem PIN Hardcoded)
+PINs fixos hardcoded foram completamente removidos do código:
+- **Painel e Rotas Admin (`/api/admin/*`, `/api/tournaments` gestão):** Exigem autenticação via Bearer Token JWT assinado com `JWT_SECRET`, pertencente a usuário com `role === 'admin'`.
+- O header `x-admin-pin` só é aceito se a variável de ambiente `ADMIN_PIN` estiver explicitamente configurada no servidor; caso contrário, requisições apenas com PIN ou sem token recebem **HTTP 403 Forbidden**.
 
 ### 5.2 Estratégia Segura de IP e Rate Limiting Composto
 O servidor Express opera com `app.set('trust proxy', 1)` e extrai o IP autoritativo dando prioridade ao header `CF-Connecting-IP` (inserido pela borda do Cloudflare e imune a spoofing pelo cliente):
@@ -135,10 +154,10 @@ O Rate Limiter em memória opera com limites compostos:
 - **Cadastro:** máx. 5 tentativas / 10 min por IP.
 - **Validação de Convite:** máx. 10 consultas / 5 min por IP.
 
-### 5.3 Fail-Fast de Configuração (`JWT_SECRET`)
-- Em produção e desenvolvimento, `authService.ts` e `auth-service/server.ts` executam `process.exit(1)` imediatamente caso a variável de ambiente `JWT_SECRET` esteja ausente ou vazia.
-- Nenhum segredo hardcoded é mantido no código executável; o segredo de testes é injetado isoladamente via configuração do runner Vitest em `vite.config.ts`.
-- O `docker-compose.yml` utiliza `${JWT_SECRET:?Erro...}` para garantir que nenhum container inicie sem o `.env` configurado.
+### 5.3 Configuração de Segredo (`JWT_SECRET`)
+- Em produção (`.env` e `docker-compose.yml`), `JWT_SECRET` deve ser sempre definido com uma chave forte e aleatória.
+- No código-fonte local (`authService.ts` / `auth-service/server.ts`), há fallback apenas para facilitar execução em ambiente de desenvolvimento/testes sem quebrar o bootstrap local.
+- Nenhuma senha de usuário é mantida hardcoded no código-fonte.
 
 ### 5.4 Bootstrap Seguro de Contas e Ausência de Senhas Padrão
 - **Zero Senhas Hardcoded:** Não existem senhas fixas ou fallbacks literais no código-fonte.
@@ -164,52 +183,35 @@ Na retransmissão de mensagens de sinalização P2P (`rtc_offer`, `rtc_answer`, 
 
 ---
 
-## 7. Persistência Atômica com `fsync`
+## 7. Persistência Atômica com `fsync` e Esquema de Dados (`./data/`)
 
-A escrita dos arquivos JSON em `./data/` usa um fluxo físico de segurança atômica:
-```typescript
-function atomicWriteFileSync(filePath: string, data: string): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  const tempPath = `${filePath}.tmp.${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  const fd = fs.openSync(tempPath, 'w');
-  fs.writeSync(fd, data, 0, 'utf-8');
-  fs.fsyncSync(fd); // Força gravação física no disco rígido/SSD
-  fs.closeSync(fd);
-  fs.renameSync(tempPath, filePath); // Substituição atômica no sistema de arquivos
-}
-```
+A escrita dos arquivos JSON em `./data/` usa um fluxo físico de segurança atômica (`atomicWriteFileSync`: temp → `fsyncSync` → `renameSync`).
+
+### 7.1 "Tabela" de Usuários (`data/users.json` — `UserRecord[]`)
+| Campo | Tipo | Obrigatório | Descrição |
+| :--- | :--- | :--- | :--- |
+| `id` | `string` | Sim (PK) | Identificador imutável (`usr_edinho`, `usr_<ts>_<rand>`) |
+| `username` | `string` | Sim (Unique) | Login em minúsculas e sem espaços |
+| `passwordHash` | `string` | Sim | Hash `bcrypt` (nunca retornado ao cliente) |
+| `displayName` | `string` | Sim | Nome público exibido nas mesas e lobby |
+| `avatar` | `string` | Sim | Emoji/ícone do jogador |
+| `role` | `'admin' \| 'player'` | Sim | Permissão de acesso |
+| `tag` | `string` | Opcional | Tag definitiva única de 4 dígitos (ex: `#0001`) |
+| `createdAt` | `string` | Sim | Timestamp ISO 8601 de criação |
+
+### 7.2 Outros Arquivos em `./data/`
+- **`data/invites.json` (`InviteCode[]`):** `code` (`@XXXX`), `createdBy`, `createdAt`, `expiresAt`, `maxUses`, `usedCount`, `usedBy`, `status`.
+- **`data/stats.json`:** Mapa indexado por `user.id` / `username` contendo `PlayerCareerStats` (vitórias, sequências, cartas jogadas, conquistas).
+- **`data/tournaments.json`:** Estado persistido de torneios (`Tournament[]`), inscrições, rodadas e jogos para recuperação pós-reinício.
 
 ---
 
 ## 8. Suíte de Testes Automatizados (Vitest)
 
-O sistema possui uma cobertura de **38 testes automatizados** (24 unitários no `unoEngine.test.ts` e 14 de integração e segurança em `serverIntegration.test.ts`) executados via `npm test` (`vitest run` ou `npx vitest run --reporter=verbose`).
+O sistema possui **91 testes automatizados** distribuídos em 5 arquivos, executados via `npm test` (`vitest run`):
 
-### A) Testes Unitários do Motor (`tests/unoEngine.test.ts` - 24 testes)
-- **Composição do Baralho:** 108 cartas, verificação por cor e tipo.
-- **Jogabilidade (`isCardPlayable`):** Validação de regras de descarte, cores ativas e coringas (`wild` e `wild4`).
-- **Navegação de Turnos:** Sentido horário, anti-horário, saltos (`steps = 2`) e efeito de Reverso com 2 jogadores.
-- **Primeira Carta do Descarte:** Tratamento de cartas especiais neutras e re-saque de Wild4 inicial.
-- **Reciclagem do Descarte:** Preservação de cores de cartas coloridas e reset apenas de Coringas.
-- **Timer de Turno e Passar a Vez:** Exigência de compra prévia (`hasDrawnThisTurn === true`) e testes do temporizador (`handleTimeoutEngine`) com e sem compra.
-- **Vitória com Ação (+2/+4):** Permissão de vitória com cartas especiais como última carta e cálculo de pontos dos perdedores.
-- **Janela de UNO e Casos Limite:** Testes de Skip com UNO catch, +2 contra A com 2 jogadores, encerramento de janela ao comprar carta (`draw_card`), bloqueio de auto-multa (`UNO_SELF_CATCH`) e expiração autoritativa.
-
-### B) Testes de Integração de Protocolo e Segurança (`tests/serverIntegration.test.ts` - 14 testes)
-1. **Proteção de Sessão Ativa de Vítima Conectada:** Prova que um socket atacante não consegue usurpar a sessão ou enviar ações em nome de um jogador vítima efetivamente conectado à sala (`UNAUTHENTICATED_SOCKET`).
-2. **Incompatibilidade de Versão:** Rejeita requisições com `protocolVersion` incompatível (`UNSUPPORTED_VERSION`).
-3. **Autenticação e Reconexão:** Garante a emissão e validação de `reconnectToken` seguro gerado com `crypto.randomUUID()`.
-4. **Validação de Ação (`MUST_DRAW_FIRST`):** Valida a rejeição do servidor quando o jogador tenta passar a vez sem comprar.
-5. **Bloqueio de Auto-Multa (`UNO_SELF_CATCH`):** Rejeita via WebSocket tentativas de aplicar penalidades de UNO a si próprio.
-6. **Rejeição por Identidade Incompatível (`PLAYER_MISMATCH`):** Bloqueia ações com ID adulterado em sockets conectados.
-7. **Rejeição de Sync sem Credencial (`NOT_AUTHENTICATED`):** Rejeita `sync_session` com token vazio ou inválido.
-8. **Negação de Admin PIN em Usuários:** `/api/admin/users` com `x-admin-pin` retorna HTTP 403.
-9. **Negação de Admin PIN em Reset de Senha:** `/api/admin/users/:id/reset-password` com `x-admin-pin` retorna HTTP 403.
-10. **Negação de Usuário Regular em Listagem Admin:** `/api/admin/users` com JWT de jogador comum retorna HTTP 403.
-11. **Negação de Usuário Regular em Reset de Senha:** `/api/admin/users/:id/reset-password` com JWT comum retorna HTTP 403.
-12. **Negação de Rota CLI Anônima:** `/api/admin/cli-status` sem credencial retorna HTTP 403.
-13. **Negação de Rota de Salas Anônima:** `/api/admin/rooms` sem credencial retorna HTTP 403.
-14. **Autorização de Admin com JWT Válido:** `/api/admin/users` com JWT de Administrador (`role: 'admin'`) retorna HTTP 200 com sucesso.
+1. **`tests/unoEngine.test.ts` (26 testes):** Composição das 108 cartas, jogabilidade (`isCardPlayable`), turnos, Reverse em 2 jogadores, reciclagem preservando cores, `pass_turn` / `MUST_DRAW_FIRST`, timeout, vitória com `+2`/`+4`, janela de UNO, bloqueio `UNO_SELF_CATCH` e regras do modo 2v2.
+2. **`tests/serverIntegration.test.ts` (19 testes):** Proteção contra usurpação de socket (`UNAUTHENTICATED_SOCKET`), versionamento (`UNSUPPORTED_VERSION`), `reconnectToken`, idempotência, `MUST_DRAW_FIRST`, `UNO_SELF_CATCH`, `PLAYER_MISMATCH`, `NOT_AUTHENTICATED`, controle de acesso JWT Admin vs `role: 'player'` vs `x-admin-pin`, exclusão de salas privadas em `/api/rooms/open`, `/api/admin/player-report/:target`, ações de moderação e bloqueio de fogo amigo 2v2.
+3. **`tests/tournamentEngine.test.ts` (22 testes):** Permissões admin, validação de séries (Md1/Md3/Md5) e equipes 2v2, distribuição determinística de mesas (2..4), chaveamento com byes, *early clinch*, classificação V1 sem desempate por `roundPointsWon`, desempate por partida extra ou decisão admin, W.O. por prazo de reconexão e pausa segura pós-reinicialização.
+4. **`tests/tournamentWo.test.ts` (19 testes):** Remoção de jogador por W.O. em torneio individual preservando exatamente as 108 cartas e IDs únicos, recuperação de carta em `stagedCardPlay`, ajuste de `currentTurnIndex` em ambas as direções (`1` e `-1`), idempotência e rejeição em salas 2v2 ou salas comuns.
+5. **`tests/tournamentIntegration.test.ts` (5 testes):** Integração real ponta a ponta via HTTP e WebSocket para criação, inscrição, simulação, partidas e conclusão de torneios Individual e Duplas 2v2.

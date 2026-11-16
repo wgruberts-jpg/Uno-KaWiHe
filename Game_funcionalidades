@@ -1505,7 +1505,14 @@ Para suportar ambientes de desenvolvimento e VMs acessadas via IP direto em HTTP
 - **Firefox:** Ajustes em `about:config` alterando `media.devices.insecure.enabled` e `media.getusermedia.insecure.enabled` de `false` para `true`.
 - **Google Chrome / Edge:** Acesso a `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, definindo como `Enabled` e adicionando a origem/IP.
 
-67. Suíte de Testes Automatizados e Confiabilidade (42 Testes)
+67. Suíte de Testes Automatizados e Confiabilidade (91 Testes — v2.2.3)
 
-A suíte de testes do Uno KaWiHe v2.2 foi expandida para 42 testes executados via Vitest (`tests/unoEngine.test.ts` e `tests/serverIntegration.test.ts`), cobrindo 100% dos requisitos de regras de jogo, proteção anti-fraude, isolamento de sockets e validação de rotas administrativas. O servidor de desenvolvimento gerencia o middleware do Vite com estabilidade de HMR e tratamento de falhas de transporte.
+A suíte de testes do Uno KaWiHe v2.2.3 compreende **91 testes automatizados** executados via Vitest em 5 arquivos (`tests/unoEngine.test.ts`: 26, `tests/serverIntegration.test.ts`: 19, `tests/tournamentEngine.test.ts`: 22, `tests/tournamentWo.test.ts`: 19, `tests/tournamentIntegration.test.ts`: 5), cobrindo regras de jogo, modo Duplas 2v2, proteção anti-fraude, isolamento de sockets, validação de rotas administrativas, motor de torneios e invariante das 108 cartas no W.O. O servidor de desenvolvimento gerencia o middleware do Vite com estabilidade e tratamento de falhas de transporte.
+
+68. Sistema de Torneios (`tournamentEngine.ts` e `data/tournaments.json`)
+
+- Modalidades suportadas: **Individual** (`individual`, mesas de 2 a 4 jogadores, classificação por vitórias sem desempate por `roundPointsWon` na V1) e **Duplas 2v2** (`doubles`, chaveamento eliminatório em potência de 2 com byes e séries ímpares Md1/Md3/Md5 com *early clinch*).
+- Criação, início, simulação pré-início (`/api/tournaments/:id/simulate`) e decisões administrativas restritas a `role === 'admin'`.
+- Remoção por W.O. (`removeTournamentPlayerWO`) aplica-se exclusivamente a salas com `tournamentId` no modo individual após expiração de `reconnectGraceMs`, devolvendo cartas da mão e `stagedCardPlay` abaixo do topo do descarte sem violar a contagem de 108 cartas. Em salas 2v2, W.O. individual é rejeitado e a desistência concede vitória da partida à equipe adversária.
+- Em reinício do servidor com partidas ativas, os torneios entram em pausa (`server_restart`) aguardando resolução administrativa sem inventar vencedor automático.
 

@@ -66,6 +66,7 @@ interface LobbyProps {
   onOpenInvites?: () => void;
   onOpenAdminRooms?: () => void;
   onOpenAdminUsers?: () => void;
+  onOpenTournament: () => void;
   onLeaveRoom: () => void;
   onOpenAuth: () => void;
   currentUser: UserProfile | null;
@@ -105,6 +106,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   onOpenInvites,
   onOpenAdminRooms,
   onOpenAdminUsers,
+  onOpenTournament,
   onLeaveRoom,
   onOpenAuth,
   currentUser,
@@ -386,6 +388,7 @@ export const Lobby: React.FC<LobbyProps> = ({
         onOpenInvites={onOpenInvites || (() => {})}
         onOpenAdminRooms={onOpenAdminRooms}
         onOpenUsers={onOpenAdminUsers}
+        onOpenTournament={onOpenTournament}
         onLogout={onLogout}
       />
 

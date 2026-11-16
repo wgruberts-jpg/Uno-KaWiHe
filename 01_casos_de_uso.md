@@ -33,9 +33,22 @@ Papéis globais: **Visitante**, **Registrado**, **Admin**. Papéis na sala: **Ho
 - **UC-CHT-03 Voz** — sinalização WebRTC P2P entre jogadores da mesma sala.
 - **UC-CHT-04 Modo Kids** restringe chat, emotes e voz.
 
+## Modo Duplas 2v2
+- **UC-2V2-01 Montar mesa 2v2** — 4 assentos alternados `[A1, B1, A2, B2]`.
+- **UC-2V2-02 Compartilhar mão do parceiro** — cada membro recebe `teammateHand` via socket privado.
+- **UC-2V2-03 Vitória e pontuação em equipe** — encerra quando qualquer parceiro zera a mão; soma apenas cartas dos 2 adversários; proíbe `catch_uno` no parceiro.
+
+## Torneios (`TournamentModal` + `/api/tournaments/*`)
+- **UC-TOR-01 Criar e simular torneio (Admin)** — modalidades Individual (mesas 2..4) ou Duplas 2v2 (Md1/Md3/Md5) com simulação pré-início.
+- **UC-TOR-02 Inscrever participantes/duplas** — jogadores individuais ou equipes de 2 usuários distintos sem repetição.
+- **UC-TOR-03 Iniciar jogos e avançar rodadas** — cria salas vinculadas (`tournamentId`), registra resultado e avança grupos/chaves com suporte a byes e *early clinch*.
+- **UC-TOR-04 Desempate** — partida extra (`extra_match`) ou decisão administrativa (`admin_decision`), nunca por `roundPointsWon` na V1.
+- **UC-TOR-05 W.O. e recuperação pós-reinício** — remoção segura de desconectado em torneio individual após `reconnectGraceMs`, devolvendo cartas ao descarte sem violar as 108 cartas; pausa automática se o servidor reiniciar durante partidas ativas.
+
 ## Admin (JWT com `role === 'admin'`)
-- **UC-ADM-01 Gerenciar usuários** — listar, redefinir senha.
+- **UC-ADM-01 Gerenciar usuários** — listar, criar diretamente, redefinir senha e excluir (exceto `edinho`).
 - **UC-ADM-02 Gerenciar convites** — gerar e revogar.
-- **UC-ADM-03 Monitorar salas** em tempo real.
+- **UC-ADM-03 Monitorar salas e enviar alertas** — listar, enviar mensagem/broadcast, expulsar ou fechar sala.
 - **UC-ADM-04 Relatório de jogador** — `/api/admin/player-report/:target`.
-- **UC-ADM-05 Moderar** — expulsar da sala, derrubar sessão WebSocket, enviar alerta direto, redefinir senha.
+- **UC-ADM-05 Moderar** — expulsar da sala, derrubar sessão WebSocket, enviar alerta direto.
+- **UC-ADM-06 Monitor de VM** — `/api/admin/vm-metrics` com telemetria de CPU, RAM, disco e saúde.

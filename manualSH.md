@@ -18,6 +18,8 @@ Este manual documenta todos os scripts utilitários em Shell Script (`.sh`) cria
 | **`list-users.sh`** | `scripts/list-users.sh` | Listagem em formato tabular de todos os usuários cadastrados e seus papéis (*admin* / *player*). |
 | **`cloudflare.sh`** | `cloudflare.sh` | Gerenciador interativo de túnel Cloudflare Tunnel (HTTPS) para acesso externo à VM. |
 | **`relatorio-vm.sh`** | `relatorio-vm.sh` | Ferramenta de diagnóstico em **somente leitura** para inspeção segura do estado da VM (mascara segredos). |
+| **`limpar.sh`** | `limpar.sh` | Reversão de instalação local (remove `/opt/unokawihe`, `/swapfile` e `.deploy_state`). |
+| **`stress-test.mjs` / `capacity-test.mjs`** | `scripts/` | Testes de carga e capacidade WebSocket (`npm run stress` e `npm run capacity`). |
 
 ---
 
@@ -142,6 +144,25 @@ Este manual documenta todos os scripts utilitários em Shell Script (`.sh`) cria
 * **Modo de Uso:**
   ```bash
   ./relatorio-vm.sh
+  ```
+
+---
+
+### 11. `limpar.sh` (Limpeza de Deploy Local)
+* **Objetivo:** Reverter o deploy local em VM/PC removendo `/opt/unokawihe`, `/swapfile` e `.deploy_state`.
+* **Modo de Uso:**
+  ```bash
+  sudo ./limpar.sh
+  ```
+
+---
+
+### 12. Testes de Carga e Capacidade (`scripts/stress-test.mjs` & `scripts/capacity-test.mjs`)
+* **Objetivo:** Simular múltiplas salas e jogadores simultâneos via WebSocket para validar latência e consumo de memória.
+* **Modos de Uso:**
+  ```bash
+  npm run stress
+  npm run capacity
   ```
 
 ---

@@ -33,6 +33,7 @@ interface SidebarProps {
   onOpenInvites: () => void;
   onOpenAdminRooms?: () => void;
   onOpenUsers?: () => void;
+  onOpenTournament: () => void;
   onLogout: () => void;
   activeTab?: string;
 }
@@ -53,6 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenInvites,
   onOpenAdminRooms,
   onOpenUsers,
+  onOpenTournament,
   onLogout,
   activeTab,
 }) => {
@@ -192,6 +194,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div>Salas Abertas</div>
                 <div className={`text-[10px] font-medium ${activeTab === 'rooms' ? 'text-pink-100' : 'text-slate-400'}`}>
                   Ver mesas e solicitar entrada
+                </div>
+              </div>
+            )}
+          </button>
+
+          {/* 3.1 Tournaments Championship Hub */}
+          <button
+            type="button"
+            onClick={(onOpenTournament as any)}
+            className={`w-full flex items-center rounded-2xl transition-all cursor-pointer ${
+              isExpanded ? 'p-2.5 gap-3' : 'p-2.5 justify-center'
+            } ${
+              activeTab === 'tournament'
+                ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-md'
+                : 'text-slate-700 hover:bg-amber-50 hover:text-amber-900'
+            }`}
+            title="Torneios & Campeonatos"
+          >
+            <Trophy className={`w-5 h-5 shrink-0 ${activeTab === 'tournament' ? 'text-white' : 'text-amber-500'}`} />
+            {isExpanded && (
+              <div className="text-left font-black text-xs">
+                <div>Torneios KaWiHe</div>
+                <div className={`text-[10px] font-medium ${activeTab === 'tournament' ? 'text-amber-100' : 'text-slate-400'}`}>
+                  Chaves, duplas e taça oficial
                 </div>
               </div>
             )}

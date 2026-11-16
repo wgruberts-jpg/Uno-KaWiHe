@@ -1,6 +1,6 @@
-# 📑 GAME_CHANGES.MD — TRANSIÇÃO E EVOLUÇÃO UNO KAWIHE v2.2
+# 📑 GAME_CHANGES.MD — TRANSIÇÃO E EVOLUÇÃO UNO KAWIHE v2.2.3
 
-Este documento descreve a auditoria técnica, tabela de comportamentos observados (comparando v2.1 x v2.2), correções de segurança aplicadas, soluções de cada etapa e matriz de testes do **Uno KaWiHe v2.2**.
+Este documento descreve a auditoria técnica, tabela de comportamentos observados (comparando v2.1 x v2.2+), correções de segurança aplicadas, soluções de cada etapa e matriz de testes do **Uno KaWiHe v2.2.3**.
 
 ---
 
@@ -83,10 +83,18 @@ Este documento descreve a auditoria técnica, tabela de comportamentos observado
 ### 9. **Passo 9: Endurecimento de Segurança, Criptografia e Testes de Integração WebSocket [CONCLUÍDO]**
    - **O que foi feito para resolver:**
      - **Remoção de Usurpação de Socket:** Eliminado o fallback que permitia associar sockets não autenticados a `playerId`s ativos. Sockets agora só são vinculados via `join_room`, `start_solo` ou `reconnect_session` com token válido.
-     - **Remoção de PINs Hardcoded:** Os PINs `774007` e `1234` foram totalmente removidos. O acesso administrativo exige obrigatoriamente a variável de ambiente `process.env.ADMIN_PIN`.
+     - **Remoção de PINs Hardcoded:** Os PINs `774007` e `1234` foram totalmente removidos. O acesso administrativo exige JWT com `role === 'admin'` (ou `process.env.ADMIN_PIN` apenas quando configurado explicitamente no ambiente).
      - **Fortalecimento de Tokens:** Tokens de reconexão agora utilizam `crypto.randomUUID()` nativo para entropia criptográfica sólida.
      - **Regra de UNO na Compra:** A oportunidade de acusar UNO encerra-se imediatamente quando o próximo jogador efetua a compra de carta (`draw_card`).
-     - **Suíte de Testes de Integração WebSocket:** Criação do arquivo `tests/serverIntegration.test.ts` com 5 testes automatizados de protocolo real via WebSocket (totalizando **29 testes automatizados** no projeto: 24 unitários + 5 de integração).
+     - **Suíte de Testes de Integração WebSocket:** Criação do arquivo `tests/serverIntegration.test.ts`.
+
+### 10. **Passo 10: Modo Duplas 2v2, Sistema de Torneios, W.O. Seguro & Monitor de VM (v2.2.3) [CONCLUÍDO]**
+   - **O que foi feito para resolver:**
+     - **Modo Duplas 2v2 (`team_2v2`):** Implementação completa com assentos alternados `[A1, B1, A2, B2]`, envio privado da mão do parceiro (`teammateHand`), bloqueio de fogo amigo em `catch_uno` e soma das mãos adversárias.
+     - **Domínio Puro de Torneios (`server/tournamentEngine.ts`):** Modalidades Individual (mesas 2..4, desempates por partida extra ou decisão admin) e Duplas (chaveamento com byes e séries Md1/Md3/Md5), simulação pré-início, persistência atômica em `data/tournaments.json` e pausa segura em reinício do servidor (`server_restart`).
+     - **Remoção Segura por W.O. (`removeTournamentPlayerWO`):** Preserva exatamente as 108 cartas e IDs únicos devolvendo mão e `stagedCardPlay` abaixo do topo do descarte, ajustando índices de turno e bloqueando W.O. individual em 2v2.
+     - **Diagnóstico & Infraestrutura:** Adição de `/api/admin/player-report/:target`, ações de moderação direta e `/api/admin/vm-metrics` (`VmMonitorModal.tsx`).
+     - **Expansão da Suíte para 91 Testes:** Cobertura completa em 5 arquivos (`unoEngine.test.ts`: 26, `serverIntegration.test.ts`: 19, `tournamentEngine.test.ts`: 22, `tournamentWo.test.ts`: 19, `tournamentIntegration.test.ts`: 5).
 
 ---
 

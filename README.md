@@ -1,25 +1,25 @@
-# 🃏 Uno KaWiHe v2.2 — Multiplayer & Voice P2P
+# 🃏 Uno KaWiHe v2.2.3 — Multiplayer, Duplas 2v2, Torneios & Voz P2P
 
-> Plataforma Full-Stack de UNO Multiplayer em Tempo Real com Chat de Voz P2P (WebRTC), Sistema de Contas Privado com Convites, Painel Administrativo Seguro (JWT) e Persistência Atômica.
+> Plataforma Full-Stack de UNO Multiplayer em Tempo Real com Chat de Voz P2P (WebRTC), Modo Duplas 2v2, Sistema de Torneios, Contas Privadas por Convite, Painel Administrativo Seguro (JWT) e Persistência Atômica.
 
 ---
 
-## 🚀 Destaques da Versão 2.2
+## 🚀 Destaques da Versão 2.2.3
 
-- 🎮 **Multiplayer Autoritativo em Tempo Real:** Motor de regras centralizado com broadcast público (`GameState`) e envio privado de cartas (`HandState`) via WebSockets v2.
-- 🎙️ **Chat de Voz P2P (WebRTC Full-Mesh):** Comunicação por voz direta entre os jogadores na mesa, sem sobrecarga de processamento ou servidor de mídia no backend.
+- 🎮 **Multiplayer Autoritativo em Tempo Real:** Motor de regras centralizado (`server/unoEngine.ts`) com broadcast público (`GameState`) e envio privado de cartas (`HandState`) via WebSockets v2.
+- 🤝 **Modo Duplas 2v2 (`team_2v2`):** Assentos alternados `[A1, B1, A2, B2]`, compartilhamento seguro da mão do parceiro (`teammateHand`), bloqueio de fogo amigo no `catch_uno` e pontuação pela equipe perdedora.
+- 🏆 **Sistema de Torneios (`server/tournamentEngine.ts`):** Suporte a modalidades **Individual** (mesas 2..4, classificação por vitórias, desempate por partida extra ou decisão admin) e **Duplas 2v2** (chaveamento com byes e séries Md1/Md3/Md5 com *early clinch*), simulação pré-início, W.O. seguro preservando as 108 cartas e pausa automática em reinício de servidor.
+- 🎙️ **Chat de Voz P2P (WebRTC Full-Mesh):** Comunicação por voz direta entre os jogadores na mesa, sem servidor de mídia pago no backend.
 - 🔐 **Segurança & Autenticação Robusta:**
-  - Autenticação e painel administrativo 100% via **JSON Web Tokens (JWT)** assinados com verificação de perfil (`role === 'admin'`).
-  - **Zero senhas padrão hardcoded** no código-fonte.
+  - Autenticação e painel administrativo via **JSON Web Tokens (JWT)** assinados com verificação de perfil (`role === 'admin'`).
   - Bootstrap dinâmico com geração de credencial temporária de alta entropia (`crypto.randomBytes`) caso `INITIAL_ADMIN_PASSWORD` não seja informada.
-  - Fail-fast obrigatório de `JWT_SECRET` ao iniciar contêineres e serviços.
   - Rate limiting composto por conta e IP (`trust proxy` + `CF-Connecting-IP`).
-- 📁 **Persistência Atômica:** Dados salvos em `./data/` utilizando escrita segura com `fsyncSync` + `renameSync`, garantindo consistência mesmo em quedas abruptas de energia.
+- 📁 **Persistência Atômica (`./data/`):** Dados salvos em `users.json`, `invites.json`, `stats.json` e `tournaments.json` com escrita segura (`fsyncSync` + `renameSync`).
 - 🛡️ **Scripts de Manutenção Seguros:**
-  - `scripts/create-user.sh`: Exigência estrita de `bcryptjs` (fator 12), abortando com `process.exit(1)` caso ausente (proibição absoluta de texto puro).
+  - `scripts/create-user.sh`: Exigência estrita de `bcryptjs` (fator 12), abortando com `process.exit(1)` caso ausente.
   - `scripts/backup.sh`: Permissões restritas (`chmod 700` no diretório e `chmod 600` nos arquivos gerados) com salvamento de `./data` e volumes Docker.
-- 🧪 **Suíte de Testes Automatizados:** 42 testes executados via Vitest (24 testes unitários de regras de jogo e 18 testes de integração e segurança de rede).
-- 👑 **Painel Administrativo & Diagnóstico de Jogadores:** Inspeção em tempo real de jogadores ativos e mensagens de chat pelo Admin, exibindo relatório detalhado de localização, IP, dispositivo e histórico, além de ações de moderação (Kick, Alerta, Desconectar, Redefinir Senha).
+- 🧪 **Suíte de Testes Automatizados:** **91 testes** executados via Vitest em 5 suítes (`unoEngine`: 26, `serverIntegration`: 19, `tournamentEngine`: 22, `tournamentWo`: 19, `tournamentIntegration`: 5).
+- 👑 **Painel Administrativo, Diagnóstico e Monitor de VM:** Inspeção em tempo real de jogadores (`/api/admin/player-report/:target`), ações de moderação (Kick, Alerta, Desconectar, Redefinir Senha, Criar/Excluir Usuário) e métricas da VM (`/api/admin/vm-metrics`).
 - 🎙️ **Guia de Microfone no PC:** Instruções passo a passo integradas para liberação de áudio e microfone em HTTP/IP no Firefox (`about:config`) e Google Chrome (`chrome://flags`).
 
 ---
@@ -77,11 +77,11 @@ Acesse em: `http://localhost:3000`
 ## 🧪 Executar Testes Automatizados
 
 ```bash
-# Executa os 38 testes com relatório detalhado
+# Executa os 91 testes com relatório detalhado
 npm test
 
 # Validação estrita de tipos TypeScript
-npx tsc --noEmit
+npm run lint
 
 # Compilação de produção
 npm run build
