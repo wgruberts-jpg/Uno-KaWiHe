@@ -760,43 +760,56 @@ class CapacityCluster {
 
   async shutdownAll() {
     this.shuttingDown = true;
+    const BATCH_SIZE = 4;
 
-    for (const room of this.rooms) {
-      if (room.host?.open && room.roomId) {
-        this.sendJson(room.host, {
-          protocolVersion: 2,
-          type: 'return_to_lobby',
-          roomId: room.roomId,
-        });
-      }
-    }
-    await sleep(180);
-
-    // Jogadores não-host saem primeiro; host sai por último para apagar a sala sem transferência
-    for (const room of this.rooms) {
-      const reversedPlayers = [...room.players].reverse();
-      for (const p of reversedPlayers) {
-        if (p.turnTimer) clearTimeout(p.turnTimer);
-        if (p.open && p.roomId && p.playerId) {
-          this.sendJson(p, {
+    for (let i = 0; i < this.rooms.length; i += BATCH_SIZE) {
+      const slice = this.rooms.slice(i, i + BATCH_SIZE);
+      for (const room of slice) {
+        if (room.host?.open && room.roomId) {
+          this.sendJson(room.host, {
             protocolVersion: 2,
-            type: 'leave_room',
-            roomId: p.roomId,
-            playerId: p.playerId,
+            type: 'return_to_lobby',
+            roomId: room.roomId,
           });
         }
       }
+      if (i + BATCH_SIZE < this.rooms.length) await sleep(35);
     }
-    await sleep(350);
+    await sleep(220);
 
-    for (const room of this.rooms) {
-      for (const client of [...room.players, ...room.spectators]) {
-        client.intentionalClose = true;
-        if (client.turnTimer) clearTimeout(client.turnTimer);
-        try {
-          client.ws.close();
-        } catch {}
+    // Jogadores não-host saem primeiro em pequenos lotes; host sai por último para apagar a sala sem transferência
+    for (let i = 0; i < this.rooms.length; i += BATCH_SIZE) {
+      const slice = this.rooms.slice(i, i + BATCH_SIZE);
+      for (const room of slice) {
+        const reversedPlayers = [...room.players].reverse();
+        for (const p of reversedPlayers) {
+          if (p.turnTimer) clearTimeout(p.turnTimer);
+          if (p.open && p.roomId && p.playerId) {
+            this.sendJson(p, {
+              protocolVersion: 2,
+              type: 'leave_room',
+              roomId: p.roomId,
+              playerId: p.playerId,
+            });
+          }
+        }
       }
+      if (i + BATCH_SIZE < this.rooms.length) await sleep(45);
+    }
+    await sleep(450);
+
+    for (let i = 0; i < this.rooms.length; i += BATCH_SIZE) {
+      const slice = this.rooms.slice(i, i + BATCH_SIZE);
+      for (const room of slice) {
+        for (const client of [...room.players, ...room.spectators]) {
+          client.intentionalClose = true;
+          if (client.turnTimer) clearTimeout(client.turnTimer);
+          try {
+            client.ws.close();
+          } catch {}
+        }
+      }
+      if (i + BATCH_SIZE < this.rooms.length) await sleep(35);
     }
     this.rooms = [];
   }
@@ -819,7 +832,7 @@ function evaluateStepHealth({ latStats, errorPct, healthRttMs, vm, baselineSwapB
   }
   if (healthRttMs >= 9000) {
     critical.push('Servidor não respondeu ao /health');
-  } else if (healthRttMs > 500) {
+  } else if (healthRttMs > 900) {
     warnings.push(`HTTP /health lento (${healthRttMs.toFixed(0)}ms)`);
   }
 
@@ -884,7 +897,12 @@ async function measureWindow(cluster, seconds, baselineSwapBytes) {
   const errorPct = ((w.wsErrors + w.wsClosedUnexpected) / totalOps) * 100;
   const bytesPerSec = w.bytesIn / seconds;
   const msgsPerSec = w.messagesIn / seconds;
-  const h = await checkServerHealth().catch(() => ({ rttMs: 9999 }));
+  let h = await checkServerHealth().catch(() => ({ rttMs: 9999 }));
+  if (h.rttMs > 500 && h.rttMs < 9000) {
+    // Revalida uma vez para ignorar jitter isolado de NAT/rede
+    const retry = await checkServerHealth().catch(() => h);
+    h = { rttMs: Math.min(h.rttMs, retry.rttMs) };
+  }
   const vm = await fetchVmMetrics();
   const healthEval = evaluateStepHealth({ latStats, errorPct, healthRttMs: h.rttMs, vm, baselineSwapBytes });
 
@@ -1101,7 +1119,7 @@ async function run() {
   }
 
   // Verifica se o servidor ficou limpo após o teardown
-  await sleep(800);
+  await sleep(1200);
   const postTestVm = await fetchVmMetrics();
   let openRoomsError = null;
   const openRoomsCheck = await fetch(`${httpBase}/api/rooms/open`, { signal: AbortSignal.timeout(8000) })

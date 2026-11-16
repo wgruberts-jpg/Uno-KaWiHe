@@ -2,6 +2,16 @@ export type CardColor = 'red' | 'blue' | 'green' | 'yellow' | 'wild';
 
 export type TeamId = 'A' | 'B';
 export type GameMode = 'standard' | 'team_2v2';
+export type TournamentFormat = 'single_elimination' | 'doubles_elimination';
+export type OnlinePlayersFilter = 'all' | 'lobby_only' | 'in_room';
+
+export interface OnlinePlayersPageMeta {
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  filter?: OnlinePlayersFilter;
+}
 
 export type CardValue =
   | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
@@ -177,6 +187,8 @@ export interface RoomSettings {
   spectatorMode?: 'reveal_cards' | 'hidden_cards'; // Espectador pode ver as mãos ou apenas a mesa
   playAnimationDelay?: number; // 0s, 1s, 2s, 3s de elevação da carta antes de ir pro centro
   isPrivate?: boolean; // Sala privada (somente convidados)
+  tournamentId?: string; // Preparado para futuras salas vinculadas a torneios (simples ou duplas)
+  tournamentFormat?: TournamentFormat;
 }
 
 export interface RoomInvite {
@@ -241,6 +253,8 @@ export interface OnlinePlayerSummary {
   tag?: string;
   role?: string;
   createdAt?: string;
+  tournamentId?: string;
+  tournamentTeamId?: string;
 }
 
 export interface PlayerReportData {
@@ -437,6 +451,7 @@ export type ClientMessagePayload =
   | { type: 'admin_global_broadcast'; message: string; sender?: string; adminSecret?: string }
   | { type: 'get_open_rooms' }
   | { type: 'register_lobby'; playerId: string; name: string; avatar: string; token?: string }
+  | { type: 'get_online_players_page'; page: number; pageSize?: number; filter?: OnlinePlayersFilter }
   | { type: 'send_lobby_chat'; playerId: string; name: string; avatar: string; text: string }
   | { type: 'send_room_invite'; roomId: string; targetUserId: string; playerId?: string }
   | { type: 'respond_room_invite'; inviteId: string; accept: boolean; playerId?: string };
@@ -461,7 +476,15 @@ export type ServerMessage =
   | { type: 'player_kicked'; reason: string }
   | { type: 'left_room_confirmed'; roomId?: string }
   | { type: 'global_announcement'; message: string; sender: string; timestamp: number }
-  | { type: 'lobby_online_players'; players: Array<{ id: string; name: string; avatar: string; roomId: string | null; userId?: string; inRoom?: boolean; connectedAt?: number; tag?: string; role?: string; createdAt?: string }> }
+  | {
+      type: 'lobby_online_players';
+      players: OnlinePlayerSummary[];
+      totalCount?: number;
+      page?: number;
+      pageSize?: number;
+      totalPages?: number;
+      filter?: OnlinePlayersFilter;
+    }
   | { type: 'lobby_chat_message'; message: { id: string; name: string; avatar: string; text: string; timestamp: number } }
   | { type: 'lobby_invite_received'; invite: { fromName: string; fromAvatar: string; roomId: string; timestamp: number } }
   | { type: 'action_ack'; messageId: string }

@@ -14,7 +14,9 @@ import {
   GameState,
   Player,
   ServerMessage,
-  OpenRoomSummary
+  OpenRoomSummary,
+  OnlinePlayersFilter,
+  OnlinePlayerSummary
 } from './src/types/uno.js';
 import {
   createDeck,
@@ -1169,12 +1171,16 @@ app.post('/api/admin/rooms/:id/kick', (req, res) => {
 
   const removed = room.players.splice(idx, 1)[0];
   // Find connection to notify
-  clientConnections.forEach((meta, ws) => {
-    if (meta.playerId === targetPlayerId && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'player_kicked', reason }));
-      clientConnections.delete(ws);
+  const targetRoomSockets = roomSockets.get(room.id);
+  if (targetRoomSockets) {
+    for (const ws of Array.from(targetRoomSockets)) {
+      const meta = clientConnections.get(ws);
+      if (meta && meta.playerId === targetPlayerId) {
+        safeWsSend(ws, JSON.stringify({ type: 'player_kicked', reason }));
+        removeClientConnection(ws);
+      }
     }
-  });
+  }
 
   broadcastLog(room, `🚫 ${removed.name} foi expulso da sala pelo Administrador.`, 'system');
   syncRoomState(room);
@@ -1405,7 +1411,7 @@ app.post('/api/admin/player-action/disconnect', (req, res) => {
     }
   }
 
-  broadcastOnlinePlayers();
+  scheduleBroadcastOnlinePlayers();
   return res.json({
     success: true,
     message: disconnected ? 'Jogador desconectado com sucesso.' : 'Jogador não encontrado entre os clientes online.',
@@ -1440,21 +1446,25 @@ app.post('/api/admin/player-action/kick-room', (req, res) => {
   }
 
   const removed = targetRoom.players.splice(pIdx, 1)[0];
-  clientConnections.forEach((meta, ws) => {
-    if (meta.playerId === removed.id && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'player_kicked', reason }));
-      clientConnections.delete(ws);
-      const onlineMeta = onlinePlayers.get(ws);
-      if (onlineMeta) {
-        onlineMeta.inRoom = false;
-        onlineMeta.roomId = null;
+  const targetSockets = roomSockets.get(targetRoom.id);
+  if (targetSockets) {
+    for (const ws of Array.from(targetSockets)) {
+      const meta = clientConnections.get(ws);
+      if (meta && meta.playerId === removed.id) {
+        safeWsSend(ws, JSON.stringify({ type: 'player_kicked', reason }));
+        removeClientConnection(ws);
+        const onlineMeta = onlinePlayers.get(ws);
+        if (onlineMeta) {
+          onlineMeta.inRoom = false;
+          onlineMeta.roomId = null;
+        }
       }
     }
-  });
+  }
 
   broadcastLog(targetRoom, `🚫 ${removed.name} foi retirado da sala pelo Administrador.`, 'system');
   syncRoomState(targetRoom);
-  broadcastOnlinePlayers();
+  scheduleBroadcastOnlinePlayers();
 
   return res.json({ success: true, message: `${removed.name} foi retirado da sala com sucesso.` });
 });
@@ -1505,8 +1515,49 @@ interface ConnectionMeta {
   reconnectToken: string;
 }
 
-// Map client WebSocket to connection metadata
+// Map client WebSocket to connection metadata + O(1) index of sockets per roomId
 const clientConnections = new Map<WebSocket, ConnectionMeta>();
+const roomSockets = new Map<string, Set<WebSocket>>();
+
+function safeWsSend(ws: WebSocket, payload: string, maxBufferedBytes?: number): boolean {
+  if (ws.readyState !== WebSocket.OPEN) return false;
+  if (maxBufferedBytes !== undefined && ws.bufferedAmount > maxBufferedBytes) {
+    return false;
+  }
+  try {
+    ws.send(payload);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function addSocketToRoomIndex(roomId: string, ws: WebSocket) {
+  let set = roomSockets.get(roomId);
+  if (!set) {
+    set = new Set<WebSocket>();
+    roomSockets.set(roomId, set);
+  }
+  set.add(ws);
+}
+
+function removeSocketFromRoomIndex(roomId: string, ws: WebSocket) {
+  const set = roomSockets.get(roomId);
+  if (!set) return;
+  set.delete(ws);
+  if (set.size === 0) {
+    roomSockets.delete(roomId);
+  }
+}
+
+function removeClientConnection(ws: WebSocket): ConnectionMeta | undefined {
+  const meta = clientConnections.get(ws);
+  if (meta) {
+    removeSocketFromRoomIndex(meta.roomId, ws);
+    clientConnections.delete(ws);
+  }
+  return meta;
+}
 
 function generateReconnectToken(): string {
   return `rtoken-${crypto.randomUUID()}`;
@@ -1516,6 +1567,11 @@ function generateReconnectToken(): string {
 const sessionReconnectTokens = new Map<string, string>();
 
 function registerClientConnection(ws: WebSocket, socketId: string, roomId: string, playerId: string, providedToken?: string): string {
+  const previous = clientConnections.get(ws);
+  if (previous && previous.roomId !== roomId) {
+    removeSocketFromRoomIndex(previous.roomId, ws);
+  }
+
   const tokenKey = `${roomId}:${playerId}`;
   let reconnectToken = providedToken || sessionReconnectTokens.get(tokenKey) || generateReconnectToken();
   sessionReconnectTokens.set(tokenKey, reconnectToken);
@@ -1526,6 +1582,7 @@ function registerClientConnection(ws: WebSocket, socketId: string, roomId: strin
     playerId,
     reconnectToken,
   });
+  addSocketToRoomIndex(roomId, ws);
   return reconnectToken;
 }
 
@@ -1568,12 +1625,24 @@ const BOT_NAMES = ['Bot Luna', 'Bot Thor', 'Bot Maya', 'Bot Max', 'Bot Neo', 'Bo
 const BOT_AVATARS = ['🤖', '🦊', '🐼', '🐯', '🦁', '🦉'];
 
 function broadcastToRoom(roomId: string, message: ServerMessage) {
+  const sockets = roomSockets.get(roomId);
+  if (!sockets || sockets.size === 0) return;
   const payload = JSON.stringify(message);
-  clientConnections.forEach((meta, ws) => {
-    if (meta.roomId === roomId && ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
+  for (const ws of sockets) {
+    safeWsSend(ws, payload);
+  }
+}
+
+// Reusable multi-table broadcast helper for future tournaments (single or doubles)
+function broadcastToRoomGroup(roomIds: Iterable<string>, message: ServerMessage) {
+  const payload = JSON.stringify(message);
+  for (const roomId of roomIds) {
+    const sockets = roomSockets.get(roomId);
+    if (!sockets) continue;
+    for (const ws of sockets) {
+      safeWsSend(ws, payload);
     }
-  });
+  }
 }
 
 function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) {
@@ -1667,11 +1736,16 @@ function sendGameStateToPlayer(ws: WebSocket, room: RoomData, playerId: string) 
 
 
 function syncRoomState(room: RoomData) {
-  clientConnections.forEach((meta, ws) => {
-    if (meta.roomId === room.id && ws.readyState === WebSocket.OPEN) {
-      sendGameStateToPlayer(ws, room, meta.playerId);
+  const sockets = roomSockets.get(room.id);
+  if (!sockets || sockets.size === 0) return;
+  for (const ws of sockets) {
+    if (ws.readyState === WebSocket.OPEN) {
+      const meta = clientConnections.get(ws);
+      if (meta && meta.roomId === room.id) {
+        sendGameStateToPlayer(ws, room, meta.playerId);
+      }
     }
-  });
+  }
 }
 
 function broadcastLog(room: RoomData, text: string, type: GameLog['type'] = 'action', playerName?: string) {
@@ -1814,6 +1888,13 @@ function cleanupRoomResources(room: RoomData) {
     if (key.startsWith(prefix)) {
       sessionReconnectTokens.delete(key);
     }
+  }
+  const sockets = roomSockets.get(room.id);
+  if (sockets) {
+    for (const clientWs of sockets) {
+      clientConnections.delete(clientWs);
+    }
+    roomSockets.delete(room.id);
   }
   for (const [clientWs, meta] of clientConnections.entries()) {
     if (meta.roomId === room.id) {
@@ -2234,8 +2315,34 @@ function executePlayCard(
   }
 }
 
-// WebSocket setup
-const wss = new WebSocketServer({ server, path: '/ws' });
+// WebSocket setup (perMessageDeflate: false avoids ~300KB zlib arena/socket; maxPayload protects RAM)
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  perMessageDeflate: false,
+  maxPayload: 256 * 1024,
+});
+
+// Protocol Ping/Pong Heartbeat (30s) to evict zombie/half-open connections cleanly
+const WS_HEARTBEAT_INTERVAL_MS = 30000;
+const aliveSockets = new WeakSet<WebSocket>();
+const wsHeartbeatTimer = setInterval(() => {
+  for (const client of wss.clients) {
+    if (!aliveSockets.has(client)) {
+      try {
+        client.terminate();
+      } catch {}
+      continue;
+    }
+    aliveSockets.delete(client);
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.ping();
+      } catch {}
+    }
+  }
+}, WS_HEARTBEAT_INTERVAL_MS);
+wsHeartbeatTimer.unref();
 
 interface OnlinePlayerSession {
   id: string;
@@ -2251,6 +2358,8 @@ interface OnlinePlayerSession {
   role?: string;
   tag?: string;
   createdAt?: string;
+  tournamentId?: string;
+  tournamentTeamId?: string;
 }
 
 const onlinePlayers = new Map<WebSocket, OnlinePlayerSession>();
@@ -2291,27 +2400,134 @@ function checkInviteRateLimit(userId: string): boolean {
   return true;
 }
 
-function broadcastOnlinePlayers() {
-  const playersList = Array.from(onlinePlayers.values()).map(p => ({
-    id: p.id,
-    name: p.name,
-    avatar: p.avatar,
-    inRoom: p.inRoom,
-    roomId: p.roomId,
-    userId: p.userId,
-    connectedAt: p.connectedAt,
-    tag: p.tag,
-    role: p.role,
-    createdAt: p.createdAt
-  }));
-  const payload = JSON.stringify({ type: 'lobby_online_players', players: playersList });
-  onlinePlayers.forEach((meta, ws) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(payload);
-      } catch (e) {}
-    }
+const ONLINE_BROADCAST_BATCH_MS = 100;
+const DEFAULT_ONLINE_PAGE_SIZE = 50;
+const MAX_ONLINE_PAGE_SIZE = 100;
+const MAX_LOBBY_BACKPRESSURE_BYTES = 256 * 1024;
+
+interface OnlinePagePref {
+  page: number;
+  pageSize: number;
+  filter: OnlinePlayersFilter;
+}
+
+const clientOnlinePagePrefs = new WeakMap<WebSocket, OnlinePagePref>();
+let onlineBroadcastTimer: NodeJS.Timeout | null = null;
+
+function buildAllOnlinePlayersList(): OnlinePlayerSummary[] {
+  const list: OnlinePlayerSummary[] = [];
+  for (const p of onlinePlayers.values()) {
+    list.push({
+      id: p.id,
+      name: p.name,
+      avatar: p.avatar,
+      inRoom: p.inRoom,
+      roomId: p.roomId,
+      userId: p.userId,
+      connectedAt: p.connectedAt,
+      tag: p.tag,
+      role: p.role,
+      tournamentId: p.tournamentId,
+      tournamentTeamId: p.tournamentTeamId,
+    });
+  }
+  return list;
+}
+
+function buildPaginatedOnlinePayloadJson(
+  allPlayers: OnlinePlayerSummary[],
+  pref: OnlinePagePref,
+  cache?: Map<string, string>
+): string {
+  const safePageSize = Math.max(10, Math.min(MAX_ONLINE_PAGE_SIZE, pref.pageSize || DEFAULT_ONLINE_PAGE_SIZE));
+  const filter = pref.filter || 'all';
+
+  let filtered = allPlayers;
+  if (filter === 'lobby_only') {
+    filtered = allPlayers.filter((p) => !p.inRoom);
+  } else if (filter === 'in_room') {
+    filtered = allPlayers.filter((p) => !!p.inRoom);
+  }
+
+  const totalCount = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / safePageSize));
+  const safePage = Math.max(1, Math.min(pref.page || 1, totalPages));
+  const cacheKey = `${filter}:${safePage}:${safePageSize}`;
+
+  if (cache) {
+    const hit = cache.get(cacheKey);
+    if (hit) return hit;
+  }
+
+  const start = (safePage - 1) * safePageSize;
+  const pagePlayers = filtered.slice(start, start + safePageSize);
+  const encoded = JSON.stringify({
+    type: 'lobby_online_players',
+    players: pagePlayers,
+    totalCount,
+    page: safePage,
+    pageSize: safePageSize,
+    totalPages,
+    filter,
   });
+
+  if (cache) {
+    cache.set(cacheKey, encoded);
+  }
+  return encoded;
+}
+
+function shouldReceiveLobbyOnlineBroadcast(ws: WebSocket): boolean {
+  if (ws.readyState !== WebSocket.OPEN) return false;
+  if (ws.bufferedAmount > MAX_LOBBY_BACKPRESSURE_BYTES) return false;
+  const conn = clientConnections.get(ws);
+  if (!conn) return true; // No lobby
+  const room = rooms.get(conn.roomId);
+  // Hosts/jogadores em sala de espera (waiting) ainda veem o painel do Lobby para convidar amigos;
+  // jogadores/espectadores com partida ativa (playing/paused) ou encerrada não precisam de updates globais do lobby.
+  return !room || room.status === 'waiting';
+}
+
+function sendOnlinePlayersToSocket(ws: WebSocket, allPlayers?: OnlinePlayerSummary[]) {
+  if (ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > MAX_LOBBY_BACKPRESSURE_BYTES) return;
+  const list = allPlayers || buildAllOnlinePlayersList();
+  const pref = clientOnlinePagePrefs.get(ws) || {
+    page: 1,
+    pageSize: DEFAULT_ONLINE_PAGE_SIZE,
+    filter: 'all' as OnlinePlayersFilter,
+  };
+  const payload = buildPaginatedOnlinePayloadJson(list, pref);
+  safeWsSend(ws, payload, MAX_LOBBY_BACKPRESSURE_BYTES);
+}
+
+function flushOnlinePlayersBroadcast() {
+  onlineBroadcastTimer = null;
+  if (onlinePlayers.size === 0) return;
+
+  const allPlayers = buildAllOnlinePlayersList();
+  const payloadCache = new Map<string, string>();
+  const defaultPref: OnlinePagePref = {
+    page: 1,
+    pageSize: DEFAULT_ONLINE_PAGE_SIZE,
+    filter: 'all',
+  };
+
+  for (const ws of onlinePlayers.keys()) {
+    if (!shouldReceiveLobbyOnlineBroadcast(ws)) continue;
+    const pref = clientOnlinePagePrefs.get(ws) || defaultPref;
+    const payload = buildPaginatedOnlinePayloadJson(allPlayers, pref, payloadCache);
+    safeWsSend(ws, payload, MAX_LOBBY_BACKPRESSURE_BYTES);
+  }
+}
+
+function scheduleBroadcastOnlinePlayers() {
+  if (onlineBroadcastTimer) return;
+  onlineBroadcastTimer = setTimeout(flushOnlinePlayersBroadcast, ONLINE_BROADCAST_BATCH_MS);
+  onlineBroadcastTimer.unref();
+}
+
+function broadcastOnlinePlayers() {
+  scheduleBroadcastOnlinePlayers();
 }
 
 function updatePlayerRoom(ws: WebSocket, roomId: string | null) {
@@ -2319,11 +2535,16 @@ function updatePlayerRoom(ws: WebSocket, roomId: string | null) {
   if (meta) {
     meta.roomId = roomId;
     meta.inRoom = roomId !== null;
-    broadcastOnlinePlayers();
+    scheduleBroadcastOnlinePlayers();
   }
 }
 
 wss.on('connection', (ws: WebSocket, req: any) => {
+  aliveSockets.add(ws);
+  ws.on('pong', () => {
+    aliveSockets.add(ws);
+  });
+
   const socketId = `soc-${crypto.randomUUID()}`;
   const rawIp = (req?.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req?.socket?.remoteAddress || '127.0.0.1';
   const cleanIp = rawIp.replace(/^::ffff:/, '');
@@ -2405,7 +2626,24 @@ wss.on('connection', (ws: WebSocket, req: any) => {
           tag: authUser?.tag,
           createdAt: authUser?.createdAt
         });
-        broadcastOnlinePlayers();
+        sendOnlinePlayersToSocket(ws);
+        scheduleBroadcastOnlinePlayers();
+        return;
+      }
+
+      if (msg.type === 'get_online_players_page') {
+        const reqPage = Number((msg as any).page) || 1;
+        const reqPageSize = Number((msg as any).pageSize) || DEFAULT_ONLINE_PAGE_SIZE;
+        const reqFilter: OnlinePlayersFilter =
+          (msg as any).filter === 'lobby_only' || (msg as any).filter === 'in_room'
+            ? (msg as any).filter
+            : 'all';
+        clientOnlinePagePrefs.set(ws, {
+          page: Math.max(1, reqPage),
+          pageSize: Math.max(10, Math.min(MAX_ONLINE_PAGE_SIZE, reqPageSize)),
+          filter: reqFilter,
+        });
+        sendOnlinePlayersToSocket(ws);
         return;
       }
 
@@ -2424,7 +2662,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         const recent = times.filter(t => now - t < 10000);
         if (recent.length >= 5) {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'error', message: 'Muitas mensagens enviadas. Aguarde um instante.' }));
+            safeWsSend(ws, JSON.stringify({ type: 'error', message: 'Muitas mensagens enviadas. Aguarde um instante.' }));
           }
           return;
         }
@@ -2441,12 +2679,8 @@ wss.on('connection', (ws: WebSocket, req: any) => {
             timestamp: Date.now()
           }
         });
-        onlinePlayers.forEach((clientMeta, clientWs) => {
-          if (clientWs.readyState === WebSocket.OPEN) {
-            try {
-              clientWs.send(payload);
-            } catch (e) {}
-          }
+        onlinePlayers.forEach((_clientMeta, clientWs) => {
+          safeWsSend(clientWs, payload, MAX_LOBBY_BACKPRESSURE_BYTES);
         });
         return;
       }
@@ -2653,12 +2887,16 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         const cleanRoomId = (msg.roomId || '').replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
 
         // 1. Remove this connection and any other socket registered to this player in this room
-        clientConnections.delete(ws);
-        clientConnections.forEach((meta, clientWs) => {
-          if (meta.playerId === msg.playerId && meta.roomId === cleanRoomId) {
-            clientConnections.delete(clientWs);
+        removeClientConnection(ws);
+        const roomSocketSet = roomSockets.get(cleanRoomId);
+        if (roomSocketSet) {
+          for (const clientWs of Array.from(roomSocketSet)) {
+            const meta = clientConnections.get(clientWs);
+            if (meta && meta.playerId === msg.playerId && meta.roomId === cleanRoomId) {
+              removeClientConnection(clientWs);
+            }
           }
-        });
+        }
 
         // 2. Send acknowledgment to the client
         try {
@@ -3207,17 +3445,22 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         if (idx !== -1) {
           const target = room.players.splice(idx, 1)[0];
           // Notify target player connection
-          clientConnections.forEach((meta, wsClient) => {
-            if (meta.playerId === target.id && wsClient.readyState === WebSocket.OPEN) {
-              wsClient.send(
-                JSON.stringify({
-                  type: 'player_kicked',
-                  reason: msg.reason || `Você foi expulso da sala por ${player.name}.`,
-                })
-              );
-              clientConnections.delete(wsClient);
+          const targetSockets = roomSockets.get(room.id);
+          if (targetSockets) {
+            for (const wsClient of Array.from(targetSockets)) {
+              const meta = clientConnections.get(wsClient);
+              if (meta && meta.playerId === target.id) {
+                safeWsSend(
+                  wsClient,
+                  JSON.stringify({
+                    type: 'player_kicked',
+                    reason: msg.reason || `Você foi expulso da sala por ${player.name}.`,
+                  })
+                );
+                removeClientConnection(wsClient);
+              }
             }
-          });
+          }
 
           broadcastLog(room, `🚫 ${target.name} foi expulso da sala por ${player.name}.`, 'system');
           syncRoomState(room);
@@ -3349,6 +3592,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
         broadcastLog(room, `🏠 A sala voltou para o Lobby de espera. Pronto para configurar ou iniciar nova partida!`, 'system');
         syncRoomState(room);
+        scheduleBroadcastOnlinePlayers();
         return;
       }
 
@@ -3540,15 +3784,19 @@ wss.on('connection', (ws: WebSocket, req: any) => {
       // WebRTC Peer-to-Peer Voice Signaling (Zero server audio processing)
       if (msg.type === 'rtc_offer') {
         const targetPlayerId = msg.toPlayerId;
-        for (const [clientWs, clientMeta] of clientConnections.entries()) {
-          if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(JSON.stringify({
-              type: 'rtc_offer',
-              fromPlayerId: player.id,
-              toPlayerId: targetPlayerId,
-              offer: msg.offer,
-            }));
-            break;
+        const sockets = roomSockets.get(room.id);
+        if (sockets) {
+          for (const clientWs of sockets) {
+            const clientMeta = clientConnections.get(clientWs);
+            if (clientMeta && clientMeta.playerId === targetPlayerId) {
+              safeWsSend(clientWs, JSON.stringify({
+                type: 'rtc_offer',
+                fromPlayerId: player.id,
+                toPlayerId: targetPlayerId,
+                offer: msg.offer,
+              }));
+              break;
+            }
           }
         }
         return;
@@ -3556,15 +3804,19 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
       if (msg.type === 'rtc_answer') {
         const targetPlayerId = msg.toPlayerId;
-        for (const [clientWs, clientMeta] of clientConnections.entries()) {
-          if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(JSON.stringify({
-              type: 'rtc_answer',
-              fromPlayerId: player.id,
-              toPlayerId: targetPlayerId,
-              answer: msg.answer,
-            }));
-            break;
+        const sockets = roomSockets.get(room.id);
+        if (sockets) {
+          for (const clientWs of sockets) {
+            const clientMeta = clientConnections.get(clientWs);
+            if (clientMeta && clientMeta.playerId === targetPlayerId) {
+              safeWsSend(clientWs, JSON.stringify({
+                type: 'rtc_answer',
+                fromPlayerId: player.id,
+                toPlayerId: targetPlayerId,
+                answer: msg.answer,
+              }));
+              break;
+            }
           }
         }
         return;
@@ -3572,15 +3824,19 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
       if (msg.type === 'rtc_ice_candidate') {
         const targetPlayerId = msg.toPlayerId;
-        for (const [clientWs, clientMeta] of clientConnections.entries()) {
-          if (clientMeta.roomId === room.id && clientMeta.playerId === targetPlayerId && clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(JSON.stringify({
-              type: 'rtc_ice_candidate',
-              fromPlayerId: player.id,
-              toPlayerId: targetPlayerId,
-              candidate: msg.candidate,
-            }));
-            break;
+        const sockets = roomSockets.get(room.id);
+        if (sockets) {
+          for (const clientWs of sockets) {
+            const clientMeta = clientConnections.get(clientWs);
+            if (clientMeta && clientMeta.playerId === targetPlayerId) {
+              safeWsSend(clientWs, JSON.stringify({
+                type: 'rtc_ice_candidate',
+                fromPlayerId: player.id,
+                toPlayerId: targetPlayerId,
+                candidate: msg.candidate,
+              }));
+              break;
+            }
           }
         }
         return;
@@ -3607,7 +3863,8 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         const targetRoomId = conn ? conn.roomId : null;
         if (onlineMeta.roomId !== targetRoomId) {
           onlineMeta.roomId = targetRoomId;
-          broadcastOnlinePlayers();
+          onlineMeta.inRoom = targetRoomId !== null;
+          scheduleBroadcastOnlinePlayers();
         }
       }
     } catch (e) {
@@ -3617,15 +3874,15 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
   ws.on('close', () => {
     // Delete from online lobby registry & per-socket rate limit maps to prevent memory leaks
+    aliveSockets.delete(ws);
     lobbyChatRateLimits.delete(ws);
     startSoloRateLimits.delete(ws);
     onlinePlayers.delete(ws);
-    broadcastOnlinePlayers();
+    scheduleBroadcastOnlinePlayers();
 
-    const meta = clientConnections.get(ws);
+    const meta = removeClientConnection(ws);
     if (!meta) return;
 
-    clientConnections.delete(ws);
     const room = rooms.get(meta.roomId);
     if (!room) return;
 

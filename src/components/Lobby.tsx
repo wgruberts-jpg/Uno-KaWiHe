@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { RoomSettings, Player, UserProfile, SpectatorPermission, ClientMessage, OnlinePlayerSummary } from '../types/uno.js';
+import { RoomSettings, Player, UserProfile, SpectatorPermission, ClientMessage, OnlinePlayerSummary, OnlinePlayersPageMeta } from '../types/uno.js';
 import { VoiceControls } from './VoiceControls.js';
 import { Sidebar } from './Sidebar.js';
 import { AvatarSelectModal } from './AvatarSelectModal.js';
@@ -79,6 +79,8 @@ interface LobbyProps {
   errorMessage: string | null;
   sendMessage?: (msg: ClientMessage) => void;
   onlinePlayers?: OnlinePlayerSummary[];
+  onlinePlayersMeta?: OnlinePlayersPageMeta;
+  onChangeOnlinePlayersPage?: (page: number) => void;
   lobbyChat?: Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>;
   roomSettings?: RoomSettings;
 }
@@ -116,6 +118,8 @@ export const Lobby: React.FC<LobbyProps> = ({
   errorMessage,
   sendMessage,
   onlinePlayers = [],
+  onlinePlayersMeta,
+  onChangeOnlinePlayersPage,
   lobbyChat = [],
   roomSettings,
 }) => {
@@ -1645,7 +1649,7 @@ export const Lobby: React.FC<LobbyProps> = ({
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                 <h3 className="text-xs font-black uppercase tracking-wider text-sky-950 flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-sky-500" />
-                  Jogadores Ativos ({onlinePlayers.length})
+                  Jogadores Ativos ({onlinePlayersMeta?.totalCount ?? onlinePlayers.length})
                 </h3>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
               </div>
@@ -1749,6 +1753,34 @@ export const Lobby: React.FC<LobbyProps> = ({
                   })
                 )}
               </div>
+
+              {(onlinePlayersMeta?.totalPages ?? 1) > 1 && onChangeOnlinePlayersPage && (
+                <div className="flex items-center justify-between pt-2 mt-1.5 border-t border-slate-100 text-[10px] font-bold text-slate-600">
+                  <button
+                    type="button"
+                    disabled={(onlinePlayersMeta?.page ?? 1) <= 1}
+                    onClick={() => onChangeOnlinePlayersPage(Math.max(1, (onlinePlayersMeta?.page ?? 1) - 1))}
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-sky-100 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    ◀ Anterior
+                  </button>
+                  <span>
+                    Pág {onlinePlayersMeta?.page ?? 1} / {onlinePlayersMeta?.totalPages ?? 1}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={(onlinePlayersMeta?.page ?? 1) >= (onlinePlayersMeta?.totalPages ?? 1)}
+                    onClick={() =>
+                      onChangeOnlinePlayersPage(
+                        Math.min(onlinePlayersMeta?.totalPages ?? 1, (onlinePlayersMeta?.page ?? 1) + 1)
+                      )
+                    }
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-sky-100 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    Próxima ▶
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* 3. Lobby Chat Panel */}

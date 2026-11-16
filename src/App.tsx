@@ -9,6 +9,7 @@ import {
   HandState,
   RoomSettings,
   OnlinePlayerSummary,
+  OnlinePlayersPageMeta,
   ServerMessage
 } from './types/uno.js';
 import { Lobby } from './components/Lobby.js';
@@ -51,6 +52,13 @@ export default function App() {
   const [adminModalTab, setAdminModalTab] = useState<'rooms' | 'users' | 'messages'>('rooms');
   const [globalAnnouncement, setGlobalAnnouncement] = useState<{ message: string; sender: string } | null>(null);
   const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerSummary[]>([]);
+  const [onlinePlayersMeta, setOnlinePlayersMeta] = useState<OnlinePlayersPageMeta>({
+    totalCount: 0,
+    page: 1,
+    pageSize: 50,
+    totalPages: 1,
+    filter: 'all',
+  });
   const [lobbyChat, setLobbyChat] = useState<Array<{ id: string; name: string; avatar: string; text: string; timestamp: number }>>([]);
   const [lobbyInvite, setLobbyInvite] = useState<{ fromName: string; fromAvatar: string; roomId: string; timestamp: number } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -200,6 +208,10 @@ export default function App() {
   const roomIdRef = useRef<string | null>(roomId);
   const myPlayerIdRef = useRef<string>(myPlayerId);
   const hasLeftRoomRef = useRef<boolean>(false);
+  const isUnmountedRef = useRef<boolean>(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef<number>(0);
+  const pendingQueueRef = useRef<string[]>([]);
 
   useEffect(() => {
     roomIdRef.current = roomId;
@@ -214,12 +226,26 @@ export default function App() {
 
   // Setup WebSocket connection
   const connectWebSocket = useCallback(() => {
+    if (isUnmountedRef.current) return;
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const socket = new WebSocket(`${protocol}//${host}/ws`);
     wsRef.current = socket;
 
     socket.onopen = () => {
+      reconnectAttemptsRef.current = 0;
       console.log('Connected to UNO Game Server');
 
       const urlParams = new URLSearchParams(window.location.search);
@@ -269,6 +295,15 @@ export default function App() {
             token: localStorage.getItem('kawihe_auth_token') || auth.getToken() || undefined,
           })
         );
+      }
+
+      if (pendingQueueRef.current.length > 0 && socket.readyState === WebSocket.OPEN) {
+        const queued = pendingQueueRef.current.splice(0, pendingQueueRef.current.length);
+        for (const rawMsg of queued) {
+          try {
+            socket.send(rawMsg);
+          } catch {}
+        }
       }
     };
 
@@ -429,6 +464,13 @@ export default function App() {
           setTimeout(() => setGlobalAnnouncement(null), 7000);
         } else if (msg.type === 'lobby_online_players') {
           setOnlinePlayers(msg.players);
+          setOnlinePlayersMeta({
+            totalCount: msg.totalCount ?? msg.players.length,
+            page: msg.page ?? 1,
+            pageSize: msg.pageSize ?? 50,
+            totalPages: msg.totalPages ?? 1,
+            filter: msg.filter ?? 'all',
+          });
         } else if (msg.type === 'lobby_chat_message') {
           setLobbyChat((prev) => [...prev, msg.message]);
         } else if (msg.type === 'lobby_invite_received') {
@@ -460,11 +502,21 @@ export default function App() {
     };
 
     socket.onclose = () => {
-      console.log('Socket closed, reconnecting in 3s...');
-      // Use a flag to avoid multiple reconnections
-      if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
-        setTimeout(connectWebSocket, 3000);
+      if (wsRef.current === socket) {
+        wsRef.current = null;
       }
+      if (isUnmountedRef.current) return;
+      const attempt = reconnectAttemptsRef.current;
+      reconnectAttemptsRef.current = Math.min(attempt + 1, 5);
+      const delayMs = Math.min(15000, 1000 * Math.pow(2, attempt)) + Math.floor(Math.random() * 400);
+      console.log(`Socket closed, reconnecting in ${delayMs}ms...`);
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connectWebSocket();
+      }, delayMs);
     };
 
     socket.onerror = () => {
@@ -473,23 +525,36 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    isUnmountedRef.current = false;
     connectWebSocket();
     return () => {
-      if (wsRef.current) wsRef.current.close();
+      isUnmountedRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [connectWebSocket]);
 
   const send = (msg: ClientMessage) => {
+    const payload = JSON.stringify({ protocolVersion: 2, ...msg });
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg));
+      wsRef.current.send(payload);
     } else {
-      console.warn('Socket not ready, reconnecting and sending...');
-      connectWebSocket();
-      setTimeout(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify(msg));
-        }
-      }, 400);
+      if (pendingQueueRef.current.length < 20) {
+        pendingQueueRef.current.push(payload);
+      }
+      if (
+        !wsRef.current ||
+        wsRef.current.readyState === WebSocket.CLOSED ||
+        wsRef.current.readyState === WebSocket.CLOSING
+      ) {
+        connectWebSocket();
+      }
     }
   };
 
@@ -768,6 +833,15 @@ export default function App() {
             errorMessage={errorMessage}
             sendMessage={send}
             onlinePlayers={onlinePlayers}
+            onlinePlayersMeta={onlinePlayersMeta}
+            onChangeOnlinePlayersPage={(page) =>
+              send({
+                type: 'get_online_players_page',
+                page,
+                pageSize: onlinePlayersMeta.pageSize,
+                filter: onlinePlayersMeta.filter,
+              })
+            }
             lobbyChat={lobbyChat}
             roomSettings={gameState?.settings}
           />
