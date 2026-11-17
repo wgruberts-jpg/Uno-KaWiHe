@@ -20,6 +20,7 @@ Este manual documenta todos os scripts utilitários em Shell Script (`.sh`) cria
 | **`relatorio-vm.sh`** | `relatorio-vm.sh` | Ferramenta de diagnóstico em **somente leitura** para inspeção segura do estado da VM (mascara segredos). |
 | **`limpar.sh`** | `limpar.sh` | Reversão de instalação local (remove `/opt/unokawihe`, `/swapfile` e `.deploy_state`). |
 | **`stress-test.mjs` / `capacity-test.mjs`** | `scripts/` | Testes de carga e capacidade WebSocket (`npm run stress` e `npm run capacity`). |
+| **`tournament-test.mjs`** | `scripts/` | Simulação completa de torneios Individual e Duplas 2v2 com telemetria (`npm run tournament-test`). |
 
 ---
 
@@ -163,6 +164,22 @@ Este manual documenta todos os scripts utilitários em Shell Script (`.sh`) cria
   ```bash
   npm run stress
   npm run capacity
+  ```
+
+---
+
+### 13. Simulação Completa de Torneios (`scripts/tournament-test.mjs`)
+* **Objetivo:** Simulação automatizada de ponta a ponta de torneios em tempo real (Individual ou Duplas 2v2) com autenticação JWT, jogadores e espectadores via WebSocket, jogadas completas (compra, descarte, UNO), avanço de chaves até a premiação do Campeão e telemetria da VM.
+* **Modos de Uso:**
+  ```bash
+  # Torneio Individual com 4 jogadores
+  node scripts/tournament-test.mjs --url http://146.181.59.151:3000 --user edinho --password 1709
+
+  # Torneio de Duplas 2v2 com 4 equipes (8 jogadores) em Md3
+  node scripts/tournament-test.mjs --url http://146.181.59.151:3000 --user edinho --password 1709 --modality doubles --teams 4 --best-of 3
+
+  # Execução direta via curl sem salvar arquivo local
+  curl -sSL https://raw.githubusercontent.com/wgruberts-jpg/Uno-KaWiHe/main/scripts/tournament-test.mjs | node --input-type=module - --url http://146.181.59.151:3000 --user edinho --password 1709
   ```
 
 ---

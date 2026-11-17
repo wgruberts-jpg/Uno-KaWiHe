@@ -18,6 +18,7 @@ Atualizado em: 2026-11-16 · Versão: v2.2.3 · **Respeitando AI Studio Free Tie
   - Consistência WAL entre `users.json`, `tournaments.json` e `import_batches.json` com reconciliação automática (`reconcileIncompleteImportBatches`).
   - Ciclo de vida de contas (`active` | `disabled` | `archived`) com bloqueio em login/JWT/WS (close `4003`), preview de impacto e exclusão segura apenas sem dependências históricas.
 - Painel admin completo: gestão de usuários (`create`, `reset-password`, `delete`, importação em massa), convites, relatório de jogador (`/api/admin/player-report/:target`), moderação e monitor de métricas da VM (`/api/admin/vm-metrics`).
+- Ferramenta de simulação e teste automatizado de torneios de ponta a ponta (`scripts/tournament-test.mjs` / `npm run tournament-test`) com suporte a Individual e Duplas 2v2, provisionamento de contas de teste JWT, partidas em tempo real via WebSocket, desempates e telemetria de VM.
 - Guia de microfone para PC em HTTP/IP (Firefox/Chrome) e guia de VM.
 - Suíte de testes: **106 testes** passando em 8 arquivos (`unoEngine`: 26, `serverIntegration`: 19, `tournamentEngine`: 22, `tournamentWo`: 19, `tournamentIntegration`: 5, `importParser`: 6, `importService`: 6, `importIntegration`: 3).
 
