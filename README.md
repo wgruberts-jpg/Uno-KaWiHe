@@ -18,8 +18,8 @@
 - 🛡️ **Scripts de Manutenção Seguros:**
   - `scripts/create-user.sh`: Exigência estrita de `bcryptjs` (fator 12), abortando com `process.exit(1)` caso ausente.
   - `scripts/backup.sh`: Permissões restritas (`chmod 700` no diretório e `chmod 600` nos arquivos gerados) com salvamento de `./data` e volumes Docker.
-- 🧪 **Suíte de Testes Automatizados:** **106 testes** executados via Vitest em 8 suítes (`unoEngine`: 26, `serverIntegration`: 19, `tournamentEngine`: 22, `tournamentWo`: 19, `tournamentIntegration`: 5, `importParser`: 6, `importService`: 6, `importIntegration`: 3).
-- 📥 **Importador de Usuários em Massa (JWT Admin):** Upload CSV ou colagem (até 512 KB / 200 registros) com hashing `bcrypt` em Worker Thread nativa, WAL/reconciliação entre JSONs, inscrição direta em torneios individuais e gestão segura de ciclo de vida (`active`/`disabled`/`archived`/exclusão sem dependências).
+- 🧪 **Suíte de Testes Automatizados:** **109 testes** executados via Vitest em 9 suítes (`unoEngine`: 26, `serverIntegration`: 19, `tournamentEngine`: 22, `tournamentWo`: 19, `tournamentIntegration`: 5, `tournamentStress`: 2, `importParser`: 6, `importService`: 7, `importIntegration`: 3).
+- 📥 **Importador de Usuários em Massa (JWT Admin):** Upload CSV ou colagem (até 512 KB / 200 registros) com hashing `bcrypt` em Worker Thread nativa, WAL (`running`/`completed`/`failed`/`partial`/`reconciling`) entre JSONs, inscrição direta em torneios individuais e gestão segura de ciclo de vida (`active`/`disabled`/`archived`/exclusão sem dependências).
 - 👑 **Painel Administrativo, Diagnóstico e Monitor de VM:** Inspeção em tempo real de jogadores (`/api/admin/player-report/:target`), ações de moderação (Kick, Alerta, Desconectar, Redefinir Senha, Criar/Excluir Usuário) e métricas da VM (`/api/admin/vm-metrics`).
 - 🎙️ **Guia de Microfone no PC:** Instruções passo a passo integradas para liberação de áudio e microfone em HTTP/IP no Firefox (`about:config`) e Google Chrome (`chrome://flags`).
 
@@ -78,7 +78,7 @@ Acesse em: `http://localhost:3000`
 ## 🧪 Executar Testes Automatizados
 
 ```bash
-# Executa os 106 testes com relatório detalhado
+# Executa os 109 testes com relatório detalhado
 npm test
 
 # Validação estrita de tipos TypeScript

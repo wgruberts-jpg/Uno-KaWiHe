@@ -235,10 +235,17 @@ export function buildUserRecord(params: {
   };
 }
 
+let initializedDataDir: string | null = null;
+
 function ensureDataDir() {
   const dataDir = getDataDir();
   const usersFile = getUsersFile();
   const invitesFile = getInvitesFile();
+  if (initializedDataDir === dataDir && fs.existsSync(usersFile) && fs.existsSync(invitesFile)) {
+    return;
+  }
+  initializedDataDir = dataDir;
+
   ensureDirExists(dataDir);
 
   // Seed Users

@@ -18,7 +18,7 @@ Este documento mapeia os principais fluxos de uso, interações, cenários de se
   1. O usuário clica em "Entrar / Criar Conta" no menu lateral.
   2. Seleciona a aba "Cadastrar".
   3. Preenche: Usuário, Senha, Nome de Jogador (displayName), escolhe um Avatar e digita o Código de Convite.
-  4. O sistema avalia o rate limit do IP do cliente (máx. 5 cadastros a cada 10 minutos).
+  4. O sistema avalia o rate limit do IP do cliente (máx. 10 cadastros a cada 10 minutos).
   5. O sistema valida se o código de convite existe, se está ativo, se não expirou e se possui saldo de usos restantes (`usedCount < maxUses`).
   6. O sistema normaliza o nome (Unicode NFKC) e valida se o Nome de Jogador é único.
   7. O cadastro gera uma tag exclusiva aleatória via `crypto.randomInt` (ex: `#1042`), grava no disco via escrita atômica `fsyncSync` + `renameSync`, queima o uso do convite e autentica o usuário emitindo um JWT assinado com `role: 'player'`.
@@ -33,7 +33,7 @@ Este documento mapeia os principais fluxos de uso, interações, cenários de se
 * **Descrição:** Acesso exclusivo do Administrador para gerenciamento de salas, usuários e redefinição de senhas.
 * **Pré-condições:** O usuário deve estar logado com credenciais de administrador (`role === 'admin'`).
 * **Fluxo Principal:**
-  1. O Administrador efetua login fornecendo seu usuário e senha. O sistema valida contra ataques de força bruta com rate limiting composto (máx. 5 tentativas por usuário e 20 por IP global a cada 5 minutos).
+  1. O Administrador efetua login fornecendo seu usuário e senha real (verificada via `bcrypt`, sem atalho de PIN). O sistema valida contra ataques de força bruta com rate limiting de falhas (máx. 5 falhas por usuário e 20 falhas por IP a cada 5 minutos).
   2. O backend valida a senha via `bcrypt` e gera um token JWT assinado com a chave segura `JWT_SECRET`.
   3. Ao acessar rotas como `/api/admin/users`, `/api/admin/rooms`, `/api/admin/cli-status` ou `/api/admin/users/:id/reset-password`, o token é transmitido no header `Authorization: Bearer <token>`.
   4. O servidor valida a assinatura e o perfil do usuário, concedendo acesso aos dados de telemetria e ações de moderação.
@@ -128,13 +128,14 @@ Este documento mapeia os principais fluxos de uso, interações, cenários de se
 * **Descrição:** Permite validar regras de negócio, modo 2v2, torneios, W.O., importador em massa, integridade de WebSocket e políticas de segurança.
 * **Fluxo Principal:**
   1. O desenvolvedor executa `npm test` (ou `npx vitest run --reporter=verbose`) no terminal.
-  2. O runner executa **106 testes automatizados** em 8 suítes com 100% de aprovação:
+  2. O runner executa **109 testes automatizados** em 9 suítes com 100% de aprovação:
      - **26 testes unitários** no `tests/unoEngine.test.ts`
      - **19 testes de integração e segurança** no `tests/serverIntegration.test.ts`
      - **22 testes de domínio puro de torneios** no `tests/tournamentEngine.test.ts`
      - **19 testes de remoção segura por W.O.** no `tests/tournamentWo.test.ts`
      - **5 testes de integração real de torneios HTTP/WS** no `tests/tournamentIntegration.test.ts`
+     - **2 testes de progressão em escala ponta a ponta de torneios** no `tests/tournamentStress.test.ts`
      - **6 testes do parser RFC-4180 do importador** no `tests/importParser.test.ts`
-     - **6 testes de serviço, WAL, ciclo de vida e benchmark Worker** no `tests/importService.test.ts`
+     - **7 testes de serviço, WAL multi-item, proveniência, ciclo de vida e benchmark Worker** no `tests/importService.test.ts`
      - **3 testes de integração HTTP/WS e desconexão ao vivo** no `tests/importIntegration.test.ts`
 

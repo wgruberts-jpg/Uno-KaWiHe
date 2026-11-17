@@ -82,8 +82,49 @@ import {
 } from './server/tournamentEngine.js';
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const PORT = 3000;
+
+function getClientIp(req: express.Request): string {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp.trim()) return cfIp.trim();
+  if (req.ip) return req.ip;
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim();
+  return req.socket.remoteAddress || '127.0.0.1';
+}
+
+interface RateWindowEntry {
+  count: number;
+  resetAt: number;
+}
+const httpRateLimitStore = new Map<string, RateWindowEntry>();
+
+function isRateLimited(key: string, maxRequests: number, windowMs: number, consume = true): boolean {
+  const now = Date.now();
+  const entry = httpRateLimitStore.get(key);
+  if (!entry || entry.resetAt <= now) {
+    if (consume) {
+      httpRateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
+    }
+    return false;
+  }
+  if (entry.count >= maxRequests) {
+    return true;
+  }
+  if (consume) {
+    entry.count += 1;
+  }
+  return false;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of httpRateLimitStore.entries()) {
+    if (v.resetAt <= now) httpRateLimitStore.delete(k);
+  }
+}, 60_000).unref();
 
 const defaultJsonMiddleware = express.json();
 const importJsonMiddleware = express.json({ limit: '1mb' });
@@ -103,6 +144,10 @@ app.get('/health', (req, res) => {
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL;
 
 app.post('/api/auth/register', async (req, res) => {
+  const ip = getClientIp(req);
+  if (isRateLimited(`reg_ip:${ip}`, 10, 10 * 60 * 1000)) {
+    return res.status(429).json({ success: false, error: 'Muitas tentativas de cadastro. Aguarde alguns minutos.' });
+  }
   if (AUTH_SERVICE_URL) {
     try {
       const response = await fetch(`${AUTH_SERVICE_URL}/api/auth/register`, {
@@ -121,6 +166,18 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
+  const ip = getClientIp(req);
+  const rawUser = String(req.body?.username || '').trim().toLowerCase();
+  if (
+    (rawUser && isRateLimited(`login_fail_acc:${rawUser}`, 5, 5 * 60 * 1000, false)) ||
+    isRateLimited(`login_fail_ip:${ip}`, 20, 5 * 60 * 1000, false)
+  ) {
+    return res.status(429).json({ success: false, error: 'Muitas tentativas de login. Aguarde alguns minutos.' });
+  }
+
+  let statusCode = 200;
+  let result: any;
+
   if (AUTH_SERVICE_URL) {
     try {
       const response = await fetch(`${AUTH_SERVICE_URL}/api/auth/login`, {
@@ -129,14 +186,24 @@ app.post('/api/auth/login', async (req, res) => {
         body: JSON.stringify(req.body),
         signal: AbortSignal.timeout(3500),
       });
-      const data = await response.json();
-      return res.status(response.status).json(data);
+      statusCode = response.status;
+      result = await response.json();
     } catch (err) {
       console.error('Failed to proxy login to auth service, falling back to local:', err);
     }
   }
-  const result = await loginUser(req.body);
-  return res.status(result.success ? 200 : result.accountBlocked ? 403 : 401).json(result);
+
+  if (!result) {
+    result = await loginUser(req.body);
+    statusCode = result.success ? 200 : result.accountBlocked ? 403 : 401;
+  }
+
+  if (!result.success && !result.accountBlocked) {
+    if (rawUser) isRateLimited(`login_fail_acc:${rawUser}`, 5, 5 * 60 * 1000, true);
+    isRateLimited(`login_fail_ip:${ip}`, 20, 5 * 60 * 1000, true);
+  }
+
+  return res.status(statusCode).json(result);
 });
 
 app.get('/api/auth/me', async (req, res) => {
@@ -207,6 +274,10 @@ app.post('/api/auth/verify-admin-pin', async (req, res) => {
 
 // Invites API Routes
 app.get('/api/invites/validate/:code', async (req, res) => {
+  const ip = getClientIp(req);
+  if (isRateLimited(`inv_val_ip:${ip}`, 20, 5 * 60 * 1000)) {
+    return res.status(429).json({ valid: false, error: 'Muitas consultas de convite. Aguarde alguns minutos.' });
+  }
   if (AUTH_SERVICE_URL) {
     try {
       const response = await fetch(`${AUTH_SERVICE_URL}/api/invites/validate/${encodeURIComponent(req.params.code)}`);
@@ -545,6 +616,9 @@ function isAdminRequest(req: any): boolean {
 
 // REST API for Room Administration
 app.get('/api/admin/cli-status', (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+  }
   const activeRooms = Array.from(rooms.values());
   const allUsers = getAllUsers();
   const humanCount = activeRooms.reduce((acc, r) => acc + r.players.filter((p) => !p.isBot && p.isConnected).length, 0);
@@ -1636,7 +1710,9 @@ function saveTournaments(targetMap: Map<string, Tournament> = tournaments): void
 
 function getAuthenticatedRequestUser(req: express.Request) {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
   return getUserFromToken(authHeader.split(' ')[1]);
 }
 

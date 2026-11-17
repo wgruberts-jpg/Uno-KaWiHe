@@ -104,6 +104,12 @@ Este documento descreve a auditoria técnica, tabela de comportamentos observado
      - **WAL, Privacidade e Ciclo de Vida:** Diário transacional em `data/import_batches.json` com reconciliação automática no boot (`reconcileIncompleteImportBatches`), zero armazenamento de senhas/hashes em logs/lotes, e status `active`/`disabled`/`archived` com desconexão imediata de WebSockets (`4003`) e exclusão permitida apenas sem dependências históricas.
      - **Expansão da Suíte para 106 Testes:** Adição de `importParser.test.ts` (6), `importService.test.ts` (6) e `importIntegration.test.ts` (3).
 
+### 12. **Passo 12: Revisão Integral Código × Contrato, Endurecimento Auth/WAL e Simulador de Torneios (v2.2.3) [CONCLUÍDO]**
+   - **O que foi feito para resolver:**
+     - **Auth & Rate Limit Estritos (`server.ts` + `authService.ts` + `auth-service/server.ts`):** Remoção do fallback de `ADMIN_PIN` no login (`loginUser` e microserviço `auth-service`) e em `getAuthenticatedRequestUser` (`/api/tournaments/*`), proteção de `GET /api/admin/cli-status`, restauração de bcrypt fator 12 no bootstrap, cache seguro de inicialização por diretório (`initializedDataDir`) e rate limit composto no login (`5` falhas/5min por conta, `20` falhas/5min por IP), cadastro (`10`/10min IP) e convites (`20`/5min IP).
+     - **WAL State Machine (`importService.ts` + `src/types/uno.ts` + `AdminImportHistoryPanel.tsx`):** Consolidação dos estados `'running' | 'completed' | 'failed' | 'partial' | 'reconciling'`, checkpoint intermediário `usersSaved`, rastreabilidade `createdByImportBatchId` / `createdByImportOperationId`, telemetria por operação (`userOpStatus`, `enrollOpStatus`) e correção do estado sequencial de torneio em `reconcileIncompleteImportBatches`.
+     - **Simulador & Testes Reais (`scripts/tournament-test.mjs` + `tests/`):** Adequação do simulador para exigir JWT real (`--password` / `--token`) sem quebrar `scripts/capacity-test.mjs`, proteção `startedGameIds`/`--max-wait-ms` e suporte multi-espectador; reescrita real de `tests/tournamentStress.test.ts` (Individual 8/16/32 e Duplas Md3 4/8) e ampliação de `tests/importService.test.ts` (**109 testes em 9 suítes**).
+
 ---
 
 ## ⚠️ Divergências Conhecidas & Pendências Pós-Deploy

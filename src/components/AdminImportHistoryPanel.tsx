@@ -32,6 +32,15 @@ const MODE_LABELS: Record<ImportOperationMode, string> = {
   enroll_existing: 'Inscrever Existentes',
 };
 
+const BATCH_STATUS_META: Record<string, { label: string; className: string }> = {
+  completed: { label: 'Concluído', className: 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300' },
+  running: { label: 'Em Execução', className: 'bg-sky-950/70 border-sky-500/50 text-sky-300' },
+  partial: { label: 'Parcial', className: 'bg-amber-950/70 border-amber-500/50 text-amber-300' },
+  reconciling: { label: 'Reconciliando', className: 'bg-purple-950/70 border-purple-500/50 text-purple-300' },
+  failed: { label: 'Falhou', className: 'bg-rose-950/70 border-rose-500/50 text-rose-300' },
+  in_progress: { label: 'Em Execução', className: 'bg-sky-950/70 border-sky-500/50 text-sky-300' },
+};
+
 export const AdminImportHistoryPanel: React.FC<AdminImportHistoryPanelProps> = ({
   onUsersChanged,
 }) => {
@@ -217,8 +226,12 @@ export const AdminImportHistoryPanel: React.FC<AdminImportHistoryPanelProps> = (
                 ID: {selectedBatch.importBatchId} · Tag: <span className="text-amber-300">{selectedBatch.importTag}</span> · Modo: {MODE_LABELS[selectedBatch.mode]}
               </div>
             </div>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-slate-900 border border-slate-600 text-slate-200">
-              {selectedBatch.status}
+            <span
+              className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${
+                BATCH_STATUS_META[selectedBatch.status]?.className || 'bg-slate-900 border-slate-600 text-slate-200'
+              }`}
+            >
+              {BATCH_STATUS_META[selectedBatch.status]?.label || selectedBatch.status}
             </span>
           </div>
           {selectedBatch.tournamentName && (
@@ -581,6 +594,13 @@ export const AdminImportHistoryPanel: React.FC<AdminImportHistoryPanelProps> = (
                   </span>
                   <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-600 text-[10px] font-bold">
                     {MODE_LABELS[b.mode]}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded border text-[10px] font-black uppercase ${
+                      BATCH_STATUS_META[b.status]?.className || 'bg-slate-900 border-slate-600 text-slate-300'
+                    }`}
+                  >
+                    {BATCH_STATUS_META[b.status]?.label || b.status}
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-400">

@@ -10,7 +10,7 @@ O **Uno KaWiHe v2.2.3** é uma plataforma full-stack de jogo de cartas UNO multi
 ### Pilhas de Tecnologia (Tech Stack)
 * **Frontend:** React 19, Vite, TypeScript, Tailwind CSS v4, Lucide Icons, Motion, Canvas Confetti.
 * **Backend:** Node.js, Express, WebSockets (`ws`), TypeScript (`tsx`).
-* **Testes Automatizados:** Vitest (**106 testes** em 8 suítes: `unoEngine`, `serverIntegration`, `tournamentEngine`, `tournamentWo`, `tournamentIntegration`, `importParser`, `importService`, `importIntegration`).
+* **Testes Automatizados:** Vitest (**109 testes** em 9 suítes: `unoEngine`, `serverIntegration`, `tournamentEngine`, `tournamentWo`, `tournamentIntegration`, `tournamentStress`, `importParser`, `importService`, `importIntegration`).
 * **Segurança & Autenticação:** JWT (JSON Web Tokens) com verificação estrita de assinatura e perfil (`role: 'admin' | 'player'`), senha mínima padronizada em **4 caracteres**, Rate Limiting composto em memória com suporte a Cloudflare (`CF-Connecting-IP` e `trust proxy`), `bcryptjs` (com processamento em `worker_threads` nativa para lotes em massa) e criptografia nativa `crypto` (`randomUUID`, `randomInt`, `randomBytes`).
 * **Comunicação em Tempo Real:** WebSockets (sincronização de estado da partida, torneios, chat e lobbies) e WebRTC (voz P2P direta com sinalização sanitizada via WebSocket).
 * **Persistência Atômica e Lock Global:** Disco local (`data/users.json`, `data/invites.json`, `data/stats.json`, `data/tournaments.json`, `data/import_batches.json`) com sincronização física `fsyncSync` + `renameSync` e exclusão mútua in-process + `data/.kawihe.lock`.
@@ -39,8 +39,9 @@ O **Uno KaWiHe v2.2.3** é uma plataforma full-stack de jogo de cartas UNO multi
 │   ├── tournamentEngine.test.ts    # Suíte Unitária do Domínio de Torneios (22 testes)
 │   ├── tournamentWo.test.ts        # Suíte de W.O. e Invariante das 108 Cartas (19 testes)
 │   ├── tournamentIntegration.test.ts # Suíte de Integração Real de Torneios (5 testes)
+│   ├── tournamentStress.test.ts    # Suíte de Estresse & Progressão de Torneios (2 testes)
 │   ├── importParser.test.ts        # Suíte do Parser RFC-4180 do Importador (6 testes)
-│   ├── importService.test.ts       # Suíte do Importador, WAL, Ciclo de Vida e Benchmark Worker (6 testes)
+│   ├── importService.test.ts       # Suíte do Importador, WAL, Ciclo de Vida e Benchmark Worker (7 testes)
 │   └── importIntegration.test.ts   # Suíte de Integração HTTP/WS do Importador e Bloqueio Ao Vivo (3 testes)
 ├── src/
 │   ├── App.tsx                     # Orquestrador Principal do Frontend
@@ -137,10 +138,10 @@ export interface ClientMessageEnvelope {
 
 ## 5. Arquitetura de Segurança, Rate Limiting e Gestão de Acesso
 
-### 5.1 Autenticação Administrativa via JWT (sem PIN Hardcoded)
-PINs fixos hardcoded foram completamente removidos do código:
-- **Painel e Rotas Admin (`/api/admin/*`, `/api/tournaments` gestão):** Exigem autenticação via Bearer Token JWT assinado com `JWT_SECRET`, pertencente a usuário com `role === 'admin'`.
-- O header `x-admin-pin` só é aceito se a variável de ambiente `ADMIN_PIN` estiver explicitamente configurada no servidor; caso contrário, requisições apenas com PIN ou sem token recebem **HTTP 403 Forbidden**.
+### 5.1 Autenticação Administrativa via JWT (sem Bypass de PIN)
+Atalhos de PIN hardcoded foram removidos do código:
+- **Painel e Rotas Admin (`/api/admin/*`, `/api/tournaments/*`):** Exigem autenticação via Bearer Token JWT assinado com `JWT_SECRET`, pertencente a usuário com `role === 'admin'` (para ações administrativas). Rotas `/api/admin/import/*`, `/api/tournaments/*`, `/api/admin/cli-status` e `POST /api/auth/login` rejeitam bypass por PIN sem senha bcrypt válida.
+- Nas rotas `/api/admin/*` que opcionalmente suportam `x-admin-pin`, isso ocorre exclusivamente se `ADMIN_PIN` estiver explicitamente configurada via variável de ambiente no servidor; caso contrário recebem **HTTP 403 Forbidden**.
 
 ### 5.2 Estratégia Segura de IP e Rate Limiting Composto
 O servidor Express opera com `app.set('trust proxy', 1)` e extrai o IP autoritativo dando prioridade ao header `CF-Connecting-IP` (inserido pela borda do Cloudflare e imune a spoofing pelo cliente):
@@ -156,11 +157,11 @@ function getClientIp(req: express.Request): string {
 ```
 
 O Rate Limiter em memória opera com limites compostos:
-- **Login:**
-  - Limite por Conta (`login_account:${username}`): máx. 5 tentativas / 5 min (previne ataques de dicionário na conta).
-  - Limite por IP Global (`login_ip:${clientIp}`): máx. 20 tentativas / 5 min (previne ataques distribuídos sem bloquear famílias na mesma rede NAT).
-- **Cadastro:** máx. 5 tentativas / 10 min por IP.
-- **Validação de Convite:** máx. 10 consultas / 5 min por IP.
+- **Falhas de Login (`!result.success && !result.accountBlocked`):**
+  - Limite por Conta (`login_fail_acc:${username}`): máx. 5 falhas / 5 min (previne ataques de dicionário na conta).
+  - Limite por IP Global (`login_ip` / `login_fail_ip:${clientIp}`): máx. 20 falhas / 5 min (permite logins válidos sequenciais, como scripts/clientes em NAT, barrando brute-force).
+- **Cadastro (`reg_ip:${clientIp}`):** máx. 10 tentativas / 10 min por IP.
+- **Validação de Convite:** máx. 20 consultas / 5 min por IP.
 
 ### 5.3 Configuração de Segredo (`JWT_SECRET`)
 - Em produção (`.env` e `docker-compose.yml`), `JWT_SECRET` deve ser sempre definido com uma chave forte e aleatória.
@@ -209,31 +210,34 @@ A escrita dos arquivos JSON em `./data/` usa um fluxo físico de segurança atô
 | `status` | `'active' \| 'disabled' \| 'archived'` | Opcional (default `'active'`) | Estado do ciclo de vida da conta |
 | `statusUpdatedAt` | `string` | Opcional | Timestamp ISO 8601 da última alteração de status |
 | `statusReason` | `string` | Opcional | Motivo administrativo da desativação/arquivamento |
+| `createdByImportBatchId` | `string` | Opcional | ID do lote que criou a conta (proveniência) |
+| `createdByImportOperationId` | `string` | Opcional | ID da operação individual no lote criador |
 
 ### 7.2 Outros Arquivos em `./data/` e Lock Multi-Processo
 - **`data/.kawihe.lock`:** Lock exclusivo coordenado por `server/dataLock.ts` e `auth-service/server.ts` garantindo serialização entre operações concorrentes de cadastro, edição de perfil, redefinição de senha, importação e status.
 - **`data/invites.json` (`InviteCode[]`):** `code` (`@XXXX`), `createdBy`, `createdAt`, `expiresAt`, `maxUses`, `usedCount`, `usedBy`, `status`.
 - **`data/stats.json`:** Mapa indexado por `user.id` / `username` contendo `PlayerCareerStats` (vitórias, sequências, cartas jogadas, conquistas).
 - **`data/tournaments.json`:** Estado persistido de torneios (`Tournament[]`), inscrições, rodadas e jogos para recuperação pós-reinício.
-- **`data/import_batches.json` (`ImportBatch[]`):** Histórico completo de lotes de importação (`importBatchId`, `name`, `importTag`, `mode`, `sourceType`, `delimiterUsed`, `tournamentId`, `idempotencyKey`, `status`, `stepsCompleted` WAL, `summary`, `items` com `relationType: 'created_by_batch' | 'existing_enrolled_only'`, e `auditTrail`). **Privacidade:** nenhuma senha em texto puro, `passwordHash` ou payload CSV bruto é persistido.
+- **`data/import_batches.json` (`ImportBatch[]`):** Histórico completo de lotes de importação (`importBatchId`, `name`, `importTag`, `mode`, `sourceType`, `delimiterUsed`, `tournamentId`, `idempotencyKey`, `status`: `'running' | 'completed' | 'failed' | 'partial' | 'reconciling'`, `stepsCompleted` WAL, `summary`, `items` com `relationType`, `userOpStatus`, `enrollOpStatus`, `userPersistedAt`, `enrolledAt`, `outcome`, e `auditTrail`). **Privacidade:** nenhuma senha em texto puro, `passwordHash` ou payload CSV bruto é persistido.
 
 ### 7.3 Consistência Cross-File (WAL) & Desempenho do Importador
-- **Protocolo WAL:** Lotes gravam `status: 'in_progress'` com `stepsCompleted` (`usersSaved`, `tournamentSaved`, `batchFinalized`) antes de modificar `users.json` e `tournaments.json`. Na inicialização do servidor, `reconcileIncompleteImportBatches` recupera lotes interrompidos por queda sem duplicar usuários ou inscrições.
+- **Protocolo WAL:** Lotes gravam `status: 'running'` com `stepsCompleted` (`usersSaved`, `tournamentSaved`, `batchFinalized`), checkpoint intermediário imediatamente após `saveUsers` (`usersSaved = true`) e atualização sequencial por item (`userOpStatus`, `enrollOpStatus`). Na inicialização do servidor, `reconcileIncompleteImportBatches` muda lotes pendentes para `'reconciling'` e conclui inscrições sem duplicar usuários ou sobrescrever inscrições anteriores (`partial`/`completed`/`failed`).
 - **Parser 1 MB dedicado:** Apenas `/api/admin/import/*` aceita JSON até `1mb` (para suportar CSV até 512 KB com metadados), mantendo o limite padrão `100kb` nas demais rotas.
-- **Benchmark Empírico (`worker_threads` bcrypt rounds=10, 200 registros):** ~20,6s totais com **lag médio de Event Loop de ~10,6ms** (máx. 58,7ms sob carga de testes paralelos), mantendo latência WebSocket estável durante importações máximas.
+- **Benchmark Empírico (`worker_threads` bcrypt rounds=10, 200 registros):** ~16s–20,6s totais com **lag médio de Event Loop de ~10,3ms**, mantendo latência WebSocket estável durante importações máximas.
 - **Evolução Futura Planejada (Torneios Duplas):** A V1 bloqueia inscrição individual em torneios `doubles`; a arquitetura prevê extensão futura para colunas `username;displayName;password;teamName` respeitando a regra de duplas sem improviso.
 
 ---
 
 ## 8. Suíte de Testes Automatizados (Vitest)
 
-O sistema possui **106 testes automatizados** distribuídos em 8 arquivos, executados via `npm test` (`vitest run`):
+O sistema possui **109 testes automatizados** distribuídos em 9 arquivos, executados via `npm test` (`vitest run`):
 
 1. **`tests/unoEngine.test.ts` (26 testes):** Composição das 108 cartas, jogabilidade (`isCardPlayable`), turnos, Reverse em 2 jogadores, reciclagem preservando cores, `pass_turn` / `MUST_DRAW_FIRST`, timeout, vitória com `+2`/`+4`, janela de UNO, bloqueio `UNO_SELF_CATCH` e regras do modo 2v2.
 2. **`tests/serverIntegration.test.ts` (19 testes):** Proteção contra usurpação de socket (`UNAUTHENTICATED_SOCKET`), versionamento (`UNSUPPORTED_VERSION`), `reconnectToken`, idempotência, `MUST_DRAW_FIRST`, `UNO_SELF_CATCH`, `PLAYER_MISMATCH`, `NOT_AUTHENTICATED`, controle de acesso JWT Admin vs `role: 'player'` vs `x-admin-pin`, exclusão de salas privadas em `/api/rooms/open`, `/api/admin/player-report/:target`, ações de moderação e bloqueio de fogo amigo 2v2.
 3. **`tests/tournamentEngine.test.ts` (22 testes):** Permissões admin, validação de séries (Md1/Md3/Md5) e equipes 2v2, distribuição determinística de mesas (2..4), chaveamento com byes, *early clinch*, classificação V1 sem desempate por `roundPointsWon`, desempate por partida extra ou decisão admin, W.O. por prazo de reconexão e pausa segura pós-reinicialização.
 4. **`tests/tournamentWo.test.ts` (19 testes):** Remoção de jogador por W.O. em torneio individual preservando exatamente as 108 cartas e IDs únicos, recuperação de carta em `stagedCardPlay`, ajuste de `currentTurnIndex` em ambas as direções (`1` e `-1`), idempotência e rejeição em salas 2v2 ou salas comuns.
 5. **`tests/tournamentIntegration.test.ts` (5 testes):** Integração real ponta a ponta via HTTP e WebSocket para criação, inscrição, simulação, partidas e conclusão de torneios Individual e Duplas 2v2.
-6. **`tests/importParser.test.ts` (6 testes):** Parser RFC-4180 (aspas, `;`/`,`/`\t`), remoção de BOM UTF-8, colunas reordenadas, detecção de ambiguidade de delimitador, limites de 512 KB / 200 registros e lista simples de usernames no Modo C.
-7. **`tests/importService.test.ts` (6 testes):** Senha mínima padronizada de 4 caracteres, `displayName` obrigatório/NFKC, privacidade sem armazenamento de senhas/hashes em `import_batches.json`, Modos A/B/C, bloqueio `doubles`, reconciliação WAL, ciclo de vida e benchmark empírico de 200 hashes `bcrypt` em Worker Thread.
-8. **`tests/importIntegration.test.ts` (3 testes):** Bloqueio estrito sem JWT admin (incluindo rejeição de `x-admin-pin`), parser 1 MB dedicado, fluxo ponta a ponta Fases 1–4 com desconexão ao vivo de WebSocket (close `4003`) e bloqueio HTTP 403 no login.
+6. **`tests/tournamentStress.test.ts` (2 testes):** Simulação progressiva completa ponta a ponta em escala Individual (8/16/32 jogadores com desempates) e Duplas 2v2 Md3 (4/8 equipes com *early clinch*) validando redução de chaves e campeão.
+7. **`tests/importParser.test.ts` (6 testes):** Parser RFC-4180 (aspas, `;`/`,`/`\t`), remoção de BOM UTF-8, colunas reordenadas, detecção de ambiguidade de delimitador, limites de 512 KB / 200 registros e lista simples de usernames no Modo C.
+8. **`tests/importService.test.ts` (7 testes):** Senha mínima padronizada de 4 caracteres (incluindo rejeição de `ADMIN_PIN` como senha), `displayName` obrigatório/NFKC, proveniência (`createdByImportBatchId` / `createdByImportOperationId`), privacidade sem armazenamento de senhas/hashes em `import_batches.json`, Modos A/B/C, bloqueio `doubles`, reconciliação WAL multi-item, ciclo de vida e benchmark empírico de 200 hashes `bcrypt` em Worker Thread.
+9. **`tests/importIntegration.test.ts` (3 testes):** Bloqueio estrito sem JWT admin (incluindo rejeição de `x-admin-pin`), parser 1 MB dedicado, fluxo ponta a ponta Fases 1–4 com desconexão ao vivo de WebSocket (close `4003`) e bloqueio HTTP 403 no login.

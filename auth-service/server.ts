@@ -218,7 +218,14 @@ function generateUniqueTag(existingTags: Set<string | undefined>): string {
   return `#${ext}`;
 }
 
+let initializedDataDir: string | null = null;
+
 function ensureDataDir() {
+  if (initializedDataDir === DATA_DIR && fs.existsSync(USERS_FILE) && fs.existsSync(INVITES_FILE)) {
+    return;
+  }
+  initializedDataDir = DATA_DIR;
+
   ensureDirExists(DATA_DIR);
 
   let currentUsers: UserRecord[] = [];

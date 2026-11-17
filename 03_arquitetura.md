@@ -26,12 +26,12 @@ Ambiente 100% gratuito (AI Studio Free Tier) / Docker opcional.
 | Persistência (`./data/`) | Escrita atômica sincronizada em `users.json`, `invites.json`, `stats.json`, `tournaments.json`, `import_batches.json` |
 
 ## Estrutura dos Dados (`./data/`)
-- **`users.json`** (`UserRecord[]`): `id`, `username`, `passwordHash`, `displayName`, `avatar`, `role`, `tag`, `createdAt`, `status` (`active` \| `disabled` \| `archived`), `statusUpdatedAt`, `statusReason`.
+- **`users.json`** (`UserRecord[]`): `id`, `username`, `passwordHash`, `displayName`, `avatar`, `role`, `tag`, `createdAt`, `status` (`active` \| `disabled` \| `archived`), `statusUpdatedAt`, `statusReason`, `createdByImportBatchId`, `createdByImportOperationId`.
 - **`invites.json`** (`InviteCode[]`): `code`, `createdBy`, `createdAt`, `expiresAt`, `maxUses`, `usedCount`, `usedBy`, `status`.
 - **`stats.json`**: mapa indexado por usuário com `PlayerCareerStats`.
 - **`tournaments.json`**: lista persistida de torneios, inscrições, rodadas e jogos.
-- **`import_batches.json`** (`ImportBatch[]`): metadados de lotes, resumo, itens rastreados (`relationType`, `outcome`), WAL (`stepsCompleted`) e `auditTrail` — sem senhas ou hashes.
+- **`import_batches.json`** (`ImportBatch[]`): metadados de lotes, máquina de estados WAL (`running`, `completed`, `failed`, `partial`, `reconciling`), resumo, itens rastreados (`relationType`, `userOpStatus`, `enrollOpStatus`, `outcome`), `stepsCompleted` e `auditTrail` — sem senhas ou hashes.
 
 ## Segurança
-JWT com `role` (JWT admin estrito em `/api/admin/import/*`), rate limit composto, bcrypt em Worker Thread para lotes, `JWT_SECRET` via ambiente em produção, lock multi-processo `data/.kawihe.lock` e persistência local em JSON atômico (sem banco pago ou custos externos).
+JWT com `role` (JWT estrito sem PIN fallback em `/api/admin/import/*`, `/api/tournaments/*` e `/api/auth/login`), `/api/admin/cli-status` protegido, rate limit composto por falhas, bcrypt em Worker Thread para lotes, `JWT_SECRET` via ambiente em produção, lock multi-processo `data/.kawihe.lock` e persistência local em JSON atômico (sem banco pago ou custos externos).
 

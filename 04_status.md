@@ -1,6 +1,6 @@
 # 04 — Status e Planejamento
 
-Atualizado em: 2026-11-16 · Versão: v2.2.3 · **Respeitando AI Studio Free Tier (100% Gratuito)**
+Atualizado em: 2026-11-17 · Versão: v2.2.3 · **Respeitando AI Studio Free Tier (100% Gratuito)**
 
 ## Implementado
 - Servidor autoritativo com validação das jogadas (`unoEngine.ts` + `server.ts`).
@@ -14,13 +14,14 @@ Atualizado em: 2026-11-16 · Versão: v2.2.3 · **Respeitando AI Studio Free Tie
 - **Importador de Usuários em Massa (Fases 1 a 4 — `AdminImportPanel.tsx` + `AdminImportHistoryPanel.tsx` + `server/importService.ts`):**
   - Upload CSV / colagem com parser RFC-4180 (`server/importParser.ts`), limite de 512 KB e 200 registros, senha mínima padronizada em **4 caracteres**, `displayName` obrigatório e único (NFKC), `role` forçado como `'player'`.
   - Modos `create_only`, `create_and_enroll` e `enroll_existing` (com bloqueio explícito para torneios `doubles` na V1).
-  - Hashing `bcrypt` (rounds=10) em `worker_threads` nativa (benchmark empírico de 200 registros: ~20,6s total com **lag médio de Event Loop de ~10,6ms**, mantendo WebSockets sem jitter).
-  - Consistência WAL entre `users.json`, `tournaments.json` e `import_batches.json` com reconciliação automática (`reconcileIncompleteImportBatches`).
+  - Hashing `bcrypt` (rounds=10) em `worker_threads` nativa (benchmark empírico de 200 registros: ~16s total com **lag médio de Event Loop de ~10,3ms**, mantendo WebSockets sem jitter).
+  - Máquina de estados WAL (`running`, `completed`, `failed`, `partial`, `reconciling`) com checkpoint `usersSaved`, proveniência (`createdByImportBatchId` / `createdByImportOperationId`), telemetria por operação e reconciliação automática (`reconcileIncompleteImportBatches`).
   - Ciclo de vida de contas (`active` | `disabled` | `archived`) com bloqueio em login/JWT/WS (close `4003`), preview de impacto e exclusão segura apenas sem dependências históricas.
+- **Segurança & Rate Limiting:** autenticação estrita por bcrypt/JWT em `loginUser`, `/api/tournaments/*`, `/api/admin/import/*` e `/api/admin/cli-status`, sem bypass de PIN; rate limit de falhas de login (`5`/5min conta, `20`/5min IP), cadastro (`10`/10min IP) e convites (`20`/5min IP).
 - Painel admin completo: gestão de usuários (`create`, `reset-password`, `delete`, importação em massa), convites, relatório de jogador (`/api/admin/player-report/:target`), moderação e monitor de métricas da VM (`/api/admin/vm-metrics`).
-- Ferramenta de simulação e teste automatizado de torneios de ponta a ponta (`scripts/tournament-test.mjs` / `npm run tournament-test`) com suporte a Individual e Duplas 2v2, provisionamento de contas de teste JWT, partidas em tempo real via WebSocket, desempates e telemetria de VM.
+- Ferramenta de simulação e teste automatizado de torneios de ponta a ponta (`scripts/tournament-test.mjs` / `npm run tournament-test`) via JWT real + WebSockets, preservação de `scripts/capacity-test.mjs`, suporte a Individual e Duplas 2v2, desempates e telemetria da VM.
 - Guia de microfone para PC em HTTP/IP (Firefox/Chrome) e guia de VM.
-- Suíte de testes: **106 testes** passando em 8 arquivos (`unoEngine`: 26, `serverIntegration`: 19, `tournamentEngine`: 22, `tournamentWo`: 19, `tournamentIntegration`: 5, `importParser`: 6, `importService`: 6, `importIntegration`: 3).
+- Suíte de testes: **109 testes** passando em 9 arquivos (`unoEngine`: 26, `serverIntegration`: 19, `tournamentEngine`: 22, `tournamentWo`: 19, `tournamentIntegration`: 5, `tournamentStress`: 2, `importParser`: 6, `importService`: 7, `importIntegration`: 3).
 
 ## Planejamento / Backlog (v2.3 — Free Tier)
 - Evolução futura do Importador: suporte a importação de equipes para torneios `doubles` (`username;displayName;password;teamName`), exportação de metadados de lote sem credenciais e senha temporária com troca obrigatória no primeiro login.

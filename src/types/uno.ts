@@ -513,11 +513,6 @@ export type ImportBatchStatus =
   | 'failed'
   | 'partial'
   | 'reconciling'
-  | 'users_persisted'
-  | 'tournaments_persisted'
-  | 'partial_success'
-  | 'reconciled_partial'
-  | 'reconciled_failed'
   | 'in_progress';
 export type ImportItemOutcome =
   | 'created'

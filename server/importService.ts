@@ -646,7 +646,12 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
   // Check idempotency before doing expensive bcrypt work
   const preBatches = loadImportBatches();
   const existingIdem = preBatches.find((b) => b.idempotencyKey === idempotencyKey);
-  if (existingIdem && existingIdem.status !== 'in_progress') {
+  if (
+    existingIdem &&
+    existingIdem.status !== 'in_progress' &&
+    existingIdem.status !== 'running' &&
+    existingIdem.status !== 'reconciling'
+  ) {
     return { success: true, batch: existingIdem, idempotentHit: true };
   }
 
@@ -714,12 +719,19 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
     const importTag = normalizeTag(input.importTag);
     const existingTags = new Set(latestUsers.map((u) => u.tag));
 
+    const opIdByLine = new Map<number, string>();
+    for (const vRow of reEval.response.rows) {
+      opIdByLine.set(vRow.lineNumber, crypto.randomUUID());
+    }
+
     const newUserRecords: UserRecord[] = [];
     const createdByLine = new Map<number, UserRecord>();
 
     for (const row of reEval.creatableRows) {
       const passwordHash = hashByLine.get(row.lineNumber);
       if (!passwordHash) continue;
+      const opId = opIdByLine.get(row.lineNumber) || crypto.randomUUID();
+      opIdByLine.set(row.lineNumber, opId);
       const newUser = buildUserRecord({
         username: row.cleanUsername,
         passwordHash,
@@ -728,6 +740,8 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
         role: 'player', // Always force standard player role in bulk import
         existingTags,
         createdAt: nowIso,
+        createdByImportBatchId: importBatchId,
+        createdByImportOperationId: opId,
       });
       newUserRecords.push(newUser);
       createdByLine.set(row.lineNumber, newUser);
@@ -738,7 +752,7 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
 
     // Build initial planned items (no passwords or hashes!)
     const plannedItems: ImportBatchItem[] = reEval.response.rows.map((vRow) => {
-      const opId = crypto.randomUUID();
+      const opId = opIdByLine.get(vRow.lineNumber) || crypto.randomUUID();
       if (vRow.status === 'invalid') {
         return {
           operationId: opId,
@@ -798,7 +812,7 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
         userId: created?.id,
         userTag: created?.tag,
         relationType: created ? 'created_by_batch' : 'none',
-        userOpStatus: created ? 'persisted' : 'failed',
+        userOpStatus: created ? 'pending' : 'failed',
         enrollOpStatus: isTournamentMode ? 'pending' : 'not_applicable',
         outcome: created ? (isTournamentMode ? 'created_and_enrolled' : 'created') : 'failed',
         enrolledInTournament: false,
@@ -850,12 +864,20 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
     batches.unshift(batchRecord);
     saveImportBatches(batches);
 
-    // STEP 2: Persist created users to users.json
+    // STEP 2: Persist created users to users.json and flush WAL checkpoint
     if (newUserRecords.length > 0) {
       const updatedUsers = [...latestUsers, ...newUserRecords];
       saveUsers(updatedUsers);
     }
+    const usersPersistedAt = new Date().toISOString();
+    for (const item of batchRecord.items) {
+      if (item.relationType === 'created_by_batch' && item.userId) {
+        item.userOpStatus = 'persisted';
+        item.userPersistedAt = usersPersistedAt;
+      }
+    }
     batchRecord.stepsCompleted.usersSaved = true;
+    saveImportBatches(batches);
 
     // STEP 3: Apply tournament enrollment if applicable
     let tournamentUpdated = false;
@@ -873,9 +895,12 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
           );
           currentTournament = enrolled.tournament;
           item.enrolledInTournament = true;
+          item.enrollOpStatus = 'persisted';
+          item.enrolledAt = new Date().toISOString();
           tournamentUpdated = true;
         } catch (err: any) {
           item.enrolledInTournament = false;
+          item.enrollOpStatus = 'failed';
           if (item.relationType === 'created_by_batch') {
             item.outcome = 'created';
           } else {
@@ -960,61 +985,78 @@ export async function reconcileIncompleteImportBatches(
     }
 
     const users = getAllUsers();
-    const userIdsSet = new Set(users.map((u) => u.id));
+    const usersById = new Map<string, UserRecord>(users.map((u) => [u.id, u]));
     const reconciledIds: string[] = [];
+    const nowIso = new Date().toISOString();
 
     for (const batch of pending) {
       batch.status = 'reconciling';
       let createdPersistedCount = 0;
       let enrolledPersistedCount = 0;
-      const targetTournament = batch.tournamentId ? tournamentsMap.get(batch.tournamentId) : undefined;
+      let currentTournament = batch.tournamentId ? tournamentsMap.get(batch.tournamentId) : undefined;
+      let tournamentDirty = false;
       const enrolledSet = new Set<string>();
-      if (targetTournament) {
-        for (const entry of targetTournament.entries) {
+      if (currentTournament) {
+        for (const entry of currentTournament.entries) {
           for (const uid of entry.userIds) enrolledSet.add(uid);
         }
       }
 
       for (const item of batch.items) {
         if (item.relationType === 'created_by_batch' && item.userId) {
-          if (userIdsSet.has(item.userId)) {
+          const liveUser = usersById.get(item.userId);
+          if (liveUser) {
+            item.userOpStatus = 'persisted';
+            item.userPersistedAt = item.userPersistedAt || liveUser.createdAt;
+            item.userTag = liveUser.tag || item.userTag;
             createdPersistedCount++;
-            if (batch.mode === 'create_and_enroll' && targetTournament) {
+            if (batch.mode === 'create_and_enroll' && currentTournament) {
               if (enrolledSet.has(item.userId)) {
                 item.enrolledInTournament = true;
+                item.enrollOpStatus = 'persisted';
+                item.enrolledAt = item.enrolledAt || nowIso;
                 item.outcome = 'created_and_enrolled';
                 enrolledPersistedCount++;
               } else {
                 // Attempt idempotent enrollment recovery if tournament is still in registration
-                if (targetTournament.status === 'registration' && targetTournament.config.modality === 'individual') {
+                if (currentTournament.status === 'registration' && currentTournament.config.modality === 'individual') {
                   try {
                     const res = registerIndividualEntry(
-                      targetTournament,
+                      currentTournament,
                       item.userId,
                       item.displayName || item.username
                     );
-                    tournamentsMap.set(res.tournament.config.id, res.tournament);
+                    currentTournament = res.tournament;
+                    tournamentsMap.set(currentTournament.config.id, currentTournament);
+                    tournamentDirty = true;
                     enrolledSet.add(item.userId);
                     item.enrolledInTournament = true;
+                    item.enrollOpStatus = 'persisted';
+                    item.enrolledAt = nowIso;
                     item.outcome = 'created_and_enrolled';
                     enrolledPersistedCount++;
                   } catch {
                     item.enrolledInTournament = false;
+                    item.enrollOpStatus = 'failed';
                     item.outcome = 'created';
                     item.reasonCode = 'RECONCILED_NOT_ENROLLED';
                     item.reasonMessage = 'Conta criada antes do reinício; inscrição pendente.';
                   }
                 } else {
                   item.enrolledInTournament = false;
+                  item.enrollOpStatus = 'failed';
                   item.outcome = 'created';
                   item.reasonCode = 'RECONCILED_NOT_ENROLLED';
                   item.reasonMessage = 'Conta criada antes do reinício; torneio não estava mais em inscrição.';
                 }
               }
             } else {
+              item.enrollOpStatus = 'not_applicable';
               item.outcome = 'created';
             }
           } else {
+            item.userOpStatus = 'failed';
+            item.enrollOpStatus = item.enrollOpStatus === 'pending' ? 'failed' : item.enrollOpStatus;
             item.outcome = 'failed';
             item.relationType = 'none';
             item.reasonCode = 'INTERRUPTED_BEFORE_USER_SAVE';
@@ -1023,10 +1065,41 @@ export async function reconcileIncompleteImportBatches(
         } else if (item.relationType === 'existing_enrolled_only' && item.userId) {
           if (enrolledSet.has(item.userId)) {
             item.enrolledInTournament = true;
+            item.enrollOpStatus = 'persisted';
+            item.enrolledAt = item.enrolledAt || nowIso;
             item.outcome = 'enrolled';
             enrolledPersistedCount++;
+          } else if (
+            currentTournament &&
+            currentTournament.status === 'registration' &&
+            currentTournament.config.modality === 'individual' &&
+            usersById.has(item.userId)
+          ) {
+            try {
+              const res = registerIndividualEntry(
+                currentTournament,
+                item.userId,
+                item.displayName || item.username
+              );
+              currentTournament = res.tournament;
+              tournamentsMap.set(currentTournament.config.id, currentTournament);
+              tournamentDirty = true;
+              enrolledSet.add(item.userId);
+              item.enrolledInTournament = true;
+              item.enrollOpStatus = 'persisted';
+              item.enrolledAt = nowIso;
+              item.outcome = 'enrolled';
+              enrolledPersistedCount++;
+            } catch {
+              item.enrolledInTournament = false;
+              item.enrollOpStatus = 'failed';
+              item.outcome = 'failed';
+              item.reasonCode = 'INTERRUPTED_BEFORE_ENROLL';
+              item.reasonMessage = 'Processo interrompido antes da inscrição no torneio.';
+            }
           } else {
             item.enrolledInTournament = false;
+            item.enrollOpStatus = 'failed';
             item.outcome = 'failed';
             item.reasonCode = 'INTERRUPTED_BEFORE_ENROLL';
             item.reasonMessage = 'Processo interrompido antes da inscrição no torneio.';
@@ -1034,7 +1107,7 @@ export async function reconcileIncompleteImportBatches(
         }
       }
 
-      if (targetTournament && saveTournamentsFn) {
+      if (tournamentDirty && saveTournamentsFn) {
         saveTournamentsFn(tournamentsMap);
       }
 

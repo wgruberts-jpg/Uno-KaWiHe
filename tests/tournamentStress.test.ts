@@ -6,14 +6,101 @@ import {
   startTournament,
   advanceTournamentRound,
   recordGameResult,
+  rankIndividualGroupEntries,
+  createTieBreakerGame,
   TournamentConfig,
   Tournament,
 } from '../server/tournamentEngine.js';
 
+function simulateTournamentToCompletion(
+  initialTournament: Tournament,
+  maxSteps: number
+): {
+  tournament: Tournament;
+  steps: number;
+  gamesPlayed: number;
+  tieBreakersCreated: number;
+} {
+  let tournament = initialTournament;
+  let steps = 0;
+  let gamesPlayed = 0;
+  let tieBreakersCreated = 0;
+
+  while (tournament.status === 'running' && steps < maxSteps) {
+    const roundIdx = tournament.rounds.length - 1;
+    const round = tournament.rounds[roundIdx];
+    expect(round).toBeDefined();
+
+    // 1. Se houver mesa aguardando desempate, gera a partida extra oficial
+    const tbGroupIdx = round.groups.findIndex((g) => g.status === 'tiebreaker_required');
+    if (tbGroupIdx !== -1) {
+      const tbGroup = round.groups[tbGroupIdx];
+      const classification = rankIndividualGroupEntries(tbGroup, tournament.config.tieBreakerPolicy);
+      expect(classification.status).toBe('tiebreaker_required');
+      const updatedGroup = createTieBreakerGame(tbGroup, classification.tiedEntryIds);
+      tournament = {
+        ...tournament,
+        rounds: tournament.rounds.map((r, rIdx) =>
+          rIdx === roundIdx
+            ? {
+                ...r,
+                groups: r.groups.map((g, gIdx) => (gIdx === tbGroupIdx ? updatedGroup : g)),
+              }
+            : r
+        ),
+      };
+      tieBreakersCreated++;
+      steps++;
+      continue;
+    }
+
+    // 2. Executa o próximo jogo pendente/em andamento na rodada atual
+    let nextGameId: string | null = null;
+    let nextWinnerId: string | null = null;
+    for (const group of round.groups) {
+      const activeGame = group.games.find((gm) => gm.status === 'pending' || gm.status === 'playing');
+      if (activeGame) {
+        nextGameId = activeGame.id;
+        nextWinnerId = activeGame.participantEntryIds[0];
+        break;
+      }
+    }
+
+    if (nextGameId && nextWinnerId) {
+      const outcome = recordGameResult(tournament, {
+        gameId: nextGameId,
+        eventId: `stress_evt_${steps}_${nextGameId}`,
+        winnerEntryId: nextWinnerId,
+        resultReason: 'normal',
+        roundPointsWon: 250,
+        finishedAt: Date.now() + steps,
+      });
+      expect(outcome.applied).toBe(true);
+      tournament = outcome.tournament;
+      gamesPlayed++;
+      steps++;
+      continue;
+    }
+
+    // 3. Todos os grupos da rodada concluídos -> avança para próxima rodada ou coroa campeão
+    const allFinished = round.groups.every((g) => g.status === 'finished');
+    expect(allFinished).toBe(true);
+    tournament = advanceTournamentRound(tournament, Date.now() + steps);
+    steps++;
+  }
+
+  return { tournament, steps, gamesPlayed, tieBreakersCreated };
+}
+
 describe('Tournament Stress & Bracket Progression Tests (Start-to-Finish Scaling)', () => {
-  it('Stress Test 1: Scales individual tournament from 8, 16, to 32 participants and verifies game count reduction and champion resolution', () => {
-    const participantCounts = [8, 16, 32];
-    for (const count of participantCounts) {
+  it('Stress Test 1: Scales individual tournament from 8, 16, to 32 participants and verifies tiebreakers, round reduction, and champion resolution', () => {
+    const scenarios = [
+      { count: 8, expectedRounds: 2 },
+      { count: 16, expectedRounds: 3 },
+      { count: 32, expectedRounds: 4 },
+    ];
+
+    for (const { count, expectedRounds } of scenarios) {
       const config: TournamentConfig = {
         id: `stress_ind_${count}`,
         name: `Torneio Stress Individual ${count}`,
@@ -33,48 +120,30 @@ describe('Tournament Stress & Bracket Progression Tests (Start-to-Finish Scaling
 
       tournament = startTournament(tournament, Date.now());
       expect(tournament.status).toBe('running');
-      expect(tournament.rounds).toBeDefined();
-      expect(tournament.rounds.length).toBeGreaterThan(0);
+      expect(tournament.rounds.length).toBe(1);
 
-      // Play through active matches round by round until finished or champion crowned
-      let maxSteps = 200;
-      let steps = 0;
-      while (tournament.status === 'running' && steps < maxSteps) {
-        const round = tournament.rounds[tournament.currentRoundIndex];
-        if (!round || !round.groups) break;
+      const sim = simulateTournamentToCompletion(tournament, 250);
+      expect(sim.steps).toBeLessThan(250);
+      expect(sim.gamesPlayed).toBeGreaterThan(0);
+      expect(sim.tieBreakersCreated).toBeGreaterThan(0);
+      expect(sim.tournament.status).toBe('finished');
+      expect(sim.tournament.championEntryId).toBeTruthy();
+      expect(sim.tournament.rounds).toHaveLength(expectedRounds);
 
-        let playedAny = false;
-        for (const group of round.groups) {
-          for (const game of group.games) {
-            if (game.status === 'scheduled' || game.status === 'in_progress') {
-              const p1 = game.participantIds[0];
-              const p2 = game.participantIds[1] || p1;
-              const winner = p1;
-              const scores: Record<string, number> = { [p1]: 500, [p2]: 100 };
-              try {
-                const res = recordGameResult(tournament, group.groupId, game.gameId, winner, scores, Date.now());
-                tournament = res.tournament;
-                playedAny = true;
-              } catch {
-                // If game already finished or needs tie-breaker, continue
-              }
-            }
-          }
-        }
-
-        if (!playedAny) {
-          tournament = advanceTournamentRound(tournament, Date.now());
-        }
-        steps++;
-      }
-
-      expect(steps).toBeLessThan(maxSteps);
+      const firstRoundGroups = sim.tournament.rounds[0].groups.length;
+      const finalRoundGroups = sim.tournament.rounds[sim.tournament.rounds.length - 1].groups.length;
+      expect(firstRoundGroups).toBeGreaterThan(finalRoundGroups);
+      expect(finalRoundGroups).toBe(1);
     }
   });
 
-  it('Stress Test 2: Scales 2v2 doubles tournaments (Md3) from 4 to 8 teams with bracket game reduction', () => {
-    const teamCounts = [4, 8];
-    for (const count of teamCounts) {
+  it('Stress Test 2: Scales 2v2 doubles tournaments (Md3) from 4 to 8 teams with early clinch and bracket progression', () => {
+    const scenarios = [
+      { count: 4, expectedRounds: 2 },
+      { count: 8, expectedRounds: 3 },
+    ];
+
+    for (const { count, expectedRounds } of scenarios) {
       const config: TournamentConfig = {
         id: `stress_doubles_${count}`,
         name: `Torneio Stress Duplas ${count}`,
@@ -83,7 +152,7 @@ describe('Tournament Stress & Bracket Progression Tests (Start-to-Finish Scaling
         tieBreakerPolicy: 'extra_match',
         reconnectGraceMs: 45_000,
         spectatorMode: 'tv_hidden',
-        seed: 777,
+        seed: 777 + count,
       };
 
       let tournament = createTournament(config, 'admin_1', Date.now());
@@ -97,38 +166,18 @@ describe('Tournament Stress & Bracket Progression Tests (Start-to-Finish Scaling
       tournament = startTournament(tournament, Date.now());
       expect(tournament.status).toBe('running');
 
-      let maxSteps = 150;
-      let steps = 0;
-      while (tournament.status === 'running' && steps < maxSteps) {
-        const round = tournament.rounds[tournament.currentRoundIndex];
-        if (!round || !round.groups) break;
+      const sim = simulateTournamentToCompletion(tournament, 150);
+      expect(sim.steps).toBeLessThan(150);
+      expect(sim.gamesPlayed).toBeGreaterThan(0);
+      expect(sim.tournament.status).toBe('finished');
+      expect(sim.tournament.championEntryId).toBeTruthy();
+      expect(sim.tournament.rounds).toHaveLength(expectedRounds);
 
-        let playedAny = false;
-        for (const group of round.groups) {
-          for (const game of group.games) {
-            if (game.status === 'scheduled' || game.status === 'in_progress') {
-              const p1 = game.participantIds[0];
-              const p2 = game.participantIds[1] || p1;
-              const winner = p1;
-              const scores: Record<string, number> = { [p1]: 2, [p2]: 0 };
-              try {
-                const res = recordGameResult(tournament, group.groupId, game.gameId, winner, scores, Date.now());
-                tournament = res.tournament;
-                playedAny = true;
-              } catch {
-                // continue
-              }
-            }
-          }
-        }
-
-        if (!playedAny) {
-          tournament = advanceTournamentRound(tournament, Date.now());
-        }
-        steps++;
-      }
-
-      expect(steps).toBeLessThan(maxSteps);
+      const earlyClinchGames = sim.tournament.rounds
+        .flatMap((r) => r.groups)
+        .flatMap((g) => g.games)
+        .filter((gm) => gm.status === 'void' && gm.resultReason === 'early_clinch');
+      expect(earlyClinchGames.length).toBeGreaterThan(0);
     }
   });
 });

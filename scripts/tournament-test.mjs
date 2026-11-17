@@ -60,10 +60,11 @@ Uso:
 
 Opções de Autenticação Admin:
   --url <url>           URL HTTP/HTTPS do servidor (padrão: http://localhost:3000)
-  --user <usuario>      Usuário admin para login (ex: edinho)
-  --password <senha>    Senha do usuário admin
+  --user <usuario>      Usuário admin para login JWT (ex: edinho)
+  --password <senha>    Senha real do usuário admin configurada no servidor
   --token <jwt>         Token JWT admin já emitido
-  --pin <PIN>           PIN administrativo opcional
+  --api-timeout <ms>    Timeout para chamadas HTTP em ms (padrão: 30000ms)
+  --max-wait-ms <ms>    Tempo máximo total de simulação em ms (padrão: 300000ms)
 
 Modalidade & Configuração do Torneio:
   --modality <m>        Modalidade: individual (padrão) ou doubles (duplas 2v2)
@@ -102,10 +103,11 @@ const ANIM_DELAY = Math.max(0, Number(rawArgs['anim-delay'] ?? 0));
 const DO_CLEANUP = rawArgs.cleanup !== false;
 const DO_WO_TEST = Boolean(rawArgs['wo-test']);
 
-const ADMIN_USER = rawArgs.user ? String(rawArgs.user) : '';
-const ADMIN_PASS = rawArgs.password ? String(rawArgs.password) : '';
-let ADMIN_TOKEN = rawArgs.token ? String(rawArgs.token) : '';
-const ADMIN_PIN = rawArgs.pin ? String(rawArgs.pin) : '';
+const ADMIN_USER = rawArgs.user ? String(rawArgs.user).trim() : '';
+const ADMIN_PASS = rawArgs.password ? String(rawArgs.password).trim() : '';
+let ADMIN_TOKEN = rawArgs.token ? String(rawArgs.token).trim() : '';
+const API_TIMEOUT_MS = Math.max(5000, Number(rawArgs['api-timeout'] ?? 30000));
+const MAX_WAIT_MS = Math.max(15000, Number(rawArgs['max-wait-ms'] ?? 300000));
 
 function deriveUrls(inputUrl) {
   let clean = inputUrl.trim();
@@ -190,42 +192,60 @@ async function apiCall(endpoint, options = {}) {
   } else if (ADMIN_TOKEN) {
     headers['Authorization'] = `Bearer ${ADMIN_TOKEN}`;
   }
-  if (ADMIN_PIN) {
-    headers['x-admin-pin'] = ADMIN_PIN;
-  }
-  if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
+
+  let body = options.body;
+  if (body && typeof body === 'object' && !(body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
-    options.body = JSON.stringify(options.body);
+    body = JSON.stringify(body);
   }
 
-  const res = await fetch(url, {
-    ...options,
-    headers,
-    signal: AbortSignal.timeout(12000),
-  });
+  const timeoutMs = options.timeoutMs || API_TIMEOUT_MS;
+  const maxRetries = options.retries !== undefined ? options.retries : 2;
+  let lastError = null;
 
-  const text = await res.text();
-  let json = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    json = { raw: text };
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: options.method || 'GET',
+        headers,
+        body,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      const text = await res.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = { raw: text };
+      }
+      return { status: res.status, ok: res.ok, data: json };
+    } catch (err) {
+      lastError = err;
+      const isTimeout = err?.name === 'TimeoutError' || String(err?.message || '').includes('timeout');
+      if (attempt <= maxRetries) {
+        const backoffMs = attempt * 1500;
+        console.warn(`⏳ [API] ${endpoint} ${isTimeout ? `atingiu timeout (${timeoutMs}ms)` : `falhou (${err.message})`} (tentativa ${attempt}/${maxRetries + 1}). Re-tentando em ${backoffMs}ms...`);
+        await sleep(backoffMs);
+      }
+    }
   }
-  return { status: res.status, ok: res.ok, data: json };
+
+  throw new Error(`Falha de rede/timeout na chamada a ${endpoint} após ${maxRetries + 1} tentativas: ${lastError?.message || 'Timeout'}`);
 }
 
 async function checkServerHealth() {
   const t0 = performance.now();
-  const res = await fetch(`${httpBase}/health`, { signal: AbortSignal.timeout(5000) });
+  const res = await fetch(`${httpBase}/health`, { signal: AbortSignal.timeout(8000) });
   const rttMs = performance.now() - t0;
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return { rttMs };
 }
 
 async function fetchVmMetrics() {
-  if (!ADMIN_TOKEN && !ADMIN_PIN) return null;
+  if (!ADMIN_TOKEN) return null;
   try {
-    const res = await apiCall('/api/admin/vm-metrics');
+    const res = await apiCall('/api/admin/vm-metrics', { retries: 0 });
     if (res.ok && res.data?.success) {
       return res.data;
     }
@@ -262,21 +282,40 @@ class TournamentRunner {
   }
 
   async loginOrRegisterAdmin() {
-    if (!ADMIN_TOKEN && ADMIN_USER && ADMIN_PASS) {
-      console.log(`🔐 Autenticando administrador "${ADMIN_USER}"...`);
-      const res = await apiCall('/api/auth/login', {
-        method: 'POST',
-        body: { username: ADMIN_USER, password: ADMIN_PASS },
-      });
-      if (res.ok && res.data?.success && res.data?.token) {
-        ADMIN_TOKEN = res.data.token;
-        console.log(`✅ Administrador autenticado com sucesso!`);
-      } else {
-        throw new Error(`Falha no login do admin: ${res.data?.error || res.status}`);
-      }
-    } else if (!ADMIN_TOKEN) {
-      throw new Error('Informe --user e --password ou --token para executar a simulação de torneio.');
+    if (ADMIN_TOKEN) {
+      console.log(`🔑 Usando token administrativo JWT fornecido via argumento CLI.`);
+      return;
     }
+
+    const candidateUser = ADMIN_USER || 'edinho';
+    const candidatePass = ADMIN_PASS;
+
+    if (!candidatePass) {
+      throw new Error(
+        'Credenciais JWT do Administrador não fornecidas.\n' +
+        'Informe --user <admin> --password <senha_real> ou --token <jwt>.'
+      );
+    }
+
+    console.log(`🔐 Autenticando administrador "${candidateUser}" via JWT (/api/auth/login)...`);
+
+    const res = await apiCall('/api/auth/login', {
+      method: 'POST',
+      body: { username: candidateUser, password: candidatePass },
+      timeoutMs: Math.max(API_TIMEOUT_MS, 30000),
+      retries: 2,
+    });
+
+    if (res.ok && res.data?.success && res.data?.token) {
+      if (res.data.user?.role !== 'admin') {
+        throw new Error(`Usuário "${candidateUser}" autenticado não possui role === "admin".`);
+      }
+      ADMIN_TOKEN = res.data.token;
+      console.log(`✅ Administrador autenticado com sucesso! (${res.data.user?.displayName || candidateUser})`);
+      return;
+    }
+
+    throw new Error(`Falha no login JWT do admin "${candidateUser}": ${res.data?.error || `HTTP ${res.status}`}`);
   }
 
   async setupPlayers() {
@@ -625,9 +664,15 @@ class TournamentRunner {
     console.log(`🏁 Torneio iniciado com sucesso! Acompanhando partidas e rodadas...\n`);
 
     const handledGameIds = new Set();
+    const startedGameIds = new Set();
+    const loopDeadline = Date.now() + MAX_WAIT_MS;
     let woSimulated = false;
 
     while (!this.shuttingDown) {
+      if (Date.now() > loopDeadline) {
+        throw new Error(`Timeout máximo de simulação atingido (${MAX_WAIT_MS}ms).`);
+      }
+
       // 1. Coleta telemetria e estado do torneio
       const tournRes = await apiCall(`/api/tournaments/${this.tournamentId}`);
       if (!tournRes.ok || !tournRes.data?.success) {
@@ -644,7 +689,7 @@ class TournamentRunner {
       // Se terminou, coroa o campeão e encerra o loop
       if (tourn.status === 'finished') {
         const champion = tourn.entries.find((e) => e.id === tourn.championEntryId);
-        console.log(`\n🏆 TORNEIO CONCLUÍDO! CAMPEÃO CROWNED: ${champion ? champion.name : tourn.championEntryId}`);
+        console.log(`\n🏆 TORNEIO CONCLUÍDO! CAMPEÃO COROADO: ${champion ? champion.name : tourn.championEntryId}`);
         break;
       }
 
@@ -654,8 +699,6 @@ class TournamentRunner {
       }
 
       // 2. Itera sobre todas as rodadas e grupos procurando jogos pendentes/jogando
-      let anyGameActive = false;
-
       for (const r of tourn.rounds) {
         for (const g of r.groups) {
           // Desempate automático se necessário
@@ -682,11 +725,8 @@ class TournamentRunner {
             }
 
             if (game.roomId) {
-              anyGameActive = true;
-
               // Conecta os jogadores desta mesa se ainda não estiverem conectados a ela
               const tableUsers = this.testUsers.filter((u) => {
-                // Checa se o usuário é participante desta partida
                 return game.participantEntryIds.some((eid) => {
                   const entry = tourn.entries.find((e) => e.id === eid);
                   return entry && entry.userIds.includes(u.id);
@@ -714,41 +754,46 @@ class TournamentRunner {
 
               // Conecta espectadores de transmissão na mesa se configurado
               if (SPECTATORS_PER_TABLE > 0 && SPECTATOR_MODE !== 'table_only') {
-                const specId = `spec_${game.roomId}`;
-                if (!this.clients.has(specId)) {
-                  const specWs = await this.connectWsClient({
-                    id: specId,
-                    username: specId,
-                    displayName: `TV Torneio`,
-                    token: ADMIN_TOKEN,
-                  });
-                  this.clients.set(specId, specWs);
-                  this.sendWs(specWs, {
-                    protocolVersion: 2,
-                    type: 'join_room',
-                    roomId: game.roomId,
-                    playerName: `[TV] KaWiHe Oficial`,
-                    asSpectator: true,
-                    spectatorRevealCards: SPECTATOR_MODE === 'tv_reveal',
-                  });
+                for (let s = 1; s <= SPECTATORS_PER_TABLE; s++) {
+                  const specId = `spec_${game.roomId}_${s}`;
+                  if (!this.clients.has(specId)) {
+                    const specWs = await this.connectWsClient({
+                      id: specId,
+                      username: specId,
+                      displayName: `TV Torneio #${s}`,
+                      token: ADMIN_TOKEN,
+                    });
+                    this.clients.set(specId, specWs);
+                    this.sendWs(specWs, {
+                      protocolVersion: 2,
+                      type: 'join_room',
+                      roomId: game.roomId,
+                      playerName: `[TV] KaWiHe #${s}`,
+                      asSpectator: true,
+                      spectatorRevealCards: SPECTATOR_MODE === 'tv_reveal',
+                    });
+                  }
                 }
               }
 
-              // Se o jogo acabou de ser montado, dispara o start da partida oficial
-              try {
-                const startGameRes = await apiCall(
-                  `/api/tournaments/${this.tournamentId}/games/${game.id}/start`,
-                  { method: 'POST' }
-                );
-                if (startGameRes.ok) {
-                  console.log(
-                    `  🎮 Partida iniciada na sala #${game.roomId}: Rodada ${r.roundNumber} (${r.label}) | Jogo #${game.gameNumber}`
+              // Dispara o start oficial da partida uma única vez quando todos os jogadores estiverem na sala
+              if (!startedGameIds.has(game.id)) {
+                try {
+                  const startGameRes = await apiCall(
+                    `/api/tournaments/${this.tournamentId}/games/${game.id}/start`,
+                    { method: 'POST', retries: 0 }
                   );
-                }
-              } catch {}
+                  if (startGameRes.ok) {
+                    startedGameIds.add(game.id);
+                    console.log(
+                      `  🎮 Partida iniciada na sala #${game.roomId}: Rodada ${r.roundNumber} (${r.label}) | Jogo #${game.gameNumber}`
+                    );
+                  }
+                } catch {}
+              }
 
               // Simulação de W.O. opcional (--wo-test)
-              if (DO_WO_TEST && !woSimulated && tableUsers.length >= 2) {
+              if (DO_WO_TEST && !woSimulated && startedGameIds.has(game.id) && tableUsers.length >= 2) {
                 woSimulated = true;
                 const sacrificialUser = tableUsers[tableUsers.length - 1];
                 const sacrificialCli = this.clients.get(sacrificialUser.id);

@@ -98,6 +98,13 @@ describe('Bulk User Importer Service Tests (Phases 1-4 + WAL + Benchmark)', () =
 
     const okReset = await adminResetPassword(okCreate.user!.id, 'abcd');
     expect(okReset.success).toBe(true);
+
+    // Garante que ADMIN_PIN não funciona como atalho de senha para login de admin
+    const adminPinAsPass = await loginUser({
+      username: 'edinho',
+      password: process.env.ADMIN_PIN || '774007',
+    });
+    expect(adminPinAsPass.success).toBe(false);
   }, 15000);
 
   it('Fase 1: validates mandatory displayName, NFKC uniqueness, 4-char password, and commits Mode A without storing secrets', async () => {
@@ -167,6 +174,16 @@ describe('Bulk User Importer Service Tests (Phases 1-4 + WAL + Benchmark)', () =
     expect(loginAlice.success).toBe(true);
     expect(loginAlice.user?.role).toBe('player');
     expect(loginAlice.user?.displayName).toBe('Alice Silva');
+
+    // Provenance metadata & WAL checkpoint verification
+    expect(commitRes.batch?.stepsCompleted.usersSaved).toBe(true);
+    const aliceItem = commitRes.batch?.items.find((i) => i.username === 'alice.uno');
+    expect(aliceItem?.userOpStatus).toBe('persisted');
+    expect(aliceItem?.userPersistedAt).toBeTruthy();
+
+    const aliceRecord = getAllUsers().find((u) => u.username === 'alice.uno');
+    expect(aliceRecord?.createdByImportBatchId).toBe(commitRes.batch?.importBatchId);
+    expect(aliceRecord?.createdByImportOperationId).toBe(aliceItem?.operationId);
   });
 
   it('Fase 2: supports Mode B (create_and_enroll), Mode C (enroll_existing), and blocks doubles/closed tournaments', async () => {
@@ -319,6 +336,112 @@ describe('Bulk User Importer Service Tests (Phases 1-4 + WAL + Benchmark)', () =
     expect(detail?.batch.auditTrail.some((a) => a.action === 'batch_reconciled')).toBe(true);
     // Must not duplicate wal.crash in users.json
     expect(getAllUsers().filter((u) => u.username === 'wal.crash')).toHaveLength(1);
+  });
+
+  it('WAL Recovery (Multi-Item): preserves sequential enrollments across multiple persisted users without overwriting', async () => {
+    const crashUserA = {
+      id: 'usr_wal_multi_a',
+      username: 'wal.multi.a',
+      passwordHash: '$2a$10$dummyhashdummyhashdummyhashdummyhashdummyhashdu',
+      displayName: 'WAL Multi A',
+      avatar: '🦊',
+      role: 'player' as const,
+      tag: '#8901',
+      createdAt: new Date().toISOString(),
+      status: 'active' as const,
+    };
+    const crashUserB = {
+      id: 'usr_wal_multi_b',
+      username: 'wal.multi.b',
+      passwordHash: '$2a$10$dummyhashdummyhashdummyhashdummyhashdummyhashdu',
+      displayName: 'WAL Multi B',
+      avatar: '🐯',
+      role: 'player' as const,
+      tag: '#8902',
+      createdAt: new Date().toISOString(),
+      status: 'active' as const,
+    };
+    const users = getAllUsers();
+    users.push(crashUserA, crashUserB);
+    saveUsers(users);
+
+    const batches = loadImportBatches();
+    batches.unshift({
+      importBatchId: 'imp_crashed_wal_multi',
+      name: 'Lote Multi WAL',
+      importTag: 'WAL_MULTI',
+      mode: 'create_and_enroll',
+      sourceType: 'text_paste',
+      delimiterUsed: ';',
+      tournamentId: indivTournament.config.id,
+      tournamentName: indivTournament.config.name,
+      idempotencyKey: 'idem_wal_multi_test',
+      createdAt: new Date().toISOString(),
+      createdByUserId: 'usr_edinho',
+      createdByUsername: 'edinho',
+      status: 'running',
+      stepsCompleted: { usersSaved: true, tournamentSaved: false, batchFinalized: false },
+      summary: {
+        totalReceived: 2,
+        totalValid: 2,
+        totalCreated: 2,
+        totalEnrolled: 0,
+        totalSkipped: 0,
+        totalRejected: 0,
+        totalFailed: 0,
+      },
+      items: [
+        {
+          operationId: 'op_wal_multi_a',
+          lineNumber: 2,
+          username: 'wal.multi.a',
+          displayName: 'WAL Multi A',
+          userId: 'usr_wal_multi_a',
+          userTag: '#8901',
+          relationType: 'created_by_batch',
+          userOpStatus: 'persisted',
+          enrollOpStatus: 'pending',
+          outcome: 'created_and_enrolled',
+          enrolledInTournament: false,
+        },
+        {
+          operationId: 'op_wal_multi_b',
+          lineNumber: 3,
+          username: 'wal.multi.b',
+          displayName: 'WAL Multi B',
+          userId: 'usr_wal_multi_b',
+          userTag: '#8902',
+          relationType: 'created_by_batch',
+          userOpStatus: 'persisted',
+          enrollOpStatus: 'pending',
+          outcome: 'created_and_enrolled',
+          enrolledInTournament: false,
+        },
+      ],
+      auditTrail: [
+        {
+          at: new Date().toISOString(),
+          actorUserId: 'usr_edinho',
+          actorUsername: 'edinho',
+          action: 'batch_started',
+          details: 'Queda após persistência de 2 usuários antes de salvar torneio.',
+        },
+      ],
+    });
+    atomicWriteFileSync(path.join(tempDataDir, 'import_batches.json'), JSON.stringify(batches, null, 2));
+
+    const rec = await reconcileIncompleteImportBatches(tournamentsMap);
+    expect(rec.reconciledCount).toBe(1);
+    expect(rec.batchIds).toContain('imp_crashed_wal_multi');
+
+    const detail = getImportBatchDetails('imp_crashed_wal_multi', tournamentsMap);
+    expect(detail?.batch.status).toBe('completed');
+    expect(detail?.batch.summary.totalEnrolled).toBe(2);
+    expect(detail?.batch.items.every((i) => i.enrollOpStatus === 'persisted' && i.enrolledAt)).toBe(true);
+
+    const updatedTournament = tournamentsMap.get(indivTournament.config.id)!;
+    expect(updatedTournament.entries.some((e) => e.userIds.includes('usr_wal_multi_a'))).toBe(true);
+    expect(updatedTournament.entries.some((e) => e.userIds.includes('usr_wal_multi_b'))).toBe(true);
   });
 
   it('Fase 3 & 4: filters history, enforces dependency-safe deletion, blocks disabled/archived login & token, and protects pre-existing users', async () => {
