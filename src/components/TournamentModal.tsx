@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types/uno.js';
+import { parseJsonSafe } from '../utils/http.js';
 import { Trophy, Users, Shield, Play, Plus, Clock, Eye, Trash2, CheckCircle2, AlertCircle, Sparkles, RefreshCw } from 'lucide-react';
 
 interface TournamentModalProps {
@@ -47,11 +48,11 @@ export const TournamentModal: React.FC<TournamentModalProps> = ({
       const res = await fetch('/api/tournaments', {
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.tournaments)) {
-        setTournaments(data.tournaments);
+      const parsed = await parseJsonSafe<{ success?: boolean; tournaments?: any[]; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success && Array.isArray(parsed.data.tournaments)) {
+        setTournaments(parsed.data.tournaments);
       } else {
-        setError(data.error || 'Erro ao carregar torneios.');
+        setError(parsed.error || 'Erro ao carregar torneios.');
       }
     } catch {
       setError('Falha de conexão ao carregar torneios.');
@@ -71,11 +72,11 @@ export const TournamentModal: React.FC<TournamentModalProps> = ({
       const res = await fetch(`/api/tournaments/${id}`, {
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       });
-      const data = await res.json();
-      if (data.success) {
-        setSelectedTournament(data.tournament);
-        setStandings(data.standingsByGroup || {});
-        setSeriesSummary(data.seriesSummaryByGroup || {});
+      const parsed = await parseJsonSafe<{ success?: boolean; tournament?: any; standingsByGroup?: any; seriesSummaryByGroup?: any }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
+        setSelectedTournament(parsed.data.tournament);
+        setStandings(parsed.data.standingsByGroup || {});
+        setSeriesSummary(parsed.data.seriesSummaryByGroup || {});
       }
     } catch {}
   };
@@ -109,15 +110,17 @@ export const TournamentModal: React.FC<TournamentModalProps> = ({
           spectatorMode: newSpectatorMode,
         }),
       });
-      const data = await res.json();
-      if (data.success) {
+      const parsed = await parseJsonSafe<{ success?: boolean; tournament?: any; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
         setSuccessMsg('Torneio criado com sucesso!');
         setShowCreate(false);
         setNewName('');
         fetchTournaments();
-        loadTournamentDetails(data.tournament.config.id);
+        if (parsed.data.tournament?.config?.id) {
+          loadTournamentDetails(parsed.data.tournament.config.id);
+        }
       } else {
-        setError(data.error || 'Erro ao criar torneio.');
+        setError(parsed.error || 'Erro ao criar torneio.');
       }
     } catch {
       setError('Erro de conexão ao criar torneio.');
@@ -131,13 +134,13 @@ export const TournamentModal: React.FC<TournamentModalProps> = ({
         method: 'POST',
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       });
-      const data = await res.json();
-      if (data.success) {
+      const parsed = await parseJsonSafe<{ success?: boolean; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
         setSuccessMsg('Inscrição realizada com sucesso!');
         loadTournamentDetails(tournId);
         fetchTournaments();
       } else {
-        setError(data.error || 'Erro ao se inscrever.');
+        setError(parsed.error || 'Erro ao se inscrever.');
       }
     } catch {
       setError('Erro de conexão na inscrição.');
@@ -160,8 +163,8 @@ export const TournamentModal: React.FC<TournamentModalProps> = ({
           userIds: [player1Ident.trim(), player2Ident.trim()],
         }),
       });
-      const data = await res.json();
-      if (data.success) {
+      const parsed = await parseJsonSafe<{ success?: boolean; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
         setSuccessMsg('Equipe cadastrada com sucesso!');
         setShowTeamModal(false);
         setTeamName('');
@@ -169,7 +172,7 @@ export const TournamentModal: React.FC<TournamentModalProps> = ({
         setPlayer2Ident('');
         loadTournamentDetails(selectedTournament.config.id);
       } else {
-        setError(data.error || 'Erro ao cadastrar equipe.');
+        setError(parsed.error || 'Erro ao cadastrar equipe.');
       }
     } catch {
       setError('Erro de conexão ao cadastrar equipe.');
@@ -183,13 +186,13 @@ export const TournamentModal: React.FC<TournamentModalProps> = ({
         method: 'POST',
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       });
-      const data = await res.json();
-      if (data.success) {
+      const parsed = await parseJsonSafe<{ success?: boolean; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
         setSuccessMsg('Torneio iniciado com sucesso!');
         loadTournamentDetails(tournId);
         fetchTournaments();
       } else {
-        setError(data.error || 'Erro ao iniciar torneio.');
+        setError(parsed.error || 'Erro ao iniciar torneio.');
       }
     } catch {
       setError('Erro ao iniciar torneio.');
@@ -203,12 +206,12 @@ export const TournamentModal: React.FC<TournamentModalProps> = ({
         method: 'POST',
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       });
-      const data = await res.json();
-      if (data.success && data.roomId) {
+      const parsed = await parseJsonSafe<{ success?: boolean; roomId?: string; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success && parsed.data.roomId) {
         onClose();
-        onJoinTournamentRoom(data.roomId);
+        onJoinTournamentRoom(parsed.data.roomId);
       } else {
-        setError(data.error || 'Erro ao iniciar partida da mesa.');
+        setError(parsed.error || 'Erro ao iniciar partida da mesa.');
       }
     } catch {
       setError('Erro de conexão ao iniciar partida.');

@@ -738,12 +738,16 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
 
     // Build initial planned items (no passwords or hashes!)
     const plannedItems: ImportBatchItem[] = reEval.response.rows.map((vRow) => {
+      const opId = crypto.randomUUID();
       if (vRow.status === 'invalid') {
         return {
+          operationId: opId,
           lineNumber: vRow.lineNumber,
           username: vRow.username,
           displayName: vRow.displayName || undefined,
           relationType: 'none',
+          userOpStatus: 'rejected',
+          enrollOpStatus: 'not_applicable',
           outcome: 'rejected',
           enrolledInTournament: false,
           reasonCode: vRow.codes[0],
@@ -753,11 +757,14 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
 
       if (vRow.status === 'conflict_ignorable') {
         return {
+          operationId: opId,
           lineNumber: vRow.lineNumber,
           username: vRow.username,
           displayName: vRow.displayName || undefined,
           userId: vRow.existingUserId,
           relationType: 'none',
+          userOpStatus: 'skipped',
+          enrollOpStatus: 'not_applicable',
           outcome: 'skipped',
           enrolledInTournament: false,
           reasonCode: vRow.codes[0],
@@ -768,12 +775,15 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
       if (input.mode === 'enroll_existing') {
         const existingMatch = latestUsers.find((u) => u.id === vRow.existingUserId);
         return {
+          operationId: opId,
           lineNumber: vRow.lineNumber,
           username: vRow.username,
           displayName: existingMatch?.displayName || vRow.displayName,
           userId: existingMatch?.id,
           userTag: existingMatch?.tag,
           relationType: 'existing_enrolled_only',
+          userOpStatus: 'not_applicable',
+          enrollOpStatus: 'pending',
           outcome: 'enrolled',
           enrolledInTournament: false,
         };
@@ -781,12 +791,15 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
 
       const created = createdByLine.get(vRow.lineNumber);
       return {
+        operationId: opId,
         lineNumber: vRow.lineNumber,
         username: vRow.username,
         displayName: created?.displayName || vRow.displayName,
         userId: created?.id,
         userTag: created?.tag,
         relationType: created ? 'created_by_batch' : 'none',
+        userOpStatus: created ? 'persisted' : 'failed',
+        enrollOpStatus: isTournamentMode ? 'pending' : 'not_applicable',
         outcome: created ? (isTournamentMode ? 'created_and_enrolled' : 'created') : 'failed',
         enrolledInTournament: false,
       };
@@ -807,7 +820,7 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
       createdAt: nowIso,
       createdByUserId: input.actor.id,
       createdByUsername: input.actor.username,
-      status: 'in_progress',
+      status: 'running',
       stepsCompleted: {
         usersSaved: false,
         tournamentSaved: false,
@@ -912,7 +925,7 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
     if (!hadSuccess && (totalFailed > 0 || totalRejected > 0)) {
       batchRecord.status = 'failed';
     } else if (hadSuccess && hadAnyProblem) {
-      batchRecord.status = 'partial_success';
+      batchRecord.status = 'partial';
     } else {
       batchRecord.status = 'completed';
     }
@@ -941,7 +954,7 @@ export async function reconcileIncompleteImportBatches(
 ): Promise<{ reconciledCount: number; batchIds: string[] }> {
   return withDataLock(() => {
     const batches = loadImportBatches();
-    const pending = batches.filter((b) => b.status === 'in_progress');
+    const pending = batches.filter((b) => b.status === 'in_progress' || b.status === 'running' || b.status === 'reconciling');
     if (pending.length === 0) {
       return { reconciledCount: 0, batchIds: [] };
     }
@@ -951,6 +964,7 @@ export async function reconcileIncompleteImportBatches(
     const reconciledIds: string[] = [];
 
     for (const batch of pending) {
+      batch.status = 'reconciling';
       let createdPersistedCount = 0;
       let enrolledPersistedCount = 0;
       const targetTournament = batch.tournamentId ? tournamentsMap.get(batch.tournamentId) : undefined;
@@ -1047,7 +1061,7 @@ export async function reconcileIncompleteImportBatches(
       if (createdPersistedCount === 0 && enrolledPersistedCount === 0) {
         batch.status = 'failed';
       } else if (totalFailed > 0 || totalRejected > 0 || totalSkipped > 0) {
-        batch.status = 'reconciled_partial';
+        batch.status = 'partial';
       } else {
         batch.status = 'completed';
       }

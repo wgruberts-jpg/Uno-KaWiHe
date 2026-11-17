@@ -144,7 +144,14 @@ export default function App() {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !roomIdRef.current) {
           if (urlRoom) {
             fetch(`/api/rooms/${urlRoom}`)
-              .then(res => res.json())
+              .then(async (res) => {
+                const text = await res.text();
+                try {
+                  return text ? JSON.parse(text) : {};
+                } catch {
+                  return {};
+                }
+              })
               .then(data => {
                 if (data.success && data.room) {
                   setPendingRoomPreview(data.room);

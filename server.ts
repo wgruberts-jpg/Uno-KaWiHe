@@ -927,107 +927,113 @@ app.get('/api/admin/users', async (req, res) => {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
-  let allUsers = getAllUsers();
-  if (AUTH_SERVICE_URL) {
-    try {
-      const response = await fetch(`${AUTH_SERVICE_URL}/api/admin/users`, {
-        headers: {
-          Authorization: req.headers.authorization || '',
-          ...(req.headers['x-admin-pin'] ? { 'x-admin-pin': req.headers['x-admin-pin'] as string } : {}),
-        },
-      });
-      const data = await response.json();
-      if (data.success && Array.isArray(data.users)) {
-        allUsers = data.users;
-      }
-    } catch (err) {
-      console.error('Failed to proxy /api/admin/users to auth service, falling back to local:', err);
-    }
-  }
-
-  const activeRooms = Array.from(rooms.values());
-  const lobbyList = Array.from(onlinePlayers.values());
-
-  // Check caller from JWT token
-  let callerId: string | null = null;
-  let callerUsername: string | null = null;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const caller = getUserFromToken(authHeader.split(' ')[1]);
-    if (caller) {
-      callerId = caller.id;
-      callerUsername = caller.username.toLowerCase();
-    }
-  }
-
-  const userList = allUsers.map((u) => {
-    let isOnline = false;
-    let currentRoomId: string | null = null;
-    let roomStatus: string | null = null;
-
-    const uUsername = u.username.toLowerCase();
-    const uDisplayName = u.displayName.toLowerCase();
-
-    // 1. Check active game rooms
-    for (const r of activeRooms) {
-      const match = r.players.find(
-        (p) => !p.isBot && p.isConnected && (
-          p.id === u.id ||
-          p.name.toLowerCase() === uDisplayName ||
-          p.name.toLowerCase() === uUsername
-        )
-      );
-      if (match) {
-        isOnline = true;
-        currentRoomId = r.id;
-        roomStatus = r.status;
-        break;
+  try {
+    let allUsers = getAllUsers();
+    if (AUTH_SERVICE_URL) {
+      try {
+        const response = await fetch(`${AUTH_SERVICE_URL}/api/admin/users`, {
+          headers: {
+            Authorization: req.headers.authorization || '',
+            ...(req.headers['x-admin-pin'] ? { 'x-admin-pin': req.headers['x-admin-pin'] as string } : {}),
+          },
+        });
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : null;
+        if (data?.success && Array.isArray(data.users)) {
+          allUsers = data.users;
+        }
+      } catch (err) {
+        console.error('Failed to proxy /api/admin/users to auth service, falling back to local:', err);
       }
     }
 
-    // 2. Check online lobby / WebSocket players registry
-    if (!isOnline) {
-      for (const lp of lobbyList) {
-        if (
-          lp.id === u.id ||
-          lp.name.toLowerCase() === uDisplayName ||
-          lp.name.toLowerCase() === uUsername
-        ) {
-          isOnline = true;
-          currentRoomId = lp.roomId || null;
-          if (lp.roomId) {
-            const r = rooms.get(lp.roomId);
-            if (r) roomStatus = r.status;
+    const activeRooms = Array.from(rooms.values());
+    const lobbyList = Array.from(onlinePlayers.values());
+
+    // Check caller from JWT token
+    let callerId: string | null = null;
+    let callerUsername: string | null = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const caller = getUserFromToken(authHeader.split(' ')[1]);
+      if (caller) {
+        callerId = caller.id;
+        callerUsername = String(caller.username || '').toLowerCase();
+      }
+    }
+
+    const userList = allUsers.map((u) => {
+      let isOnline = false;
+      let currentRoomId: string | null = null;
+      let roomStatus: string | null = null;
+
+      const uUsername = String(u.username || '').toLowerCase();
+      const uDisplayName = String(u.displayName || u.username || '').toLowerCase();
+
+      // 1. Check active game rooms
+      for (const r of activeRooms) {
+        const match = r.players.find(
+          (p) => {
+            const pName = String(p.name || '').toLowerCase();
+            return (
+              !p.isBot &&
+              p.isConnected &&
+              (p.id === u.id || pName === uDisplayName || pName === uUsername)
+            );
           }
+        );
+        if (match) {
+          isOnline = true;
+          currentRoomId = r.id;
+          roomStatus = r.status;
           break;
         }
       }
-    }
 
-    // 3. If this user is the authenticated caller making this request right now
-    if (!isOnline && (callerId || callerUsername)) {
-      if ((callerId && u.id === callerId) || (callerUsername && uUsername === callerUsername)) {
-        isOnline = true;
+      // 2. Check online lobby / WebSocket players registry
+      if (!isOnline) {
+        for (const lp of lobbyList) {
+          const lpName = String(lp.name || '').toLowerCase();
+          if (lp.id === u.id || lpName === uDisplayName || lpName === uUsername) {
+            isOnline = true;
+            currentRoomId = lp.roomId || null;
+            if (lp.roomId) {
+              const r = rooms.get(lp.roomId);
+              if (r) roomStatus = r.status;
+            }
+            break;
+          }
+        }
       }
-    }
 
-    return {
-      id: u.id,
-      username: u.username,
-      displayName: u.displayName,
-      avatar: u.avatar,
-      role: u.role,
-      tag: u.tag,
-      createdAt: u.createdAt,
-      status: getEffectiveUserStatus(u),
-      statusUpdatedAt: u.statusUpdatedAt,
-      isOnline,
-      currentRoomId,
-      roomStatus,
-    };
-  });
+      // 3. If this user is the authenticated caller making this request right now
+      if (!isOnline && (callerId || callerUsername)) {
+        if ((callerId && u.id === callerId) || (callerUsername && uUsername === callerUsername)) {
+          isOnline = true;
+        }
+      }
 
-  return res.json({ success: true, users: userList });
+      return {
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName || u.username,
+        avatar: u.avatar,
+        role: u.role,
+        tag: u.tag,
+        createdAt: u.createdAt,
+        status: getEffectiveUserStatus(u),
+        statusUpdatedAt: u.statusUpdatedAt,
+        isOnline,
+        currentRoomId,
+        roomStatus,
+      };
+    });
+
+    return res.json({ success: true, users: userList });
+  } catch (err: any) {
+    console.error('Erro em /api/admin/users:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Erro interno ao listar usuários.' });
+  }
 });
 
 // Admin: Create user directly (without invite code)
@@ -1161,25 +1167,30 @@ app.get('/api/admin/rooms', (req, res) => {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
-  const list = Array.from(rooms.values()).map((r) => ({
-    id: r.id,
-    status: r.status,
-    playersCount: r.players.length,
-    maxPlayers: r.settings.maxPlayers,
-    turnDuration: r.settings.turnDuration,
-    roundTurnCount: r.roundTurnCount || 0,
-    players: r.players.map((p) => ({
-      id: p.id,
-      name: p.name,
-      avatar: p.avatar,
-      isHost: p.isHost,
-      isBot: p.isBot,
-      isConnected: p.isConnected,
-      cardsCount: p.hand?.length || 0,
-    })),
-  }));
+  try {
+    const list = Array.from(rooms.values()).map((r) => ({
+      id: r.id,
+      status: r.status,
+      playersCount: r.players.length,
+      maxPlayers: r.settings.maxPlayers,
+      turnDuration: r.settings.turnDuration,
+      roundTurnCount: r.roundTurnCount || 0,
+      players: r.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        avatar: p.avatar,
+        isHost: p.isHost,
+        isBot: p.isBot,
+        isConnected: p.isConnected,
+        cardsCount: p.hand?.length || 0,
+      })),
+    }));
 
-  return res.json({ success: true, rooms: list });
+    return res.json({ success: true, rooms: list });
+  } catch (err: any) {
+    console.error('Erro em /api/admin/rooms:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Erro interno ao listar salas.' });
+  }
 });
 
 app.post('/api/admin/rooms/:id/close', (req, res) => {
@@ -5315,6 +5326,21 @@ async function startServer() {
   } catch (err) {
     console.error('Erro ao reconciliar lotes de importação no boot:', err);
   }
+
+  // Ensure unknown /api/* routes and API middleware errors always return JSON (never SPA HTML)
+  app.use('/api', (_req, res) => {
+    return res.status(404).json({ success: false, error: 'Endpoint de API não encontrado.' });
+  });
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.path.startsWith('/api')) {
+      console.error('Erro não tratado em rota /api:', err);
+      return res.status(err?.status || 500).json({
+        success: false,
+        error: err?.message || 'Erro interno na API.',
+      });
+    }
+    return next(err);
+  });
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');

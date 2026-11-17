@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AdminRoomSummary, AdminUserSummary, UserProfile } from '../types/uno.js';
 import { auth } from '../services/auth.js';
+import { parseJsonSafe } from '../utils/http.js';
 import { AdminImportPanel } from './AdminImportPanel.js';
 import { AdminImportHistoryPanel } from './AdminImportHistoryPanel.js';
 import {
@@ -60,7 +61,17 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const isFetchingRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Confirmation Modals State (avoid window.confirm)
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ id: string; username: string } | null>(null);
@@ -90,32 +101,62 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
   const [quickMsgRoomId, setQuickMsgRoomId] = useState<string | null>(null);
   const [quickMsgText, setQuickMsgText] = useState('');
 
-  const fetchAdminData = async () => {
-    setIsLoading(true);
+  const fetchAdminData = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    if (isMountedRef.current) setIsLoading(true);
+
     try {
+      const token = auth.getToken() || localStorage.getItem('kawihe_auth_token') || '';
       const headers = {
-        Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
+        Authorization: `Bearer ${token}`,
       };
 
-      // Fetch Rooms
-      const resRooms = await fetch('/api/admin/rooms', { headers });
-      const dataRooms = await resRooms.json();
-      if (dataRooms.success && dataRooms.rooms) {
-        setRooms(dataRooms.rooms);
+      const [roomsResult, usersResult] = await Promise.allSettled([
+        fetch('/api/admin/rooms', { headers }),
+        fetch('/api/admin/users', { headers }),
+      ]);
+
+      let nextPollError: string | null = null;
+
+      if (roomsResult.status === 'fulfilled') {
+        const parsedRooms = await parseJsonSafe<{ success?: boolean; rooms?: AdminRoomSummary[]; error?: string }>(
+          roomsResult.value
+        );
+        if (parsedRooms.ok && parsedRooms.isJson && parsedRooms.data?.success && Array.isArray(parsedRooms.data.rooms)) {
+          if (isMountedRef.current) setRooms(parsedRooms.data.rooms);
+        } else {
+          nextPollError = parsedRooms.error || 'Não foi possível atualizar a lista de salas.';
+        }
+      } else {
+        nextPollError = 'Conexão temporariamente indisponível ao buscar salas.';
       }
 
-      // Fetch Users
-      const resUsers = await fetch('/api/admin/users', { headers });
-      const dataUsers = await resUsers.json();
-      if (dataUsers.success && dataUsers.users) {
-        setUsers(dataUsers.users);
+      if (usersResult.status === 'fulfilled') {
+        const parsedUsers = await parseJsonSafe<{ success?: boolean; users?: AdminUserSummary[]; error?: string }>(
+          usersResult.value
+        );
+        if (parsedUsers.ok && parsedUsers.isJson && parsedUsers.data?.success && Array.isArray(parsedUsers.data.users)) {
+          if (isMountedRef.current) setUsers(parsedUsers.data.users);
+        } else if (!nextPollError) {
+          nextPollError = parsedUsers.error || 'Não foi possível atualizar a lista de usuários.';
+        }
+      } else if (!nextPollError) {
+        nextPollError = 'Conexão temporariamente indisponível ao buscar usuários.';
       }
-    } catch (e) {
-      console.error('Erro ao buscar dados admin:', e);
+
+      if (isMountedRef.current) {
+        setPollError(nextPollError);
+      }
+    } catch {
+      if (isMountedRef.current) {
+        setPollError('Conexão temporariamente indisponível ao atualizar painel admin.');
+      }
     } finally {
-      setIsLoading(false);
+      isFetchingRef.current = false;
+      if (isMountedRef.current) setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -125,8 +166,10 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
       fetchAdminData();
       const interval = setInterval(fetchAdminData, 3500);
       return () => clearInterval(interval);
+    } else {
+      setPollError(null);
     }
-  }, [isOpen, initialTab]);
+  }, [isOpen, initialTab, fetchAdminData]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,18 +273,18 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
+          Authorization: `Bearer ${auth.getToken() || localStorage.getItem('kawihe_auth_token') || ''}`,
         },
         body: JSON.stringify({ reason: 'Esta sala foi encerrada pelo Administrador Edinho.' }),
       });
-      const data = await res.json();
-      if (data.success) {
+      const parsed = await parseJsonSafe<{ success?: boolean; error?: string }>(res);
+      if (parsed.ok && parsed.data?.success) {
         setActionFeedback(`Sala #${roomId} encerrada com sucesso!`);
         setConfirmCloseRoomId(null);
         fetchAdminData();
         setTimeout(() => setActionFeedback(null), 4000);
       } else {
-        setActionError(data.error || 'Erro ao fechar sala.');
+        setActionError(parsed.error || 'Erro ao fechar sala.');
         setTimeout(() => setActionError(null), 4000);
       }
     } catch {
@@ -256,18 +299,18 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
+          Authorization: `Bearer ${auth.getToken() || localStorage.getItem('kawihe_auth_token') || ''}`,
         },
         body: JSON.stringify({ targetPlayerId: playerId, reason: 'Expulso pelo Administrador Edinho.' }),
       });
-      const data = await res.json();
-      if (data.success) {
+      const parsed = await parseJsonSafe<{ success?: boolean; error?: string }>(res);
+      if (parsed.ok && parsed.data?.success) {
         setActionFeedback(`${playerName} foi expulso da sala.`);
         setConfirmKickPlayer(null);
         fetchAdminData();
         setTimeout(() => setActionFeedback(null), 4000);
       } else {
-        setActionError(data.error || 'Erro ao expulsar jogador.');
+        setActionError(parsed.error || 'Erro ao expulsar jogador.');
         setTimeout(() => setActionError(null), 4000);
       }
     } catch {
@@ -298,23 +341,27 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
     const sender = currentUser ? `👑 ${currentUser.displayName}` : '👑 Admin Edinho';
 
     try {
+      const token = auth.getToken() || localStorage.getItem('kawihe_auth_token') || '';
       if (messageTargetRoom === 'all') {
         // Broadcast to all rooms
         const res = await fetch('/api/admin/broadcast', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             message: messageText.trim(),
             sender,
           }),
         });
-        const data = await res.json();
-        if (data.success) {
+        const parsed = await parseJsonSafe<{ success?: boolean; error?: string }>(res);
+        if (parsed.ok && parsed.data?.success) {
           setActionFeedback('📢 Aviso global transmitido com sucesso!');
           setMessageText('');
+        } else {
+          setActionError(parsed.error || 'Erro ao enviar aviso global.');
+          setTimeout(() => setActionError(null), 4000);
         }
       } else {
         // Send to specific room
@@ -322,21 +369,25 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             text: messageText.trim(),
             sender,
           }),
         });
-        const data = await res.json();
-        if (data.success) {
+        const parsed = await parseJsonSafe<{ success?: boolean; error?: string }>(res);
+        if (parsed.ok && parsed.data?.success) {
           setActionFeedback(`💬 Mensagem enviada para a Sala #${messageTargetRoom}!`);
           setMessageText('');
+        } else {
+          setActionError(parsed.error || 'Erro ao enviar mensagem para a sala.');
+          setTimeout(() => setActionError(null), 4000);
         }
       }
     } catch {
-      setActionFeedback('Erro ao enviar mensagem.');
+      setActionError('Erro ao enviar mensagem.');
+      setTimeout(() => setActionError(null), 4000);
     } finally {
       setIsSendingMessage(false);
       setTimeout(() => setActionFeedback(null), 4000);
@@ -352,21 +403,25 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('kawihe_auth_token') || ''}`,
+          Authorization: `Bearer ${auth.getToken() || localStorage.getItem('kawihe_auth_token') || ''}`,
         },
         body: JSON.stringify({
           text: quickMsgText.trim(),
           sender,
         }),
       });
-      const data = await res.json();
-      if (data.success) {
+      const parsed = await parseJsonSafe<{ success?: boolean; error?: string }>(res);
+      if (parsed.ok && parsed.data?.success) {
         setActionFeedback(`Mensagem entregue na mesa #${roomId}!`);
         setQuickMsgText('');
         setQuickMsgRoomId(null);
+      } else {
+        setActionError(parsed.error || 'Erro ao enviar mensagem rápida.');
+        setTimeout(() => setActionError(null), 4000);
       }
     } catch {
-      setActionFeedback('Erro ao enviar mensagem rápida.');
+      setActionError('Erro ao enviar mensagem rápida.');
+      setTimeout(() => setActionError(null), 4000);
     }
   };
 
@@ -516,10 +571,10 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         )}
 
         {/* Error Alert */}
-        {actionError && (
+        {(actionError || pollError) && (
           <div className="p-2.5 mb-3 rounded-xl bg-rose-950/80 border border-rose-500 text-rose-300 text-xs font-bold flex items-center gap-2 shrink-0 animate-in fade-in duration-200">
             <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
-            <span>{actionError}</span>
+            <span>{actionError || pollError}</span>
           </div>
         )}
 

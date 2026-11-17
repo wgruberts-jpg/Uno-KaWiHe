@@ -23,6 +23,7 @@ import {
   ImportValidationResponse,
 } from '../types/uno.js';
 import { auth } from '../services/auth.js';
+import { parseJsonSafe } from '../utils/http.js';
 
 interface TournamentSummaryOption {
   config: {
@@ -89,9 +90,9 @@ export const AdminImportPanel: React.FC<AdminImportPanelProps> = ({
       const res = await fetch('/api/tournaments', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.tournaments)) {
-        setTournaments(data.tournaments);
+      const parsed = await parseJsonSafe<{ success?: boolean; tournaments?: TournamentSummaryOption[] }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success && Array.isArray(parsed.data.tournaments)) {
+        setTournaments(parsed.data.tournaments);
       }
     } catch {
       // ignore silently

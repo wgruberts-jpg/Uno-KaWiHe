@@ -18,6 +18,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine
 } from 'lucide-react';
+import { parseJsonSafe } from '../utils/http.js';
 
 interface VmMetricsResponse {
   success: boolean;
@@ -142,9 +143,10 @@ export const VmMonitorModal: React.FC<VmMonitorModalProps> = ({ isOpen, onClose 
           Authorization: `Bearer ${token}`,
         },
       });
-      const data: VmMetricsResponse = await res.json();
-      if (!res.ok || !data.success) {
-        setError(data.error || 'Não foi possível ler as métricas da VM.');
+      const parsed = await parseJsonSafe<VmMetricsResponse>(res);
+      const data = parsed.data;
+      if (!res.ok || !parsed.isJson || !data || !data.success) {
+        setError(parsed.error || data?.error || 'Não foi possível ler as métricas da VM.');
         return;
       }
       setError(null);

@@ -12,6 +12,7 @@ import {
   ImportUserManageAction,
   ImportValidationResponse,
 } from '../types/uno.js';
+import { parseJsonSafe } from '../utils/http.js';
 
 const TOKEN_KEY = 'kawihe_auth_token';
 
@@ -69,12 +70,15 @@ class AuthService {
       });
 
       if (!res.ok) {
-        this.logout();
+        if (res.status === 401 || res.status === 403) {
+          this.logout();
+        }
         return null;
       }
 
-      const data = await res.json();
-      if (data.success && data.user) {
+      const parsed = await parseJsonSafe<{ success?: boolean; user?: UserProfile }>(res);
+      const data = parsed.data;
+      if (parsed.isJson && data?.success && data.user) {
         this.user = data.user;
         if (data.user.role === 'admin') {
           this.isAdminUnlockedForSession = true;
@@ -99,7 +103,11 @@ class AuthService {
         body: JSON.stringify({ username, password }),
       });
 
-      const data: AuthResponse = await res.json();
+      const parsed = await parseJsonSafe<AuthResponse>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Resposta inválida do servidor de login.' };
+      }
+      const data = parsed.data;
       if (data.success && data.token && data.user) {
         this.token = data.token;
         this.user = data.user;
@@ -112,7 +120,7 @@ class AuthService {
         this.notify();
       }
       return data;
-    } catch (err) {
+    } catch {
       return { success: false, error: 'Falha de conexão com o servidor de login.' };
     }
   }
@@ -133,7 +141,11 @@ class AuthService {
         body: JSON.stringify(params),
       });
 
-      const data: AuthResponse = await res.json();
+      const parsed = await parseJsonSafe<AuthResponse>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Resposta inválida do servidor ao cadastrar.' };
+      }
+      const data = parsed.data;
       if (data.success && data.token && data.user) {
         this.token = data.token;
         this.user = data.user;
@@ -146,7 +158,7 @@ class AuthService {
         this.notify();
       }
       return data;
-    } catch (err) {
+    } catch {
       return { success: false, error: 'Falha de conexão com o servidor ao cadastrar.' };
     }
   }
@@ -162,8 +174,9 @@ class AuthService {
         },
         body: JSON.stringify({ displayName, avatar }),
       });
-      const data = await res.json();
-      if (data.success && data.user) {
+      const parsed = await parseJsonSafe<{ success?: boolean; user?: UserProfile }>(res);
+      const data = parsed.data;
+      if (parsed.ok && parsed.isJson && data?.success && data.user) {
         this.user = data.user;
         localStorage.setItem('uno_nickname', data.user.displayName);
         localStorage.setItem('uno_avatar', data.user.avatar);
@@ -185,8 +198,8 @@ class AuthService {
         body: JSON.stringify({ pin }),
       });
 
-      const data = await res.json();
-      if (data.success) {
+      const parsed = await parseJsonSafe<{ success?: boolean }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
         this.isAdminUnlockedForSession = true;
         this.notify();
         return true;
@@ -202,7 +215,11 @@ class AuthService {
       let clean = code.trim().toUpperCase();
       if (!clean.startsWith('@')) clean = '@' + clean;
       const res = await fetch(`/api/invites/validate/${encodeURIComponent(clean)}`);
-      return await res.json();
+      const parsed = await parseJsonSafe<{ valid: boolean; code?: string; expiresAt?: string; remainingUses?: number; error?: string }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { valid: false, error: parsed.error || 'Erro ao validar convite.' };
+      }
+      return parsed.data;
     } catch {
       return { valid: false, error: 'Erro de conexão ao validar convite.' };
     }
@@ -215,8 +232,8 @@ class AuthService {
         headers: { Authorization: `Bearer ${this.token}` },
       });
       if (res.ok) {
-        const data = await res.json();
-        return data.invites || [];
+        const parsed = await parseJsonSafe<{ invites?: InviteCode[] }>(res);
+        return parsed.isJson && parsed.data?.invites ? parsed.data.invites : [];
       }
       return [];
     } catch {
@@ -242,7 +259,11 @@ class AuthService {
           createdBy: this.user?.displayName || 'Edinho',
         }),
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{ success: boolean; invite?: InviteCode; error?: string }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Erro ao gerar convite no servidor.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, error: 'Erro ao gerar convite no servidor.' };
     }
@@ -279,7 +300,11 @@ class AuthService {
         },
         body: JSON.stringify(params),
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{ success: boolean; user?: UserProfile; error?: string }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Erro ao conectar com o servidor.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, error: 'Erro ao conectar com o servidor.' };
     }
@@ -298,7 +323,11 @@ class AuthService {
         },
         body: JSON.stringify({ newPassword }),
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{ success: boolean; message?: string; error?: string }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Erro ao conectar com o servidor.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, error: 'Erro ao conectar com o servidor.' };
     }
@@ -314,7 +343,11 @@ class AuthService {
           Authorization: `Bearer ${this.token}`,
         },
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{ success: boolean; message?: string; error?: string }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Erro ao conectar com o servidor.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, error: 'Erro ao conectar com o servidor.' };
     }
@@ -339,7 +372,11 @@ class AuthService {
         },
         body: JSON.stringify(params),
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<ImportValidationResponse>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, mode: params.mode, rows: [], error: parsed.error || 'Erro ao validar importação no servidor.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, mode: params.mode, rows: [], error: 'Erro ao validar importação no servidor.' };
     }
@@ -375,7 +412,17 @@ class AuthService {
         },
         body: JSON.stringify(params),
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{
+        success: boolean;
+        error?: string;
+        batch?: ImportBatch;
+        validation?: ImportValidationResponse;
+        idempotentHit?: boolean;
+      }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Erro de conexão ao gravar importação em massa.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, error: 'Erro de conexão ao gravar importação em massa.' };
     }
@@ -414,7 +461,15 @@ class AuthService {
       const res = await fetch(`/api/admin/import/batches?${qs.toString()}`, {
         headers: { Authorization: `Bearer ${this.token}` },
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{ success: boolean; batches?: ImportBatch[]; error?: string }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, batches: [], error: parsed.error || 'Erro ao carregar histórico de lotes.' };
+      }
+      return {
+        success: !!parsed.data.success,
+        batches: Array.isArray(parsed.data.batches) ? parsed.data.batches : [],
+        error: parsed.data.error,
+      };
     } catch {
       return { success: false, batches: [], error: 'Erro ao carregar histórico de lotes.' };
     }
@@ -431,7 +486,16 @@ class AuthService {
       const res = await fetch(`/api/admin/import/batches/${encodeURIComponent(batchId)}`, {
         headers: { Authorization: `Bearer ${this.token}` },
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{
+        success: boolean;
+        batch?: ImportBatch;
+        users?: ImportBatchDetailUser[];
+        error?: string;
+      }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Erro ao carregar detalhes do lote.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, error: 'Erro ao carregar detalhes do lote.' };
     }
@@ -452,7 +516,11 @@ class AuthService {
         },
         body: JSON.stringify({ userIds, action }),
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{ success: boolean; impact?: ImportImpactReport; error?: string }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Erro ao analisar impacto nos usuários.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, error: 'Erro ao analisar impacto nos usuários.' };
     }
@@ -483,7 +551,16 @@ class AuthService {
           reason: params.reason,
         }),
       });
-      return await res.json();
+      const parsed = await parseJsonSafe<{
+        success: boolean;
+        affectedUserIds?: string[];
+        skipped?: Array<{ userId: string; username: string; reason: string }>;
+        error?: string;
+      }>(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, error: parsed.error || 'Erro ao executar gestão dos usuários do lote.' };
+      }
+      return parsed.data;
     } catch {
       return { success: false, error: 'Erro ao executar gestão dos usuários do lote.' };
     }

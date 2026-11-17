@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PlayerReportData, OnlinePlayerSummary, UserProfile } from '../types/uno.js';
 import { auth } from '../services/auth.js';
+import { parseJsonSafe } from '../utils/http.js';
 import {
   Shield,
   User,
@@ -95,11 +96,11 @@ export const PlayerReportModal: React.FC<PlayerReportModalProps> = ({
       const res = await fetch(`/api/admin/player-report/${encodeURIComponent(queryKey)}`, {
         headers: getAuthHeaders()
       });
-      const data = await res.json();
-      if (data.success && data.report) {
-        setReport(data.report);
+      const parsed = await parseJsonSafe<{ success?: boolean; report?: PlayerReportData; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success && parsed.data.report) {
+        setReport(parsed.data.report);
       } else {
-        setErrorMessage(data.error || 'Não foi possível carregar o relatório deste jogador.');
+        setErrorMessage(parsed.error || 'Não foi possível carregar o relatório deste jogador.');
       }
     } catch (e: any) {
       setErrorMessage('Falha ao conectar ao servidor para obter o relatório.');
@@ -125,12 +126,12 @@ export const PlayerReportModal: React.FC<PlayerReportModalProps> = ({
           reason: 'Sua sessão foi encerrada pelo Administrador.'
         })
       });
-      const data = await res.json();
-      if (data.success) {
-        setActionSuccess(data.message);
+      const parsed = await parseJsonSafe<{ success?: boolean; message?: string; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
+        setActionSuccess(parsed.data.message || 'Sessão encerrada.');
         fetchPlayerReport();
       } else {
-        setActionError(data.error || 'Erro ao desconectar jogador.');
+        setActionError(parsed.error || 'Erro ao desconectar jogador.');
       }
     } catch {
       setActionError('Erro de conexão ao tentar desconectar jogador.');
@@ -155,12 +156,12 @@ export const PlayerReportModal: React.FC<PlayerReportModalProps> = ({
           reason: 'Você foi retirado da partida pelo Administrador.'
         })
       });
-      const data = await res.json();
-      if (data.success) {
-        setActionSuccess(data.message);
+      const parsed = await parseJsonSafe<{ success?: boolean; message?: string; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
+        setActionSuccess(parsed.data.message || 'Jogador expulso da sala.');
         fetchPlayerReport();
       } else {
-        setActionError(data.error || 'Erro ao expulsar jogador da sala.');
+        setActionError(parsed.error || 'Erro ao expulsar jogador da sala.');
       }
     } catch {
       setActionError('Erro de conexão ao tentar expulsar jogador.');
@@ -183,13 +184,13 @@ export const PlayerReportModal: React.FC<PlayerReportModalProps> = ({
           message: alertText.trim()
         })
       });
-      const data = await res.json();
-      if (data.success) {
-        setActionSuccess(data.message);
+      const parsed = await parseJsonSafe<{ success?: boolean; message?: string; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
+        setActionSuccess(parsed.data.message || 'Alerta enviado.');
         setAlertText('');
         setIsAlertPromptOpen(false);
       } else {
-        setActionError(data.error || 'Erro ao enviar alerta.');
+        setActionError(parsed.error || 'Erro ao enviar alerta.');
       }
     } catch {
       setActionError('Erro de conexão ao enviar alerta.');
@@ -211,13 +212,13 @@ export const PlayerReportModal: React.FC<PlayerReportModalProps> = ({
           newPassword: newPassword.trim()
         })
       });
-      const data = await res.json();
-      if (data.success) {
-        setActionSuccess(data.message || 'Senha redefinida com sucesso!');
+      const parsed = await parseJsonSafe<{ success?: boolean; message?: string; error?: string }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success) {
+        setActionSuccess(parsed.data.message || 'Senha redefinida com sucesso!');
         setNewPassword('');
         setIsResetPassOpen(false);
       } else {
-        setActionError(data.error || 'Erro ao redefinir senha.');
+        setActionError(parsed.error || 'Erro ao redefinir senha.');
       }
     } catch {
       setActionError('Erro de conexão ao tentar redefinir senha.');

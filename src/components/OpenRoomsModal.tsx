@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { OpenRoomSummary } from '../types/uno.js';
+import { parseJsonSafe } from '../utils/http.js';
 import { X, RefreshCw, Users, Play, Eye, Search, Sparkles, Clock, Crown } from 'lucide-react';
 
 interface OpenRoomsModalProps {
@@ -23,9 +24,9 @@ export const OpenRoomsModal: React.FC<OpenRoomsModalProps> = ({
     setLoading(true);
     try {
       const res = await fetch('/api/rooms/open');
-      const data = await res.json();
-      if (data.success && Array.isArray(data.rooms)) {
-        setRooms(data.rooms);
+      const parsed = await parseJsonSafe<{ success?: boolean; rooms?: OpenRoomSummary[] }>(res);
+      if (parsed.ok && parsed.isJson && parsed.data?.success && Array.isArray(parsed.data.rooms)) {
+        setRooms(parsed.data.rooms);
       }
     } catch (err) {
       console.error('Failed to load open rooms:', err);

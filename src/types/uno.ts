@@ -226,6 +226,8 @@ export interface UserProfile {
   status?: UserAccountStatus;
   statusUpdatedAt?: string;
   statusReason?: string;
+  createdByImportBatchId?: string;
+  createdByImportOperationId?: string;
 }
 
 export interface InviteCode {
@@ -505,7 +507,18 @@ export type ServerMessage =
 export type ImportOperationMode = 'create_only' | 'create_and_enroll' | 'enroll_existing';
 export type ImportSourceType = 'csv_upload' | 'text_paste';
 export type ImportDelimiter = ';' | ',' | '\t';
-export type ImportBatchStatus = 'in_progress' | 'completed' | 'partial_success' | 'failed' | 'reconciled_partial';
+export type ImportBatchStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'partial'
+  | 'reconciling'
+  | 'users_persisted'
+  | 'tournaments_persisted'
+  | 'partial_success'
+  | 'reconciled_partial'
+  | 'reconciled_failed'
+  | 'in_progress';
 export type ImportItemOutcome =
   | 'created'
   | 'enrolled'
@@ -567,14 +580,19 @@ export interface ImportValidationResponse {
 }
 
 export interface ImportBatchItem {
+  operationId: string;
   lineNumber: number;
   username: string;
   displayName?: string;
   userId?: string;
   userTag?: string;
   relationType: 'created_by_batch' | 'existing_enrolled_only' | 'none';
+  userOpStatus: 'not_applicable' | 'pending' | 'persisted' | 'skipped' | 'rejected' | 'failed';
+  enrollOpStatus: 'not_applicable' | 'pending' | 'persisted' | 'skipped' | 'rejected' | 'failed';
   outcome: ImportItemOutcome;
   enrolledInTournament: boolean;
+  userPersistedAt?: string;
+  enrolledAt?: string;
   reasonCode?: string;
   reasonMessage?: string;
 }

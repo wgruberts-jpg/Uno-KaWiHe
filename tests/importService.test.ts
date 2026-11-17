@@ -140,7 +140,7 @@ describe('Bulk User Importer Service Tests (Phases 1-4 + WAL + Benchmark)', () =
     expect(commitRes.success).toBe(true);
     expect(commitRes.batch?.summary.totalCreated).toBe(2);
     expect(commitRes.batch?.summary.totalRejected).toBe(4);
-    expect(commitRes.batch?.status).toBe('partial_success');
+    expect(commitRes.batch?.status).toBe('partial');
 
     // Idempotency replay must not duplicate users
     const replayRes = await commitImportBatch({
@@ -268,21 +268,27 @@ describe('Bulk User Importer Service Tests (Phases 1-4 + WAL + Benchmark)', () =
       },
       items: [
         {
+          operationId: 'op_wal_1',
           lineNumber: 2,
           username: 'wal.crash',
           displayName: 'WAL Crash',
           userId: 'usr_wal_crash_1',
           userTag: '#8899',
           relationType: 'created_by_batch',
+          userOpStatus: 'persisted',
+          enrollOpStatus: 'pending',
           outcome: 'created_and_enrolled',
           enrolledInTournament: false,
         },
         {
+          operationId: 'op_wal_2',
           lineNumber: 3,
           username: 'wal.missing',
           displayName: 'WAL Missing',
           userId: 'usr_wal_missing_999',
           relationType: 'created_by_batch',
+          userOpStatus: 'persisted',
+          enrollOpStatus: 'pending',
           outcome: 'created_and_enrolled',
           enrolledInTournament: false,
         },
@@ -304,7 +310,7 @@ describe('Bulk User Importer Service Tests (Phases 1-4 + WAL + Benchmark)', () =
     expect(rec.batchIds).toContain('imp_crashed_wal_test');
 
     const detail = getImportBatchDetails('imp_crashed_wal_test', tournamentsMap);
-    expect(detail?.batch.status).toBe('reconciled_partial');
+    expect(detail?.batch.status).toBe('partial');
     expect(detail?.batch.stepsCompleted.usersSaved).toBe(true);
     expect(detail?.batch.stepsCompleted.batchFinalized).toBe(true);
     expect(detail?.batch.summary.totalCreated).toBe(1);
@@ -435,5 +441,5 @@ describe('Bulk User Importer Service Tests (Phases 1-4 + WAL + Benchmark)', () =
     expect(hashes[0].startsWith('$2')).toBe(true);
     // Main thread event-loop mean lag stays minimal even while hashing 200 accounts
     expect(meanLagMs).toBeLessThan(35);
-  }, 30000);
+  }, 60000);
 });

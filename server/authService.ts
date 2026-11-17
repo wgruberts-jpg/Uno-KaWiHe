@@ -18,6 +18,8 @@ export interface UserRecord {
   status?: UserAccountStatus;
   statusUpdatedAt?: string;
   statusReason?: string;
+  createdByImportBatchId?: string;
+  createdByImportOperationId?: string;
 }
 
 export const MIN_USERNAME_LENGTH = 3;
@@ -214,6 +216,8 @@ export function buildUserRecord(params: {
   role?: UserRole;
   existingTags: Set<string | undefined>;
   createdAt?: string;
+  createdByImportBatchId?: string;
+  createdByImportOperationId?: string;
 }): UserRecord {
   const tag = generateUniqueTag(params.existingTags);
   return {
@@ -226,6 +230,8 @@ export function buildUserRecord(params: {
     tag,
     createdAt: params.createdAt || new Date().toISOString(),
     status: 'active',
+    createdByImportBatchId: params.createdByImportBatchId,
+    createdByImportOperationId: params.createdByImportOperationId,
   };
 }
 

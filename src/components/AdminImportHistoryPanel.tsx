@@ -545,8 +545,9 @@ export const AdminImportHistoryPanel: React.FC<AdminImportHistoryPanelProps> = (
         >
           <option value="all">Todos os status</option>
           <option value="completed">Concluído</option>
-          <option value="partial_success">Parcial</option>
-          <option value="reconciled_partial">Reconciliado Parcial</option>
+          <option value="running">Em Execução</option>
+          <option value="partial">Parcial</option>
+          <option value="reconciling">Reconciliando</option>
           <option value="failed">Falhou</option>
         </select>
 
