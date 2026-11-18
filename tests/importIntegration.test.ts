@@ -101,17 +101,46 @@ describe('Bulk User Importer HTTP & WebSocket Integration Tests', () => {
   });
 
   it('runs complete Phase 1 -> 2 -> 3 -> 4 workflow including WebSocket live disconnection and login lock', async () => {
-    // 1. Doubles tournament blocked
+    // 1. Doubles tournament supported with pairs of rows
     const dblRes = await fetch(`${baseUrl}/api/admin/import/validate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({
-        rawText: 'username;displayName;password\njog_dbl;Jog Duplas;1234',
+        rawText: 'username;displayName;password\njog_dbl1;Jog Duplas 1;1234\njog_dbl2;Jog Duplas 2;1234',
         mode: 'create_and_enroll',
         tournamentId: doublesTournamentId,
       }),
     });
-    expect(dblRes.status).toBe(400);
+    expect(dblRes.status).toBe(200);
+    const dblData = await dblRes.json();
+    expect(dblData.success).toBe(true);
+    expect(dblData.tournament.compatible).toBe(true);
+    expect(dblData.summary.eligibleEnrollCount).toBe(2);
+
+    const commitDbl = await fetch(`${baseUrl}/api/admin/import/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        name: 'Lote Duplas Integração',
+        importTag: 'INT_DUPLAS',
+        mode: 'create_and_enroll',
+        sourceType: 'text_paste',
+        tournamentId: doublesTournamentId,
+        rawText: 'username;displayName;password\njog_dbl1;Jog Duplas 1;1234\njog_dbl2;Jog Duplas 2;1234',
+      }),
+    });
+    expect(commitDbl.status).toBe(201);
+    const commitDblData = await commitDbl.json();
+    expect(commitDblData.success).toBe(true);
+    expect(commitDblData.batch.summary.totalEnrolled).toBe(2);
+
+    const tournRes = await fetch(`${baseUrl}/api/tournaments/${doublesTournamentId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const tournData = await tournRes.json();
+    expect(tournData.tournament.entries).toHaveLength(1);
+    expect(tournData.tournament.entries[0].kind).toBe('team');
+    expect(tournData.tournament.entries[0].userIds).toHaveLength(2);
 
     // 2. Commit Mode B (create_and_enroll) + Mode A user for clean delete test
     const commitB = await fetch(`${baseUrl}/api/admin/import/commit`, {

@@ -13,7 +13,14 @@
  */
 
 export type TournamentModality = 'individual' | 'doubles';
-export type TournamentStatus = 'registration' | 'running' | 'paused' | 'finished' | 'cancelled';
+export type TournamentStatus =
+  | 'registration'
+  | 'rescheduled'
+  | 'running'
+  | 'paused'
+  | 'finished'
+  | 'closed'
+  | 'cancelled';
 export type TieBreakerPolicy = 'extra_match' | 'admin_decision';
 export type GroupRule =
   | { type: 'series'; bestOf: 1 | 3 | 5 }
@@ -43,6 +50,8 @@ export interface TournamentEntry {
   userIds: string[];
   frozen: boolean;
   withdrawn?: boolean;
+  deletedTemporaryUserIds?: string[];
+  temporaryUsersDeletedAt?: number;
 }
 
 export interface TournamentGame {
@@ -55,7 +64,14 @@ export interface TournamentGame {
   status: 'pending' | 'playing' | 'finished' | 'void' | 'needs_intervention';
   winnerEntryId?: string;
   isTieBreaker?: boolean;
-  resultReason?: 'normal' | 'wo' | 'void_insufficient_players' | 'admin_decision' | 'server_restart' | 'early_clinch';
+  resultReason?:
+    | 'normal'
+    | 'wo'
+    | 'void_insufficient_players'
+    | 'admin_decision'
+    | 'server_restart'
+    | 'early_clinch'
+    | 'tournament_closed';
   woEntryIds: string[];
   /** Armazenado apenas para histórico/uso futuro; NÃO é usado para desempate na V1. */
   roundPointsWon?: number;
@@ -84,17 +100,51 @@ export interface TournamentRound {
   status: 'pending' | 'playing' | 'finished';
 }
 
+export interface TournamentAuditEvent {
+  id: string;
+  at: number;
+  actorUserId: string;
+  actorUsername: string;
+  action:
+    | 'tournament_created'
+    | 'tournament_edited'
+    | 'tournament_rescheduled'
+    | 'tournament_started'
+    | 'tournament_closed'
+    | 'temp_users_cleanup_blocked'
+    | 'temp_users_deleted';
+  details: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TournamentRescheduleRecord {
+  at: number;
+  actorUserId: string;
+  actorUsername: string;
+  previousScheduledAt?: number;
+  newScheduledAt: number;
+  reason?: string;
+}
+
 export interface Tournament {
   config: TournamentConfig;
   status: TournamentStatus;
   createdByUserId: string;
   createdAt: number;
+  scheduledAt?: number;
+  rescheduledAt?: number;
+  rescheduleHistory?: TournamentRescheduleRecord[];
   startedAt?: number;
   finishedAt?: number;
+  closedAt?: number;
+  closedByUserId?: string;
+  closedByUsername?: string;
+  closeReason?: string;
   entries: TournamentEntry[];
   rounds: TournamentRound[];
   championEntryId?: string;
   pauseReason?: string;
+  auditTrail?: TournamentAuditEvent[];
 }
 
 export interface IndividualStandingRow {
@@ -177,6 +227,14 @@ export function assertTournamentAdmin(role: string | undefined | null): { allowe
   };
 }
 
+export function isTournamentOpenForRegistration(tournament: Pick<Tournament, 'status'>): boolean {
+  return tournament.status === 'registration' || tournament.status === 'rescheduled';
+}
+
+export function isTournamentEnded(tournament: Pick<Tournament, 'status'>): boolean {
+  return tournament.status === 'finished' || tournament.status === 'closed' || tournament.status === 'cancelled';
+}
+
 export function validateTournamentConfig(config: TournamentConfig): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
@@ -233,10 +291,19 @@ export function seededShuffle<T>(items: readonly T[], seed?: number): T[] {
 // Inscrições e Congelamento de Equipes
 // ============================================================================
 
-export function createTournament(config: TournamentConfig, createdByUserId: string, createdAt: number): Tournament {
+export function createTournament(
+  config: TournamentConfig,
+  createdByUserId: string,
+  createdAt: number,
+  options?: { scheduledAt?: number; createdByUsername?: string }
+): Tournament {
   const validation = validateTournamentConfig(config);
   if (!validation.valid) {
     throw new Error(`Configuração de torneio inválida: ${validation.errors.join(' ')}`);
+  }
+  const scheduledAt = options?.scheduledAt;
+  if (scheduledAt !== undefined && (!Number.isFinite(scheduledAt) || scheduledAt <= 0)) {
+    throw new Error('Data/hora agendada do torneio é inválida.');
   }
   return {
     config: {
@@ -248,8 +315,19 @@ export function createTournament(config: TournamentConfig, createdByUserId: stri
     status: 'registration',
     createdByUserId,
     createdAt,
+    scheduledAt,
     entries: [],
     rounds: [],
+    auditTrail: [
+      {
+        id: `aud_${createdAt}_create`,
+        at: createdAt,
+        actorUserId: createdByUserId,
+        actorUsername: options?.createdByUsername || createdByUserId,
+        action: 'tournament_created',
+        details: `Torneio "${config.name}" criado (${config.modality}).`,
+      },
+    ],
   };
 }
 
@@ -258,8 +336,8 @@ export function registerIndividualEntry(
   userId: string,
   displayName: string
 ): { tournament: Tournament; entry: TournamentEntry } {
-  if (tournament.status !== 'registration') {
-    throw new Error('Inscrições encerradas: o torneio já foi iniciado ou finalizado.');
+  if (!isTournamentOpenForRegistration(tournament)) {
+    throw new Error('Inscrições encerradas: o torneio já foi iniciado ou encerrado.');
   }
   if (tournament.config.modality !== 'individual') {
     throw new Error('Este torneio é de duplas e exige equipes de 2 jogadores.');
@@ -295,8 +373,8 @@ export function registerDoublesTeam(
   teamName: string,
   userIds: [string, string]
 ): { tournament: Tournament; entry: TournamentEntry } {
-  if (tournament.status !== 'registration') {
-    throw new Error('Inscrições encerradas: equipes não podem ser inscritas após o início.');
+  if (!isTournamentOpenForRegistration(tournament)) {
+    throw new Error('Inscrições encerradas: equipes não podem ser inscritas após o início ou encerramento.');
   }
   if (tournament.config.modality !== 'doubles') {
     throw new Error('Este torneio é individual e não aceita equipes.');
@@ -335,8 +413,8 @@ export function updateDoublesTeamMembers(
   teamId: string,
   newUserIds: [string, string]
 ): Tournament {
-  if (tournament.status !== 'registration') {
-    throw new Error('Operação bloqueada: integrantes de equipe estão congelados após o início do torneio.');
+  if (!isTournamentOpenForRegistration(tournament)) {
+    throw new Error('Operação bloqueada: integrantes de equipe estão congelados após o início ou encerramento do torneio.');
   }
   const target = tournament.entries.find((e) => e.id === teamId);
   if (!target) {
@@ -562,8 +640,8 @@ export function getRoundLabel(modality: TournamentModality, roundNumber: number,
 }
 
 export function startTournament(tournament: Tournament, startedAt: number): Tournament {
-  if (tournament.status !== 'registration') {
-    throw new Error('O torneio não está em fase de inscrição.');
+  if (!isTournamentOpenForRegistration(tournament)) {
+    throw new Error('O torneio não está em fase aberta de inscrição ou reagendado.');
   }
   if (tournament.entries.length < 2) {
     throw new Error('São necessários pelo menos 2 competidores inscritos para iniciar o torneio.');
@@ -611,6 +689,213 @@ export function startTournament(tournament: Tournament, startedAt: number): Tour
     startedAt,
     entries: frozenEntries,
     rounds: [round1],
+    auditTrail: [
+      ...(tournament.auditTrail || []),
+      {
+        id: `aud_${startedAt}_start`,
+        at: startedAt,
+        actorUserId: tournament.createdByUserId,
+        actorUsername: 'admin',
+        action: 'tournament_started',
+        details: `Torneio iniciado com ${frozenEntries.length} competidor(es).`,
+      },
+    ],
+  };
+}
+
+export function updateTournamentDetails(
+  tournament: Tournament,
+  updates: {
+    name?: string;
+    spectatorMode?: TournamentConfig['spectatorMode'];
+    turnDurationSeconds?: number;
+    reconnectGraceMs?: number;
+    bestOf?: 1 | 3 | 5;
+    gamesPerGroup?: number;
+    advancePerGroup?: 1 | 2;
+    tieBreakerPolicy?: TieBreakerPolicy;
+    scheduledAt?: number | null;
+  },
+  actor: { userId: string; username: string },
+  nowMs: number
+): Tournament {
+  if (isTournamentEnded(tournament)) {
+    throw new Error('Não é possível editar um torneio já encerrado ou finalizado.');
+  }
+
+  const isOpen = isTournamentOpenForRegistration(tournament);
+  if (!isOpen) {
+    if (
+      updates.bestOf !== undefined ||
+      updates.gamesPerGroup !== undefined ||
+      updates.advancePerGroup !== undefined ||
+      updates.tieBreakerPolicy !== undefined
+    ) {
+      throw new Error('Regras de chaveamento não podem ser alteradas após o início do torneio.');
+    }
+  }
+
+  const nextConfig: TournamentConfig = {
+    ...tournament.config,
+    ...(updates.name !== undefined ? { name: String(updates.name).trim() } : {}),
+    ...(updates.spectatorMode !== undefined ? { spectatorMode: updates.spectatorMode } : {}),
+    ...(updates.turnDurationSeconds !== undefined ? { turnDurationSeconds: updates.turnDurationSeconds } : {}),
+    ...(updates.reconnectGraceMs !== undefined ? { reconnectGraceMs: updates.reconnectGraceMs } : {}),
+    ...(isOpen && tournament.config.modality === 'doubles' && updates.bestOf !== undefined
+      ? { bestOf: updates.bestOf }
+      : {}),
+    ...(isOpen && tournament.config.modality === 'individual' && updates.gamesPerGroup !== undefined
+      ? { gamesPerGroup: updates.gamesPerGroup }
+      : {}),
+    ...(isOpen && tournament.config.modality === 'individual' && updates.advancePerGroup !== undefined
+      ? { advancePerGroup: updates.advancePerGroup }
+      : {}),
+    ...(isOpen && updates.tieBreakerPolicy !== undefined ? { tieBreakerPolicy: updates.tieBreakerPolicy } : {}),
+  };
+
+  const validation = validateTournamentConfig(nextConfig);
+  if (!validation.valid) {
+    throw new Error(`Configuração inválida: ${validation.errors.join(' ')}`);
+  }
+
+  let nextScheduledAt = tournament.scheduledAt;
+  if (updates.scheduledAt === null) {
+    nextScheduledAt = undefined;
+  } else if (updates.scheduledAt !== undefined) {
+    if (!Number.isFinite(updates.scheduledAt) || updates.scheduledAt <= 0) {
+      throw new Error('Data/hora agendada inválida.');
+    }
+    nextScheduledAt = updates.scheduledAt;
+  }
+
+  return {
+    ...tournament,
+    config: nextConfig,
+    scheduledAt: nextScheduledAt,
+    auditTrail: [
+      ...(tournament.auditTrail || []),
+      {
+        id: `aud_${nowMs}_edit`,
+        at: nowMs,
+        actorUserId: actor.userId,
+        actorUsername: actor.username,
+        action: 'tournament_edited',
+        details: `Configurações do torneio "${nextConfig.name}" atualizadas por @${actor.username}.`,
+      },
+    ],
+  };
+}
+
+export function rescheduleTournament(
+  tournament: Tournament,
+  params: { scheduledAt: number; reason?: string },
+  actor: { userId: string; username: string },
+  nowMs: number
+): Tournament {
+  if (isTournamentEnded(tournament)) {
+    throw new Error('Não é possível reagendar um torneio já encerrado ou finalizado.');
+  }
+  if (!Number.isFinite(params.scheduledAt) || params.scheduledAt <= 0) {
+    throw new Error('Informe uma nova data e hora válida para o reagendamento.');
+  }
+  if (params.scheduledAt <= nowMs) {
+    throw new Error('A nova data e hora de reagendamento deve ser futura.');
+  }
+
+  const nextStatus: TournamentStatus = isTournamentOpenForRegistration(tournament)
+    ? 'rescheduled'
+    : tournament.status;
+  const cleanReason = params.reason?.trim() || undefined;
+
+  return {
+    ...tournament,
+    status: nextStatus,
+    scheduledAt: params.scheduledAt,
+    rescheduledAt: nowMs,
+    rescheduleHistory: [
+      ...(tournament.rescheduleHistory || []),
+      {
+        at: nowMs,
+        actorUserId: actor.userId,
+        actorUsername: actor.username,
+        previousScheduledAt: tournament.scheduledAt,
+        newScheduledAt: params.scheduledAt,
+        reason: cleanReason,
+      },
+    ],
+    auditTrail: [
+      ...(tournament.auditTrail || []),
+      {
+        id: `aud_${nowMs}_resched`,
+        at: nowMs,
+        actorUserId: actor.userId,
+        actorUsername: actor.username,
+        action: 'tournament_rescheduled',
+        details: `Torneio reagendado para ${new Date(params.scheduledAt).toISOString()} por @${actor.username}.${cleanReason ? ` Motivo: ${cleanReason}` : ''}`,
+        metadata: {
+          previousScheduledAt: tournament.scheduledAt,
+          newScheduledAt: params.scheduledAt,
+        },
+      },
+    ],
+  };
+}
+
+export function closeTournament(
+  tournament: Tournament,
+  params: { reason?: string; unstartedGameIds?: readonly string[] },
+  actor: { userId: string; username: string },
+  nowMs: number
+): Tournament {
+  if (isTournamentEnded(tournament)) {
+    throw new Error('Este torneio já foi encerrado.');
+  }
+
+  const unstartedSet = new Set(params.unstartedGameIds || []);
+  const cleanReason = params.reason?.trim() || undefined;
+
+  const updatedRounds = tournament.rounds.map((round) => ({
+    ...round,
+    groups: round.groups.map((group) => ({
+      ...group,
+      games: group.games.map((game) => {
+        const shouldVoidUnstarted =
+          game.status === 'pending' || (game.status === 'playing' && unstartedSet.has(game.id));
+        if (!shouldVoidUnstarted) {
+          return game;
+        }
+        return {
+          ...game,
+          status: 'void' as const,
+          resultReason: 'tournament_closed' as const,
+          roomId: undefined,
+          finishedAt: nowMs,
+        };
+      }),
+    })),
+  }));
+
+  return {
+    ...tournament,
+    status: 'closed',
+    finishedAt: tournament.finishedAt ?? nowMs,
+    closedAt: nowMs,
+    closedByUserId: actor.userId,
+    closedByUsername: actor.username,
+    closeReason: cleanReason,
+    pauseReason: undefined,
+    rounds: updatedRounds,
+    auditTrail: [
+      ...(tournament.auditTrail || []),
+      {
+        id: `aud_${nowMs}_close`,
+        at: nowMs,
+        actorUserId: actor.userId,
+        actorUsername: actor.username,
+        action: 'tournament_closed',
+        details: `Torneio encerrado administrativamente por @${actor.username}, preservando histórico, resultados e usuários.${cleanReason ? ` Motivo: ${cleanReason}` : ''}`,
+      },
+    ],
   };
 }
 

@@ -65,10 +65,15 @@ import {
 } from './server/importService.js';
 import {
   assertTournamentAdmin,
+  closeTournament,
   createTournament,
+  isTournamentEnded,
+  isTournamentOpenForRegistration,
   registerIndividualEntry,
   registerDoublesTeam,
+  rescheduleTournament,
   updateDoublesTeamMembers,
+  updateTournamentDetails,
   startTournament,
   recordGameResult,
   advanceTournamentRound,
@@ -80,6 +85,13 @@ import {
   TournamentGroup,
   TournamentGame,
 } from './server/tournamentEngine.js';
+import {
+  appendTournamentAuditLogStrict,
+  createTournamentTempUsersChallenge,
+  executeTournamentTempUsersCleanup,
+  loadTournamentAuditLogs,
+} from './server/tournamentCleanupService.js';
+import { withDataLock } from './server/dataLock.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -525,10 +537,14 @@ function atomicWriteFileSync(filePath: string, data: string): void {
 }
 
 
-function saveStats(statsMap: Record<string, any>): void {
+function saveStatsStrict(statsMap: Record<string, any>): void {
   ensureDataDir();
+  atomicWriteFileSync(STATS_FILE, JSON.stringify(statsMap, null, 2));
+}
+
+function saveStats(statsMap: Record<string, any>): void {
   try {
-    atomicWriteFileSync(STATS_FILE, JSON.stringify(statsMap, null, 2));
+    saveStatsStrict(statsMap);
   } catch (e) {
     console.error('Erro ao salvar stats.json:', e);
   }
@@ -1087,6 +1103,13 @@ app.get('/api/admin/users', async (req, res) => {
         }
       }
 
+      const isTemp =
+        u.role !== 'admin' &&
+        u.username.toLowerCase() !== 'edinho' &&
+        u.isTemporary === true &&
+        u.accountOriginType === 'tournament_temporary' &&
+        Boolean(u.temporaryTournamentId);
+
       return {
         id: u.id,
         username: u.username,
@@ -1097,6 +1120,9 @@ app.get('/api/admin/users', async (req, res) => {
         createdAt: u.createdAt,
         status: getEffectiveUserStatus(u),
         statusUpdatedAt: u.statusUpdatedAt,
+        accountOriginType: isTemp ? 'tournament_temporary' : 'permanent',
+        isTemporary: isTemp,
+        temporaryTournamentId: isTemp ? u.temporaryTournamentId : undefined,
         isOnline,
         currentRoomId,
         roomStatus,
@@ -1116,7 +1142,22 @@ app.post('/api/admin/users/create', async (req, res) => {
     return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
   }
 
-  if (AUTH_SERVICE_URL) {
+  const body = req.body || {};
+  if (body.isTemporary === true) {
+    const tId = String(body.temporaryTournamentId || '').trim();
+    const targetTournament = tId ? tournaments.get(tId) : undefined;
+    if (!targetTournament) {
+      return res.status(400).json({ success: false, error: 'Torneio vinculado para usuário temporário não encontrado.' });
+    }
+    if (!isTournamentOpenForRegistration(targetTournament)) {
+      return res.status(400).json({
+        success: false,
+        error: `O torneio "${targetTournament.config.name}" não está aberto (status: ${targetTournament.status}).`,
+      });
+    }
+  }
+
+  if (AUTH_SERVICE_URL && body.isTemporary !== true) {
     try {
       const response = await fetch(`${AUTH_SERVICE_URL}/api/admin/users/create`, {
         method: 'POST',
@@ -1134,7 +1175,11 @@ app.post('/api/admin/users/create', async (req, res) => {
     }
   }
 
-  const result = await adminCreateUser(req.body);
+  const result = await adminCreateUser({
+    ...body,
+    isTemporary: body.isTemporary === true,
+    temporaryTournamentId: body.isTemporary === true ? String(body.temporaryTournamentId || '').trim() : undefined,
+  });
   if (!result.success) {
     return res.status(400).json(result);
   }
@@ -1640,19 +1685,26 @@ app.post('/api/admin/player-action/alert', (req, res) => {
 const rooms = new Map<string, RoomData>();
 const TOURNAMENTS_FILE = path.join(DATA_DIR, 'tournaments.json');
 
-function atomicWriteTournamentsSync(tournamentsMap: Map<string, Tournament>): void {
+function atomicWriteTournamentsSyncStrict(tournamentsMap: Map<string, Tournament>): void {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  const arr = Array.from(tournamentsMap.values());
+  const data = JSON.stringify(arr, null, 2);
+  const tempPath = `${TOURNAMENTS_FILE}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const fd = fs.openSync(tempPath, 'w');
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    const arr = Array.from(tournamentsMap.values());
-    const data = JSON.stringify(arr, null, 2);
-    const tempPath = `${TOURNAMENTS_FILE}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const fd = fs.openSync(tempPath, 'w');
     fs.writeSync(fd, data, 0, 'utf-8');
     fs.fsyncSync(fd);
+  } finally {
     fs.closeSync(fd);
-    fs.renameSync(tempPath, TOURNAMENTS_FILE);
+  }
+  fs.renameSync(tempPath, TOURNAMENTS_FILE);
+}
+
+function atomicWriteTournamentsSync(tournamentsMap: Map<string, Tournament>): void {
+  try {
+    atomicWriteTournamentsSyncStrict(tournamentsMap);
   } catch (err) {
     console.error('Failed to atomically save tournaments:', err);
   }
@@ -1706,6 +1758,10 @@ const tournaments = loadTournamentsFromDisk();
 
 function saveTournaments(targetMap: Map<string, Tournament> = tournaments): void {
   atomicWriteTournamentsSync(targetMap);
+}
+
+function saveTournamentsStrict(targetMap: Map<string, Tournament> = tournaments): void {
+  atomicWriteTournamentsSyncStrict(targetMap);
 }
 
 function getAuthenticatedRequestUser(req: express.Request) {
@@ -1822,6 +1878,7 @@ app.post('/api/admin/import/validate', (req, res) => {
     delimiter: body.delimiter || 'auto',
     tournamentId: body.tournamentId ? String(body.tournamentId) : undefined,
     ignoreExistingUsers: !!body.ignoreExistingUsers,
+    createAsTemporary: body.createAsTemporary === true,
     tournamentsMap: tournaments,
   });
 
@@ -1846,6 +1903,7 @@ app.post('/api/admin/import/commit', async (req, res) => {
     delimiter: body.delimiter || 'auto',
     tournamentId: body.tournamentId ? String(body.tournamentId) : undefined,
     ignoreExistingUsers: !!body.ignoreExistingUsers,
+    createAsTemporary: body.createAsTemporary === true,
     name: String(body.name || ''),
     importTag: body.importTag ? String(body.importTag) : undefined,
     description: body.description ? String(body.description) : undefined,
@@ -2103,6 +2161,9 @@ function createTournamentRoomForGame(
 
 function launchNextPendingTournamentGames(tournament: Tournament): { tournament: Tournament; createdRoomIds: string[] } {
   const createdRoomIds: string[] = [];
+  if (tournament.status !== 'running') {
+    return { tournament, createdRoomIds };
+  }
   const currentRound = tournament.rounds[tournament.rounds.length - 1];
   if (!currentRound) return { tournament, createdRoomIds };
 
@@ -2180,6 +2241,29 @@ function handleTournamentGameCompleted(
   }
 }
 
+function parseOptionalScheduledAtMs(raw: unknown): { valid: boolean; value?: number | null; error?: string } {
+  if (raw === undefined) return { valid: true, value: undefined };
+  if (raw === null || raw === '') return { valid: true, value: null };
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || raw <= 0) return { valid: false, error: 'Data/hora agendada inválida.' };
+    return { valid: true, value: raw };
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return { valid: true, value: null };
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric) && /^\d+$/.test(trimmed)) {
+      return numeric > 0 ? { valid: true, value: numeric } : { valid: false, error: 'Data/hora agendada inválida.' };
+    }
+    const parsed = Date.parse(trimmed);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return { valid: false, error: 'Formato de data/hora inválido.' };
+    }
+    return { valid: true, value: parsed };
+  }
+  return { valid: false, error: 'Formato de data/hora inválido.' };
+}
+
 // REST Endpoints de Torneios (Etapas 3 e 4: Individual Multi-Mesa e Duplas 2v2)
 app.post('/api/tournaments', (req, res) => {
   const user = getAuthenticatedRequestUser(req);
@@ -2190,6 +2274,11 @@ app.post('/api/tournaments', (req, res) => {
 
   try {
     const body = req.body || {};
+    const parsedSchedule = parseOptionalScheduledAtMs(body.scheduledAt);
+    if (!parsedSchedule.valid) {
+      return res.status(400).json({ success: false, error: parsedSchedule.error });
+    }
+
     const config: TournamentConfig = {
       id: (body.id && String(body.id).trim()) || `tourn_${crypto.randomBytes(4).toString('hex')}`,
       name: String(body.name || '').trim(),
@@ -2208,7 +2297,10 @@ app.post('/api/tournaments', (req, res) => {
       seed: body.seed,
     };
 
-    const tournament = createTournament(config, user.id, Date.now());
+    const tournament = createTournament(config, user.id, Date.now(), {
+      scheduledAt: parsedSchedule.value ?? undefined,
+      createdByUsername: user.username,
+    });
     tournaments.set(tournament.config.id, tournament);
     saveTournaments();
     return res.status(201).json({ success: true, tournament });
@@ -2446,6 +2538,12 @@ app.post('/api/tournaments/:id/games/:gameId/start', (req, res) => {
   if (!tournament) {
     return res.status(404).json({ success: false, error: 'Torneio não encontrado.' });
   }
+  if (isTournamentEnded(tournament) || tournament.status !== 'running') {
+    return res.status(400).json({
+      success: false,
+      error: `Não é possível iniciar partidas quando o torneio está com status "${tournament.status}".`,
+    });
+  }
 
   let foundGame: TournamentGame | undefined;
   for (const r of tournament.rounds) {
@@ -2491,6 +2589,9 @@ app.post('/api/tournaments/:id/groups/:groupId/tiebreaker', (req, res) => {
   if (!tournament) {
     return res.status(404).json({ success: false, error: 'Torneio não encontrado.' });
   }
+  if (tournament.status !== 'running') {
+    return res.status(400).json({ success: false, error: 'Torneio não está em execução.' });
+  }
 
   const currentRound = tournament.rounds[tournament.rounds.length - 1];
   const group = currentRound?.groups.find((g) => g.id === req.params.groupId);
@@ -2512,6 +2613,310 @@ app.post('/api/tournaments/:id/groups/:groupId/tiebreaker', (req, res) => {
   const updatedTournament: Tournament = { ...tournament, rounds: updatedRounds };
   const launched = launchNextPendingTournamentGames(updatedTournament);
   return res.json({ success: true, tournament: launched.tournament, createdRoomIds: launched.createdRoomIds });
+});
+
+// Admin: Editar torneio (preserva regras após início e bloqueia se já encerrado)
+app.put('/api/tournaments/:id', async (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador autenticado via JWT.' });
+  }
+
+  return withDataLock(() => {
+    const tournament = tournaments.get(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ success: false, error: 'Torneio não encontrado.' });
+    }
+
+    const body = req.body || {};
+    const parsedSchedule = parseOptionalScheduledAtMs(body.scheduledAt);
+    if (!parsedSchedule.valid) {
+      return res.status(400).json({ success: false, error: parsedSchedule.error });
+    }
+
+    try {
+      const updated = updateTournamentDetails(
+        tournament,
+        {
+          name: body.name,
+          spectatorMode: body.spectatorMode,
+          turnDurationSeconds: body.turnDurationSeconds !== undefined ? Number(body.turnDurationSeconds) : undefined,
+          reconnectGraceMs: body.reconnectGraceMs !== undefined ? Number(body.reconnectGraceMs) : undefined,
+          bestOf: body.bestOf !== undefined ? (Number(body.bestOf) as 1 | 3 | 5) : undefined,
+          gamesPerGroup: body.gamesPerGroup !== undefined ? Number(body.gamesPerGroup) : undefined,
+          advancePerGroup: body.advancePerGroup !== undefined ? (Number(body.advancePerGroup) as 1 | 2) : undefined,
+          tieBreakerPolicy: body.tieBreakerPolicy,
+          scheduledAt: parsedSchedule.value,
+        },
+        { userId: adminActor.id, username: adminActor.username },
+        Date.now()
+      );
+      tournaments.set(updated.config.id, updated);
+      saveTournamentsStrict();
+
+      const nowMs = Date.now();
+      appendTournamentAuditLogStrict({
+        id: `taud_${nowMs}_${crypto.randomBytes(3).toString('hex')}`,
+        at: new Date(nowMs).toISOString(),
+        timestampMs: nowMs,
+        action: 'tournament_edited',
+        actorUserId: adminActor.id,
+        actorUsername: adminActor.username,
+        tournamentId: updated.config.id,
+        tournamentName: updated.config.name,
+        tournamentStatus: updated.status,
+        details: `Configurações do torneio "${updated.config.name}" editadas por @${adminActor.username}.`,
+      });
+
+      return res.json({ success: true, tournament: updated });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, error: err?.message || 'Erro ao atualizar torneio.' });
+    }
+  });
+});
+
+// Admin: Reagendar torneio para nova data sem encerrá-lo
+app.post('/api/tournaments/:id/reschedule', async (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador autenticado via JWT.' });
+  }
+
+  return withDataLock(() => {
+    const tournament = tournaments.get(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ success: false, error: 'Torneio não encontrado.' });
+    }
+
+    const liveRooms = Array.from(rooms.values()).filter(
+      (r) => r.tournamentId === tournament.config.id && r.status === 'playing'
+    );
+    if (liveRooms.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: `Existem ${liveRooms.length} partida(s) em andamento na mesa (${liveRooms.map((r) => `#${r.id}`).join(', ')}). Aguarde o término antes de reagendar.`,
+      });
+    }
+
+    const parsedSchedule = parseOptionalScheduledAtMs(req.body?.scheduledAt);
+    if (!parsedSchedule.valid || !parsedSchedule.value) {
+      return res.status(400).json({
+        success: false,
+        error: parsedSchedule.error || 'Informe uma data e hora válida para o reagendamento.',
+      });
+    }
+
+    try {
+      const nowMs = Date.now();
+      const updated = rescheduleTournament(
+        tournament,
+        {
+          scheduledAt: parsedSchedule.value,
+          reason: req.body?.reason ? String(req.body.reason) : undefined,
+        },
+        { userId: adminActor.id, username: adminActor.username },
+        nowMs
+      );
+
+      tournaments.set(updated.config.id, updated);
+      saveTournamentsStrict();
+
+      appendTournamentAuditLogStrict({
+        id: `taud_${nowMs}_${crypto.randomBytes(3).toString('hex')}`,
+        at: new Date(nowMs).toISOString(),
+        timestampMs: nowMs,
+        action: 'tournament_rescheduled',
+        actorUserId: adminActor.id,
+        actorUsername: adminActor.username,
+        tournamentId: updated.config.id,
+        tournamentName: updated.config.name,
+        tournamentStatus: updated.status,
+        details: `Torneio "${updated.config.name}" reagendado para ${new Date(parsedSchedule.value).toISOString()} por @${adminActor.username}.`,
+      });
+
+      return res.json({ success: true, tournament: updated });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, error: err?.message || 'Erro ao reagendar torneio.' });
+    }
+  });
+});
+
+// Admin: Encerrar torneio (preserva resultados, histórico, estatísticas e TODOS os usuários)
+app.post('/api/tournaments/:id/close', async (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador autenticado via JWT.' });
+  }
+
+  return withDataLock(() => {
+    const tournament = tournaments.get(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ success: false, error: 'Torneio não encontrado.' });
+    }
+    if (isTournamentEnded(tournament)) {
+      return res.status(400).json({
+        success: false,
+        error: `Este torneio já está finalizado/encerrado (status: ${tournament.status}).`,
+      });
+    }
+
+    const linkedRooms = Array.from(rooms.values()).filter((r) => r.tournamentId === tournament.config.id);
+    const liveMatches = linkedRooms.filter((r) => r.status === 'playing' || r.status === 'paused');
+    if (liveMatches.length > 0) {
+      return res.status(409).json({
+        success: false,
+        code: 'ACTIVE_MATCHES_IN_PROGRESS',
+        activeRoomIds: liveMatches.map((r) => r.id),
+        error: `Existem ${liveMatches.length} partida(s) em andamento na mesa (${liveMatches.map((r) => `#${r.id}`).join(', ')}). Aguarde o término das partidas antes de encerrar o torneio para não interromper jogos nem produzir resultados artificiais.`,
+      });
+    }
+
+    const unstartedWaitingRooms = linkedRooms.filter((r) => r.status === 'waiting');
+    const unstartedGameIds = unstartedWaitingRooms
+      .map((r) => r.tournamentGameId)
+      .filter((gid): gid is string => Boolean(gid));
+
+    try {
+      const nowMs = Date.now();
+      const closed = closeTournament(
+        tournament,
+        {
+          reason: req.body?.reason ? String(req.body.reason) : undefined,
+          unstartedGameIds,
+        },
+        { userId: adminActor.id, username: adminActor.username },
+        nowMs
+      );
+
+      tournaments.set(closed.config.id, closed);
+      saveTournamentsStrict();
+
+      appendTournamentAuditLogStrict({
+        id: `taud_${nowMs}_${crypto.randomBytes(3).toString('hex')}`,
+        at: new Date(nowMs).toISOString(),
+        timestampMs: nowMs,
+        action: 'tournament_closed',
+        actorUserId: adminActor.id,
+        actorUsername: adminActor.username,
+        tournamentId: closed.config.id,
+        tournamentName: closed.config.name,
+        tournamentStatus: closed.status,
+        details: `Torneio "${closed.config.name}" encerrado por @${adminActor.username}. Histórico, resultados e usuários preservados.`,
+      });
+
+      // Limpar apenas salas não iniciadas em espera, notificando quem estivesse aguardando na mesa
+      for (const waitingRoom of unstartedWaitingRooms) {
+        const sockets = roomSockets.get(waitingRoom.id);
+        if (sockets) {
+          for (const wsClient of Array.from(sockets)) {
+            if (wsClient.readyState === WebSocket.OPEN) {
+              try {
+                wsClient.send(
+                  JSON.stringify({
+                    type: 'player_kicked',
+                    reason: `O torneio "${closed.config.name}" foi encerrado pelo administrador.`,
+                  })
+                );
+              } catch {}
+            }
+            removeClientConnection(wsClient);
+            const meta = onlinePlayers.get(wsClient);
+            if (meta) {
+              meta.roomId = null;
+              meta.inRoom = false;
+            }
+          }
+        }
+        if (waitingRoom.turnTimerInterval) clearInterval(waitingRoom.turnTimerInterval);
+        if (waitingRoom.botTimerTimeout) clearTimeout(waitingRoom.botTimerTimeout);
+        if (waitingRoom.stagedCardTimeout) clearTimeout(waitingRoom.stagedCardTimeout);
+        if (waitingRoom.emptyRoomTimeout) clearTimeout(waitingRoom.emptyRoomTimeout);
+        rooms.delete(waitingRoom.id);
+      }
+      if (unstartedWaitingRooms.length > 0) {
+        scheduleBroadcastOnlinePlayers();
+      }
+
+      return res.json({
+        success: true,
+        tournament: closed,
+        message: 'Torneio encerrado com sucesso. Resultados, histórico, estatísticas e usuários foram preservados.',
+      });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, error: err?.message || 'Erro ao encerrar torneio.' });
+    }
+  });
+});
+
+// Admin: Gerar desafio matemático e diagnóstico para exclusão de usuários temporários do torneio
+app.post('/api/tournaments/:id/temporary-users/challenge', (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador autenticado via JWT.' });
+  }
+
+  const result = createTournamentTempUsersChallenge({
+    tournamentId: req.params.id,
+    actor: adminActor,
+    tournamentsMap: tournaments,
+    roomsMap: rooms,
+  });
+
+  if (!result.success) {
+    return res.status(404).json(result);
+  }
+  return res.json(result);
+});
+
+// Admin: Executar exclusão transacional de usuários temporários após validação matemática no servidor
+app.post('/api/tournaments/:id/temporary-users/delete', async (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador autenticado via JWT.' });
+  }
+
+  const body = req.body || {};
+  const result = await executeTournamentTempUsersCleanup({
+    tournamentId: req.params.id,
+    challengeId: String(body.challengeId || ''),
+    answer: body.answer,
+    reason: body.reason ? String(body.reason) : undefined,
+    actor: adminActor,
+    tournamentsMap: tournaments,
+    roomsMap: rooms,
+    deps: {
+      saveTournamentsFn: saveTournamentsStrict,
+      getAllStatsFn: getAllStats,
+      saveStatsFn: saveStatsStrict,
+    },
+  });
+
+  if (result.success && result.deletedUserIds && result.deletedUserIds.length > 0) {
+    disconnectUsersFromServer(
+      result.deletedUserIds,
+      'Sua conta temporária de torneio foi removida após encerramento.'
+    );
+  }
+
+  return res.status(result.status).json(result);
+});
+
+// Admin: Consultar auditoria do torneio
+app.get('/api/tournaments/:id/audit', (req, res) => {
+  const adminActor = getStrictAdminJwtActor(req);
+  if (!adminActor) {
+    return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador autenticado via JWT.' });
+  }
+  const tournament = tournaments.get(req.params.id);
+  if (!tournament) {
+    return res.status(404).json({ success: false, error: 'Torneio não encontrado.' });
+  }
+  const logs = loadTournamentAuditLogs().filter((l) => l.tournamentId === tournament.config.id);
+  return res.json({
+    success: true,
+    tournamentAuditTrail: tournament.auditTrail || [],
+    centralAuditLogs: logs,
+  });
 });
 
 interface ConnectionMeta {
@@ -4161,6 +4566,21 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
         const room = rooms.get(cleanRoomId);
         if (room) {
+          // Check if leaving is a spectator
+          const specIdx = room.spectators ? room.spectators.findIndex((s) => s.id === msg.playerId) : -1;
+          if (specIdx !== -1) {
+            const leavingSpec = room.spectators![specIdx];
+            room.spectators!.splice(specIdx, 1);
+            broadcastLog(room, `📺 ${leavingSpec.name} saiu da transmissão.`, 'system');
+            const hasOnlineHumans = room.players.some((p) => !p.isBot && p.isConnected) || (room.spectators && room.spectators.length > 0);
+            if (!hasOnlineHumans && !room.tournamentId) {
+              cleanupRoomResources(room);
+            } else {
+              syncRoomState(room);
+            }
+            return;
+          }
+
           const idx = room.players.findIndex((p) => p.id === msg.playerId);
           if (idx !== -1) {
             const leaving = room.players[idx];
@@ -4221,7 +4641,7 @@ wss.on('connection', (ws: WebSocket, req: any) => {
               }
             }
 
-            const hasOnlineHumans = room.players.some((p) => !p.isBot && p.isConnected);
+            const hasOnlineHumans = room.players.some((p) => !p.isBot && p.isConnected) || (room.spectators && room.spectators.length > 0);
             if (!hasOnlineHumans && !room.tournamentId) {
               cleanupRoomResources(room);
             } else {
@@ -4422,6 +4842,17 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 
         // Fluxo estrito para salas de torneio (vínculo obrigatório por userId autenticado via JWT)
         if (room.tournamentId) {
+          const linkedTournament = tournaments.get(room.tournamentId);
+          if (linkedTournament && isTournamentEnded(linkedTournament)) {
+            ws.send(JSON.stringify({
+              type: 'action_rejected',
+              messageId: msg.messageId,
+              code: 'FORBIDDEN' as const,
+              message: 'Este torneio já foi encerrado e não aceita novas participações.',
+            }));
+            return;
+          }
+
           const authUserId = onlineMeta?.authenticatedUserId;
           if (!authUserId) {
             ws.send(JSON.stringify({
@@ -4951,6 +5382,11 @@ wss.on('connection', (ws: WebSocket, req: any) => {
             rejectTournamentMutation('Reinício manual de partida é proibido em salas de torneio.');
             return;
           }
+          const linkedTournament = tournaments.get(room.tournamentId);
+          if (!linkedTournament || isTournamentEnded(linkedTournament) || linkedTournament.status !== 'running') {
+            rejectTournamentMutation('Este torneio já foi encerrado ou não está em execução.');
+            return;
+          }
           const callerSession = onlinePlayers.get(ws);
           if (callerSession?.authenticatedRole !== 'admin') {
             rejectTournamentMutation('Apenas administradores podem iniciar manualmente uma mesa de torneio.');
@@ -5461,6 +5897,9 @@ export {
   rooms,
   tournaments,
   saveTournaments,
+  saveTournamentsStrict,
+  getAllStats,
+  saveStatsStrict,
   startGame,
   executeTournamentPlayerWO,
   executeTournamentDoublesTeamWO,

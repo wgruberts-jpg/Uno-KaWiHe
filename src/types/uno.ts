@@ -214,6 +214,7 @@ export interface EmoteItem {
 
 export type UserRole = 'admin' | 'player';
 export type UserAccountStatus = 'active' | 'disabled' | 'archived';
+export type UserAccountOriginType = 'permanent' | 'tournament_temporary';
 
 export interface UserProfile {
   id: string;
@@ -226,6 +227,9 @@ export interface UserProfile {
   status?: UserAccountStatus;
   statusUpdatedAt?: string;
   statusReason?: string;
+  accountOriginType?: UserAccountOriginType;
+  isTemporary?: boolean;
+  temporaryTournamentId?: string;
   createdByImportBatchId?: string;
   createdByImportOperationId?: string;
 }
@@ -376,6 +380,9 @@ export interface AdminUserSummary {
   createdAt: string;
   status?: UserAccountStatus;
   statusUpdatedAt?: string;
+  accountOriginType?: UserAccountOriginType;
+  isTemporary?: boolean;
+  temporaryTournamentId?: string;
   isOnline: boolean;
   currentRoomId?: string | null;
   roomStatus?: string | null;
@@ -618,6 +625,7 @@ export interface ImportBatch {
   delimiterUsed: ImportDelimiter;
   tournamentId?: string;
   tournamentName?: string;
+  createAsTemporary?: boolean;
   idempotencyKey: string;
   createdAt: string;
   createdByUserId: string;
@@ -677,5 +685,34 @@ export interface ImportImpactReport {
   requestedAction: ImportUserManageAction;
   users: ImportUserDependencyItem[];
 }
+
+export interface TournamentTempUserSummary {
+  id: string;
+  username: string;
+  displayName: string;
+  tag?: string;
+  createdAt: string;
+}
+
+export interface TournamentTempUsersChallengeResponse {
+  success: boolean;
+  error?: string;
+  canExecute: boolean;
+  blockingReasons: string[];
+  tournament: {
+    id: string;
+    name: string;
+    status: string;
+  };
+  temporaryUsersCount: number;
+  temporaryUsers: TournamentTempUserSummary[];
+  permanentUsersPreservedCount: number;
+  challenge?: {
+    challengeId: string;
+    question: string;
+    expiresAt: number;
+  };
+}
+
 
 

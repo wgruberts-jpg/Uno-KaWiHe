@@ -71,6 +71,7 @@ export const AdminImportPanel: React.FC<AdminImportPanelProps> = ({
   const [tournaments, setTournaments] = useState<TournamentSummaryOption[]>([]);
   const [loadingTournaments, setLoadingTournaments] = useState(false);
   const [selectedTournamentId, setSelectedTournamentId] = useState('');
+  const [createAsTemporary, setCreateAsTemporary] = useState(false);
 
   // 4. Validation & Commit State
   const [isValidating, setIsValidating] = useState(false);
@@ -158,6 +159,7 @@ export const AdminImportPanel: React.FC<AdminImportPanelProps> = ({
         delimiter,
         tournamentId: mode !== 'create_only' ? selectedTournamentId : undefined,
         ignoreExistingUsers,
+        createAsTemporary: mode === 'create_and_enroll' ? createAsTemporary : false,
       });
       setValidation(res);
       if (!res.success && res.error) {
@@ -186,6 +188,7 @@ export const AdminImportPanel: React.FC<AdminImportPanelProps> = ({
         delimiter: validation?.detectedDelimiter || delimiter,
         tournamentId: mode !== 'create_only' ? selectedTournamentId : undefined,
         ignoreExistingUsers,
+        createAsTemporary: mode === 'create_and_enroll' ? createAsTemporary : false,
         name: batchName.trim(),
         importTag: importTag.trim() || undefined,
         description: description.trim() || undefined,
@@ -216,13 +219,13 @@ export const AdminImportPanel: React.FC<AdminImportPanelProps> = ({
   const selectedTournament = tournaments.find((t) => t.config.id === selectedTournamentId);
   const selectedTournamentDoubles = selectedTournament?.config.modality === 'doubles';
   const selectedTournamentClosed =
-    selectedTournament && selectedTournament.status !== 'registration';
+    !!selectedTournament && !['registration', 'rescheduled'].includes(selectedTournament.status);
 
   const canOpenConfirm =
     !!validation?.success &&
     (validation.summary?.readyToProcessCount || 0) > 0 &&
     batchName.trim().length >= 2 &&
-    !(mode !== 'create_only' && (!selectedTournamentId || selectedTournamentDoubles || selectedTournamentClosed));
+    !(mode !== 'create_only' && (!selectedTournamentId || selectedTournamentClosed));
 
   return (
     <div className="space-y-4">
@@ -394,7 +397,11 @@ export const AdminImportPanel: React.FC<AdminImportPanelProps> = ({
             <select
               value={mode}
               onChange={(e) => {
-                setMode(e.target.value as ImportOperationMode);
+                const nextMode = e.target.value as ImportOperationMode;
+                setMode(nextMode);
+                if (nextMode !== 'create_and_enroll') {
+                  setCreateAsTemporary(false);
+                }
                 resetValidationAndResult();
               }}
               className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-600 text-white text-xs font-bold focus:outline-none focus:border-sky-400"
@@ -430,27 +437,49 @@ export const AdminImportPanel: React.FC<AdminImportPanelProps> = ({
                 <option value="">-- Selecione um torneio --</option>
                 {tournaments.map((t) => (
                   <option key={t.config.id} value={t.config.id}>
-                    {t.config.name} ({t.config.modality === 'doubles' ? 'Duplas 2v2 — Bloqueado' : 'Individual'} · {t.status} · {t.entries.length} inscrito(s))
+                    {t.config.name} ({t.config.modality === 'doubles' ? 'Duplas 2v2 (Pares: 1º e 2º)' : 'Individual'} · {t.status} · {t.entries.length} {t.config.modality === 'doubles' ? 'dupla(s)' : 'inscrito(s)'})
                   </option>
                 ))}
               </select>
 
               {selectedTournamentDoubles && (
-                <div className="p-2 rounded-xl bg-rose-950/60 border border-rose-500/60 text-[11px] text-rose-200 flex items-start gap-1.5">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="p-2 rounded-xl bg-sky-950/60 border border-sky-500/60 text-[11px] text-sky-200 flex items-start gap-1.5">
+                  <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                   <span>
-                    Torneios de <strong>Duplas (2v2)</strong> não aceitam inscrição individual em lote nesta versão. Selecione um torneio Individual ou use o Modo A.
+                    Torneios de <strong>Duplas (2v2)</strong>: As linhas do lote serão consideradas em pares consecutivos (1ª e 2ª linhas = 1ª dupla, 3ª e 4ª linhas = 2ª dupla, etc.). Certifique-se de que o lote possui um número par de usuários.
                   </span>
                 </div>
               )}
 
-              {selectedTournamentClosed && !selectedTournamentDoubles && (
+              {selectedTournamentClosed && (
                 <div className="p-2 rounded-xl bg-amber-950/60 border border-amber-500/60 text-[11px] text-amber-200 flex items-start gap-1.5">
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <span>
                     Este torneio está com status <strong>{selectedTournament?.status}</strong> e não aceita novas inscrições.
                   </span>
                 </div>
+              )}
+
+              {mode === 'create_and_enroll' && (
+                <label className="flex items-start gap-2 p-2.5 rounded-xl bg-slate-900/80 border border-slate-700 cursor-pointer hover:border-amber-500/50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={createAsTemporary}
+                    onChange={(e) => {
+                      setCreateAsTemporary(e.target.checked);
+                      resetValidationAndResult();
+                    }}
+                    className="mt-0.5 rounded border-slate-600 bg-slate-900"
+                  />
+                  <div className="text-[11px] leading-snug">
+                    <div className="font-black text-amber-300">
+                      Criar contas como usuários temporários exclusivos deste torneio
+                    </div>
+                    <div className="text-slate-400">
+                      Opcional (desmarcado por padrão = usuários permanentes). Contas marcadas como temporárias poderão ser limpas após o torneio sem afetar contas permanentes.
+                    </div>
+                  </div>
+                </label>
               )}
             </div>
           ) : (
@@ -680,6 +709,16 @@ export const AdminImportPanel: React.FC<AdminImportPanelProps> = ({
               <div><strong>Modo:</strong> {mode}</div>
               {validation.tournament && (
                 <div><strong>Torneio:</strong> {validation.tournament.name}</div>
+              )}
+              {mode === 'create_and_enroll' && (
+                <div>
+                  <strong>Tipo das novas contas:</strong>{' '}
+                  {createAsTemporary ? (
+                    <span className="text-amber-300 font-black">Temporárias exclusivas do torneio</span>
+                  ) : (
+                    <span className="text-emerald-300 font-black">Permanentes (preservadas)</span>
+                  )}
+                </div>
               )}
               <div>
                 <strong>Ações previstas:</strong>{' '}

@@ -7,6 +7,7 @@ import {
   Sparkles,
   Radio,
   Trophy,
+  Swords,
   Settings,
   HelpCircle,
   Server,
@@ -212,7 +213,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
             title="Torneios & Campeonatos"
           >
-            <Trophy className={`w-5 h-5 shrink-0 ${activeTab === 'tournament' ? 'text-white' : 'text-amber-500'}`} />
+            <Swords className={`w-5 h-5 shrink-0 ${activeTab === 'tournament' ? 'text-white' : 'text-amber-500'}`} />
             {isExpanded && (
               <div className="text-left font-black text-xs">
                 <div>Torneios KaWiHe</div>

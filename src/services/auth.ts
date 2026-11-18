@@ -290,6 +290,8 @@ class AuthService {
     displayName?: string;
     avatar?: string;
     role?: UserRole;
+    isTemporary?: boolean;
+    temporaryTournamentId?: string;
   }): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
     try {
       const res = await fetch('/api/admin/users/create', {
@@ -359,6 +361,7 @@ class AuthService {
     delimiter?: ImportDelimiter | 'auto';
     tournamentId?: string;
     ignoreExistingUsers?: boolean;
+    createAsTemporary?: boolean;
   }): Promise<ImportValidationResponse> {
     if (!this.token) {
       return { success: false, mode: params.mode, rows: [], error: 'Não autenticado como administrador.' };
@@ -389,6 +392,7 @@ class AuthService {
     delimiter?: ImportDelimiter | 'auto';
     tournamentId?: string;
     ignoreExistingUsers?: boolean;
+    createAsTemporary?: boolean;
     name: string;
     importTag?: string;
     description?: string;

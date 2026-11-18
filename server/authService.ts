@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { UserProfile, UserRole, AuthResponse, InviteCode, UserAccountStatus } from '../src/types/uno.js';
+import { UserProfile, UserRole, AuthResponse, InviteCode, UserAccountStatus, UserAccountOriginType } from '../src/types/uno.js';
 import { atomicWriteFileSync, ensureDirExists, getDataDir, withDataLock } from './dataLock.js';
 
 export interface UserRecord {
@@ -18,6 +18,9 @@ export interface UserRecord {
   status?: UserAccountStatus;
   statusUpdatedAt?: string;
   statusReason?: string;
+  accountOriginType?: UserAccountOriginType;
+  isTemporary?: boolean;
+  temporaryTournamentId?: string;
   createdByImportBatchId?: string;
   createdByImportOperationId?: string;
 }
@@ -31,7 +34,7 @@ export const MAX_DISPLAY_NAME_LENGTH = 18;
 
 const JWT_SECRET = process.env.JWT_SECRET || 'kawihe_jwt_super_secret_key_2026';
 
-function getUsersFile(): string {
+export function getUsersFile(): string {
   return path.join(getDataDir(), 'users.json');
 }
 
@@ -192,6 +195,19 @@ export function isUserAccountActive(user: Pick<UserRecord, 'status'>): boolean {
   return getEffectiveUserStatus(user) === 'active';
 }
 
+export function isUserTemporaryForTournament(
+  user: Pick<UserRecord, 'role' | 'username' | 'isTemporary' | 'accountOriginType' | 'temporaryTournamentId'>,
+  tournamentId: string
+): boolean {
+  if (!tournamentId || !tournamentId.trim()) return false;
+  if (user.role === 'admin' || user.username.toLowerCase() === 'edinho') return false;
+  return (
+    user.isTemporary === true &&
+    user.accountOriginType === 'tournament_temporary' &&
+    user.temporaryTournamentId === tournamentId
+  );
+}
+
 export function generateUniqueTag(existingTags: Set<string | undefined>): string {
   for (let attempts = 0; attempts < 5000; attempts++) {
     const candidate = `#${crypto.randomInt(1000, 10000)}`;
@@ -216,20 +232,31 @@ export function buildUserRecord(params: {
   role?: UserRole;
   existingTags: Set<string | undefined>;
   createdAt?: string;
+  accountOriginType?: UserAccountOriginType;
+  isTemporary?: boolean;
+  temporaryTournamentId?: string;
   createdByImportBatchId?: string;
   createdByImportOperationId?: string;
 }): UserRecord {
   const tag = generateUniqueTag(params.existingTags);
+  const safeRole: UserRole = params.role === 'admin' ? 'admin' : 'player';
+  const markTemp =
+    safeRole !== 'admin' &&
+    params.isTemporary === true &&
+    Boolean(params.temporaryTournamentId && params.temporaryTournamentId.trim());
   return {
     id: `usr_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
     username: params.username,
     passwordHash: params.passwordHash,
     displayName: params.displayName,
     avatar: params.avatar || '🦸‍♂️',
-    role: params.role === 'admin' ? 'admin' : 'player',
+    role: safeRole,
     tag,
     createdAt: params.createdAt || new Date().toISOString(),
     status: 'active',
+    accountOriginType: markTemp ? 'tournament_temporary' : 'permanent',
+    isTemporary: markTemp,
+    temporaryTournamentId: markTemp ? params.temporaryTournamentId!.trim() : undefined,
     createdByImportBatchId: params.createdByImportBatchId,
     createdByImportOperationId: params.createdByImportOperationId,
   };
@@ -363,6 +390,12 @@ export function verifyToken(token: string): { id: string; username: string; role
 }
 
 export function toPublicProfile(user: UserRecord): UserProfile {
+  const isTemp =
+    user.role !== 'admin' &&
+    user.username.toLowerCase() !== 'edinho' &&
+    user.isTemporary === true &&
+    user.accountOriginType === 'tournament_temporary' &&
+    Boolean(user.temporaryTournamentId);
   return {
     id: user.id,
     username: user.username,
@@ -374,6 +407,9 @@ export function toPublicProfile(user: UserRecord): UserProfile {
     status: getEffectiveUserStatus(user),
     statusUpdatedAt: user.statusUpdatedAt,
     statusReason: user.statusReason,
+    accountOriginType: isTemp ? 'tournament_temporary' : 'permanent',
+    isTemporary: isTemp,
+    temporaryTournamentId: isTemp ? user.temporaryTournamentId : undefined,
   };
 }
 
@@ -591,8 +627,17 @@ export async function adminCreateUser(params: {
   displayName?: string;
   avatar?: string;
   role?: UserRole;
+  isTemporary?: boolean;
+  temporaryTournamentId?: string;
 }): Promise<{ success: boolean; user?: UserProfile; error?: string }> {
-  const { username, password, displayName, avatar, role = 'player' } = params;
+  const { username, password, displayName, avatar, role = 'player', isTemporary, temporaryTournamentId } = params;
+
+  if (isTemporary && role === 'admin') {
+    return { success: false, error: 'Contas de administrador jamais podem ser criadas como temporárias.' };
+  }
+  if (isTemporary && (!temporaryTournamentId || !temporaryTournamentId.trim())) {
+    return { success: false, error: 'Informe o torneio de destino ao criar um usuário temporário.' };
+  }
 
   const uCheck = validateUsername(username);
   if (!uCheck.valid) {
@@ -629,6 +674,9 @@ export async function adminCreateUser(params: {
       avatar: avatar || '🦸‍♂️',
       role: role === 'admin' ? 'admin' : 'player',
       existingTags,
+      accountOriginType: isTemporary ? 'tournament_temporary' : 'permanent',
+      isTemporary: Boolean(isTemporary),
+      temporaryTournamentId: isTemporary ? temporaryTournamentId!.trim() : undefined,
     });
 
     users.push(newUser);

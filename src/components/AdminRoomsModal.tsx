@@ -85,6 +85,9 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newAvatar, setNewAvatar] = useState('🦸‍♂️');
   const [newRole, setNewRole] = useState<'player' | 'admin'>('player');
+  const [newIsTemporary, setNewIsTemporary] = useState(false);
+  const [newTemporaryTournamentId, setNewTemporaryTournamentId] = useState('');
+  const [openTournaments, setOpenTournaments] = useState<Array<{ config: { id: string; name: string }; status: string }>>([]);
   const [isSubmittingUser, setIsSubmittingUser] = useState(false);
 
   // Reset Password States
@@ -112,9 +115,10 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         Authorization: `Bearer ${token}`,
       };
 
-      const [roomsResult, usersResult] = await Promise.allSettled([
+      const [roomsResult, usersResult, tournamentsResult] = await Promise.allSettled([
         fetch('/api/admin/rooms', { headers }),
         fetch('/api/admin/users', { headers }),
+        fetch('/api/tournaments', { headers }),
       ]);
 
       let nextPollError: string | null = null;
@@ -143,6 +147,20 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         }
       } else if (!nextPollError) {
         nextPollError = 'Conexão temporariamente indisponível ao buscar usuários.';
+      }
+
+      if (tournamentsResult.status === 'fulfilled') {
+        const parsedTourns = await parseJsonSafe<{
+          success?: boolean;
+          tournaments?: Array<{ config: { id: string; name: string }; status: string }>;
+        }>(tournamentsResult.value);
+        if (parsedTourns.ok && parsedTourns.isJson && parsedTourns.data?.success && Array.isArray(parsedTourns.data.tournaments)) {
+          if (isMountedRef.current) {
+            setOpenTournaments(
+              parsedTourns.data.tournaments.filter((t) => ['registration', 'rescheduled'].includes(t.status))
+            );
+          }
+        }
       }
 
       if (isMountedRef.current) {
@@ -189,6 +207,12 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
       return;
     }
 
+    if (newRole === 'player' && newIsTemporary && !newTemporaryTournamentId) {
+      setActionError('Selecione o torneio vinculado para o usuário temporário.');
+      setTimeout(() => setActionError(null), 4000);
+      return;
+    }
+
     setIsSubmittingUser(true);
     setActionError(null);
     try {
@@ -198,6 +222,8 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         displayName: newDisplayName.trim() || newUsername.trim(),
         avatar: newAvatar,
         role: newRole,
+        isTemporary: newRole === 'player' ? newIsTemporary : false,
+        temporaryTournamentId: newRole === 'player' && newIsTemporary ? newTemporaryTournamentId : undefined,
       });
       if (res.success && res.user) {
         setActionFeedback(`✅ Usuário @${res.user.username} cadastrado com sucesso!`);
@@ -207,6 +233,8 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
         setNewDisplayName('');
         setNewAvatar('🦸‍♂️');
         setNewRole('player');
+        setNewIsTemporary(false);
+        setNewTemporaryTournamentId('');
         fetchAdminData();
         setTimeout(() => setActionFeedback(null), 4500);
       } else {
@@ -872,7 +900,14 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                     </label>
                     <select
                       value={newRole}
-                      onChange={(e) => setNewRole(e.target.value as 'player' | 'admin')}
+                      onChange={(e) => {
+                        const roleVal = e.target.value as 'player' | 'admin';
+                        setNewRole(roleVal);
+                        if (roleVal !== 'player') {
+                          setNewIsTemporary(false);
+                          setNewTemporaryTournamentId('');
+                        }
+                      }}
                       className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-600 text-white font-bold text-xs focus:outline-none focus:border-amber-400"
                     >
                       <option value="player">🎮 Jogador Padrão</option>
@@ -880,6 +915,50 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                     </select>
                   </div>
                 </div>
+
+                {newRole === 'player' && (
+                  <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-700 space-y-2">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newIsTemporary}
+                        onChange={(e) => {
+                          setNewIsTemporary(e.target.checked);
+                          if (!e.target.checked) setNewTemporaryTournamentId('');
+                        }}
+                        className="mt-0.5 rounded border-slate-600 bg-slate-900"
+                      />
+                      <div className="text-[11px]">
+                        <div className="font-black text-amber-300">
+                          Criar como usuário temporário exclusivo de torneio
+                        </div>
+                        <div className="text-slate-400">
+                          Desmarcado por padrão (usuário permanente). Apenas usuários marcados aqui ficam elegíveis para limpeza de temporários do torneio selecionado.
+                        </div>
+                      </div>
+                    </label>
+
+                    {newIsTemporary && (
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                          Torneio Vinculado *
+                        </label>
+                        <select
+                          value={newTemporaryTournamentId}
+                          onChange={(e) => setNewTemporaryTournamentId(e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-amber-500/60 text-white font-bold text-xs focus:outline-none focus:border-amber-400"
+                        >
+                          <option value="">-- Selecione um torneio aberto --</option>
+                          {openTournaments.map((t) => (
+                            <option key={t.config.id} value={t.config.id}>
+                              {t.config.name} ({t.status})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Avatar Quick Selection */}
                 <div>
@@ -988,6 +1067,14 @@ export const AdminRoomsModal: React.FC<AdminRoomsModalProps> = ({
                                 {u.role === 'admin' && (
                                   <span className="text-[9px] font-black bg-amber-500 text-slate-950 px-1.5 rounded">
                                     ADMIN
+                                  </span>
+                                )}
+                                {u.isTemporary && u.accountOriginType === 'tournament_temporary' && (
+                                  <span
+                                    title={`Usuário temporário exclusivo do torneio ${u.temporaryTournamentId || ''}`}
+                                    className="text-[9px] font-black bg-sky-900/80 text-sky-200 border border-sky-500/50 px-1.5 rounded"
+                                  >
+                                    TEMPORÁRIO
                                   </span>
                                 )}
                                 {u.status === 'disabled' && (

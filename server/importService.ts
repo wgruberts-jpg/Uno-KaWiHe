@@ -39,7 +39,12 @@ import {
 } from './authService.js';
 import { atomicWriteFileSync, ensureDirExists, getDataDir, withDataLock } from './dataLock.js';
 import { parseImportPayload, ParsedImportRow } from './importParser.js';
-import { registerIndividualEntry, Tournament } from './tournamentEngine.js';
+import {
+  isTournamentOpenForRegistration,
+  registerIndividualEntry,
+  registerDoublesTeam,
+  Tournament,
+} from './tournamentEngine.js';
 import { RoomData } from './unoEngine.js';
 
 const BCRYPT_ROUNDS = 10;
@@ -150,6 +155,7 @@ export interface ValidateImportInput {
   delimiter?: ImportDelimiter | 'auto';
   tournamentId?: string;
   ignoreExistingUsers?: boolean;
+  createAsTemporary?: boolean;
   tournamentsMap: Map<string, Tournament>;
 }
 
@@ -202,7 +208,7 @@ function evaluateImportAgainstState(
         success: false,
         response: {
           success: false,
-          error: 'Selecione um torneio individual em inscrição para este modo de importação.',
+          error: 'Selecione um torneio em inscrição para este modo de importação.',
           detectedDelimiter: parsed.detectedDelimiter,
           mode,
           rows: [],
@@ -232,11 +238,7 @@ function evaluateImportAgainstState(
     let compatible = true;
     let incompatibilityReason: string | undefined;
 
-    if (targetTournament.config.modality === 'doubles') {
-      compatible = false;
-      incompatibilityReason =
-        'Torneios de duplas (2v2) não aceitam inscrição individual em lote nesta versão. Forme as duplas manualmente ou aguarde a importação por equipes.';
-    } else if (targetTournament.status !== 'registration') {
+    if (!isTournamentOpenForRegistration(targetTournament)) {
       compatible = false;
       incompatibilityReason = `O torneio "${targetTournament.config.name}" não está aberto para inscrições (status atual: ${targetTournament.status}).`;
     }
@@ -586,6 +588,39 @@ function evaluateImportAgainstState(
     });
   }
 
+  if (targetTournament && targetTournament.config.modality === 'doubles' && (mode === 'create_and_enroll' || mode === 'enroll_existing')) {
+    const validRows = rows.filter((r) => r.status === 'valid');
+    if (validRows.length % 2 !== 0 && validRows.length > 0) {
+      const lastValid = validRows.pop()!;
+      lastValid.status = 'invalid';
+      lastValid.codes = ['ODD_ROW_COUNT_DOUBLES'];
+      lastValid.messages = [
+        'Número ímpar de linhas válidas: torneios de duplas (2v2) exigem pares de linhas (1ª e 2ª, 3ª e 4ª, etc.) para formar as duplas.',
+      ];
+      lastValid.willCreateUser = false;
+      lastValid.willEnrollTournament = false;
+      summary.validCount--;
+      summary.invalidCount++;
+      summary.readyToProcessCount--;
+      summary.eligibleEnrollCount--;
+      const cIdx = creatableRows.findIndex((cr) => cr.lineNumber === lastValid.lineNumber);
+      if (cIdx !== -1) creatableRows.splice(cIdx, 1);
+      const eIdx = enrollableExistingRows.findIndex((er) => er.lineNumber === lastValid.lineNumber);
+      if (eIdx !== -1) enrollableExistingRows.splice(eIdx, 1);
+    }
+
+    // Annotate paired rows in preview diagnostics
+    for (let i = 0; i < validRows.length - 1; i += 2) {
+      const r1 = validRows[i];
+      const r2 = validRows[i + 1];
+      const pairNum = Math.floor(i / 2) + 1;
+      const name1 = r1.displayName || r1.username;
+      const name2 = r2.displayName || r2.username;
+      r1.messages = [...r1.messages, `Dupla #${pairNum} (com "${name2}").`];
+      r2.messages = [...r2.messages, `Dupla #${pairNum} (com "${name1}").`];
+    }
+  }
+
   const previewHash = crypto
     .createHash('sha256')
     .update(`${mode}|${tournamentId || ''}|${parsed.detectedDelimiter}|${rows.map((r) => `${r.lineNumber}:${r.username}:${r.status}`).join(',')}`)
@@ -724,6 +759,14 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
       opIdByLine.set(vRow.lineNumber, crypto.randomUUID());
     }
 
+    const targetTournament = input.tournamentId ? input.tournamentsMap.get(input.tournamentId) : undefined;
+    const isTournamentMode = input.mode === 'create_and_enroll' || input.mode === 'enroll_existing';
+    const shouldMarkTemporary = Boolean(
+      input.createAsTemporary === true &&
+      input.mode === 'create_and_enroll' &&
+      targetTournament
+    );
+
     const newUserRecords: UserRecord[] = [];
     const createdByLine = new Map<number, UserRecord>();
 
@@ -740,15 +783,15 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
         role: 'player', // Always force standard player role in bulk import
         existingTags,
         createdAt: nowIso,
+        accountOriginType: shouldMarkTemporary ? 'tournament_temporary' : 'permanent',
+        isTemporary: shouldMarkTemporary,
+        temporaryTournamentId: shouldMarkTemporary ? targetTournament!.config.id : undefined,
         createdByImportBatchId: importBatchId,
         createdByImportOperationId: opId,
       });
       newUserRecords.push(newUser);
       createdByLine.set(row.lineNumber, newUser);
     }
-
-    const targetTournament = input.tournamentId ? input.tournamentsMap.get(input.tournamentId) : undefined;
-    const isTournamentMode = input.mode === 'create_and_enroll' || input.mode === 'enroll_existing';
 
     // Build initial planned items (no passwords or hashes!)
     const plannedItems: ImportBatchItem[] = reEval.response.rows.map((vRow) => {
@@ -830,6 +873,7 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
       delimiterUsed: reEval.response.detectedDelimiter || ';',
       tournamentId: targetTournament?.config.id,
       tournamentName: targetTournament?.config.name,
+      createAsTemporary: shouldMarkTemporary,
       idempotencyKey,
       createdAt: nowIso,
       createdByUserId: input.actor.id,
@@ -883,31 +927,86 @@ export async function commitImportBatch(input: CommitImportInput): Promise<{
     let tournamentUpdated = false;
     if (isTournamentMode && targetTournament) {
       let currentTournament = targetTournament;
-      for (const item of batchRecord.items) {
-        if (!item.userId) continue;
-        if (item.outcome !== 'created_and_enrolled' && item.outcome !== 'enrolled') continue;
+      if (targetTournament.config.modality === 'doubles') {
+        const successfulItems = batchRecord.items.filter(
+          (item) => item.userId && (item.outcome === 'created_and_enrolled' || item.outcome === 'enrolled')
+        );
 
-        try {
-          const enrolled = registerIndividualEntry(
-            currentTournament,
-            item.userId,
-            item.displayName || item.username
-          );
-          currentTournament = enrolled.tournament;
-          item.enrolledInTournament = true;
-          item.enrollOpStatus = 'persisted';
-          item.enrolledAt = new Date().toISOString();
-          tournamentUpdated = true;
-        } catch (err: any) {
-          item.enrolledInTournament = false;
-          item.enrollOpStatus = 'failed';
-          if (item.relationType === 'created_by_batch') {
-            item.outcome = 'created';
-          } else {
-            item.outcome = 'failed';
+        for (let i = 0; i < successfulItems.length - 1; i += 2) {
+          const item1 = successfulItems[i];
+          const item2 = successfulItems[i + 1];
+          const u1 = item1.userId!;
+          const u2 = item2.userId!;
+          const name1 = item1.displayName || item1.username || 'Jogador 1';
+          const name2 = item2.displayName || item2.username || 'Jogador 2';
+          const teamName = `Dupla: ${name1} & ${name2}`;
+          const teamId = `team_${crypto.randomBytes(4).toString('hex')}`;
+
+          try {
+            const registered = registerDoublesTeam(
+              currentTournament,
+              teamId,
+              teamName,
+              [u1, u2]
+            );
+            currentTournament = registered.tournament;
+            item1.enrolledInTournament = true;
+            item1.enrollOpStatus = 'persisted';
+            item1.enrolledAt = new Date().toISOString();
+            item2.enrolledInTournament = true;
+            item2.enrollOpStatus = 'persisted';
+            item2.enrolledAt = new Date().toISOString();
+            tournamentUpdated = true;
+          } catch (err: any) {
+            for (const it of [item1, item2]) {
+              it.enrolledInTournament = false;
+              it.enrollOpStatus = 'failed';
+              if (it.relationType === 'created_by_batch') {
+                it.outcome = 'created';
+              } else {
+                it.outcome = 'failed';
+              }
+              it.reasonCode = 'TOURNAMENT_ENROLL_FAILED';
+              it.reasonMessage = err?.message || 'Não foi possível inscrever a dupla no torneio.';
+            }
           }
-          item.reasonCode = 'TOURNAMENT_ENROLL_FAILED';
-          item.reasonMessage = err?.message || 'Não foi possível inscrever no torneio.';
+        }
+
+        if (successfulItems.length % 2 !== 0) {
+          const leftover = successfulItems[successfulItems.length - 1];
+          leftover.enrolledInTournament = false;
+          leftover.enrollOpStatus = 'failed';
+          leftover.outcome = leftover.relationType === 'created_by_batch' ? 'created' : 'failed';
+          leftover.reasonCode = 'ODD_ROW_COUNT_DOUBLES';
+          leftover.reasonMessage = 'Sem par disponível para formar dupla 2v2.';
+        }
+      } else {
+        for (const item of batchRecord.items) {
+          if (!item.userId) continue;
+          if (item.outcome !== 'created_and_enrolled' && item.outcome !== 'enrolled') continue;
+
+          try {
+            const enrolled = registerIndividualEntry(
+              currentTournament,
+              item.userId,
+              item.displayName || item.username
+            );
+            currentTournament = enrolled.tournament;
+            item.enrolledInTournament = true;
+            item.enrollOpStatus = 'persisted';
+            item.enrolledAt = new Date().toISOString();
+            tournamentUpdated = true;
+          } catch (err: any) {
+            item.enrolledInTournament = false;
+            item.enrollOpStatus = 'failed';
+            if (item.relationType === 'created_by_batch') {
+              item.outcome = 'created';
+            } else {
+              item.outcome = 'failed';
+            }
+            item.reasonCode = 'TOURNAMENT_ENROLL_FAILED';
+            item.reasonMessage = err?.message || 'Não foi possível inscrever no torneio.';
+          }
         }
       }
 
@@ -1002,6 +1101,8 @@ export async function reconcileIncompleteImportBatches(
         }
       }
 
+      const pendingDoublesItems: ImportBatchItem[] = [];
+
       for (const item of batch.items) {
         if (item.relationType === 'created_by_batch' && item.userId) {
           const liveUser = usersById.get(item.userId);
@@ -1017,38 +1118,37 @@ export async function reconcileIncompleteImportBatches(
                 item.enrolledAt = item.enrolledAt || nowIso;
                 item.outcome = 'created_and_enrolled';
                 enrolledPersistedCount++;
-              } else {
-                // Attempt idempotent enrollment recovery if tournament is still in registration
-                if (currentTournament.status === 'registration' && currentTournament.config.modality === 'individual') {
-                  try {
-                    const res = registerIndividualEntry(
-                      currentTournament,
-                      item.userId,
-                      item.displayName || item.username
-                    );
-                    currentTournament = res.tournament;
-                    tournamentsMap.set(currentTournament.config.id, currentTournament);
-                    tournamentDirty = true;
-                    enrolledSet.add(item.userId);
-                    item.enrolledInTournament = true;
-                    item.enrollOpStatus = 'persisted';
-                    item.enrolledAt = nowIso;
-                    item.outcome = 'created_and_enrolled';
-                    enrolledPersistedCount++;
-                  } catch {
-                    item.enrolledInTournament = false;
-                    item.enrollOpStatus = 'failed';
-                    item.outcome = 'created';
-                    item.reasonCode = 'RECONCILED_NOT_ENROLLED';
-                    item.reasonMessage = 'Conta criada antes do reinício; inscrição pendente.';
-                  }
-                } else {
+              } else if (isTournamentOpenForRegistration(currentTournament) && currentTournament.config.modality === 'doubles') {
+                pendingDoublesItems.push(item);
+              } else if (isTournamentOpenForRegistration(currentTournament) && currentTournament.config.modality === 'individual') {
+                try {
+                  const res = registerIndividualEntry(
+                    currentTournament,
+                    item.userId,
+                    item.displayName || item.username
+                  );
+                  currentTournament = res.tournament;
+                  tournamentsMap.set(currentTournament.config.id, currentTournament);
+                  tournamentDirty = true;
+                  enrolledSet.add(item.userId);
+                  item.enrolledInTournament = true;
+                  item.enrollOpStatus = 'persisted';
+                  item.enrolledAt = nowIso;
+                  item.outcome = 'created_and_enrolled';
+                  enrolledPersistedCount++;
+                } catch {
                   item.enrolledInTournament = false;
                   item.enrollOpStatus = 'failed';
                   item.outcome = 'created';
                   item.reasonCode = 'RECONCILED_NOT_ENROLLED';
-                  item.reasonMessage = 'Conta criada antes do reinício; torneio não estava mais em inscrição.';
+                  item.reasonMessage = 'Conta criada antes do reinício; inscrição pendente.';
                 }
+              } else {
+                item.enrolledInTournament = false;
+                item.enrollOpStatus = 'failed';
+                item.outcome = 'created';
+                item.reasonCode = 'RECONCILED_NOT_ENROLLED';
+                item.reasonMessage = 'Conta criada antes do reinício; torneio não estava mais em inscrição.';
               }
             } else {
               item.enrollOpStatus = 'not_applicable';
@@ -1071,7 +1171,14 @@ export async function reconcileIncompleteImportBatches(
             enrolledPersistedCount++;
           } else if (
             currentTournament &&
-            currentTournament.status === 'registration' &&
+            isTournamentOpenForRegistration(currentTournament) &&
+            currentTournament.config.modality === 'doubles' &&
+            usersById.has(item.userId)
+          ) {
+            pendingDoublesItems.push(item);
+          } else if (
+            currentTournament &&
+            isTournamentOpenForRegistration(currentTournament) &&
             currentTournament.config.modality === 'individual' &&
             usersById.has(item.userId)
           ) {
@@ -1104,6 +1211,50 @@ export async function reconcileIncompleteImportBatches(
             item.reasonCode = 'INTERRUPTED_BEFORE_ENROLL';
             item.reasonMessage = 'Processo interrompido antes da inscrição no torneio.';
           }
+        }
+      }
+
+      if (currentTournament && pendingDoublesItems.length > 0) {
+        for (let i = 0; i < pendingDoublesItems.length - 1; i += 2) {
+          const item1 = pendingDoublesItems[i];
+          const item2 = pendingDoublesItems[i + 1];
+          const u1 = item1.userId!;
+          const u2 = item2.userId!;
+          const name1 = item1.displayName || item1.username || 'Jogador 1';
+          const name2 = item2.displayName || item2.username || 'Jogador 2';
+          const teamName = `Dupla: ${name1} & ${name2}`;
+          const teamId = `team_${crypto.randomBytes(4).toString('hex')}`;
+          try {
+            const res = registerDoublesTeam(currentTournament, teamId, teamName, [u1, u2]);
+            currentTournament = res.tournament;
+            tournamentsMap.set(currentTournament.config.id, currentTournament);
+            tournamentDirty = true;
+            enrolledSet.add(u1);
+            enrolledSet.add(u2);
+            for (const it of [item1, item2]) {
+              it.enrolledInTournament = true;
+              it.enrollOpStatus = 'persisted';
+              it.enrolledAt = nowIso;
+              it.outcome = it.relationType === 'created_by_batch' ? 'created_and_enrolled' : 'enrolled';
+              enrolledPersistedCount++;
+            }
+          } catch {
+            for (const it of [item1, item2]) {
+              it.enrolledInTournament = false;
+              it.enrollOpStatus = 'failed';
+              it.outcome = it.relationType === 'created_by_batch' ? 'created' : 'failed';
+              it.reasonCode = 'RECONCILED_NOT_ENROLLED';
+              it.reasonMessage = 'Não foi possível inscrever a dupla durante reconciliação.';
+            }
+          }
+        }
+        if (pendingDoublesItems.length % 2 !== 0) {
+          const leftover = pendingDoublesItems[pendingDoublesItems.length - 1];
+          leftover.enrolledInTournament = false;
+          leftover.enrollOpStatus = 'failed';
+          leftover.outcome = leftover.relationType === 'created_by_batch' ? 'created' : 'failed';
+          leftover.reasonCode = 'RECONCILED_NOT_ENROLLED';
+          leftover.reasonMessage = 'Sem par disponível para formar dupla 2v2 durante reconciliação.';
         }
       }
 

@@ -491,26 +491,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     );
   };
 
-  // Extract opponents for explicit grid slots
-  // Sequence for 3 opponents in clockwise order:
-  // opp0 = 270° (Left / Bot Luna), opp1 = 180° (Top / Bot Thor), opp2 = 90° (Right / Bot Maya)
-  const leftOpponent = opponentsInArc.length >= 2 ? opponentsInArc[0] : null;
-  const topOpponents =
-    opponentsInArc.length === 1
-      ? [opponentsInArc[0]]
-      : opponentsInArc.length === 3
-      ? [opponentsInArc[1]]
-      : opponentsInArc.length >= 4
-      ? [opponentsInArc[1], opponentsInArc[2]]
-      : [];
-  const rightOpponent =
-    opponentsInArc.length === 2
-      ? opponentsInArc[1]
-      : opponentsInArc.length === 3
-      ? opponentsInArc[2]
-      : opponentsInArc.length >= 4
-      ? opponentsInArc[3]
-      : null;
+  // Extract opponents for explicit grid slots (one player on each side: Left, Top, Right, Bottom)
+  const bottomOpponent = isSpectator && state.players.length >= 4 ? state.players[0] : null;
+  const leftOpponent = isSpectator
+    ? (state.players.length >= 4 ? state.players[1] : state.players.length >= 2 ? state.players[0] : null)
+    : (opponentsInArc.length >= 2 ? opponentsInArc[0] : null);
+  const topOpponent = isSpectator
+    ? (state.players.length >= 4 ? state.players[2] : state.players.length >= 3 ? state.players[1] : state.players[0])
+    : (opponentsInArc.length === 1 ? opponentsInArc[0] : opponentsInArc.length >= 2 ? opponentsInArc[1] : null);
+  const rightOpponent = isSpectator
+    ? (state.players.length >= 4 ? state.players[3] : state.players.length >= 3 ? state.players[2] : null)
+    : (opponentsInArc.length >= 3 ? opponentsInArc[2] : null);
 
   return (
     <div
@@ -664,16 +655,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             {/* Square (1,1): Top-Left Corner */}
             <div className="w-full h-full flex items-center justify-start text-xs text-transparent select-none pointer-events-none" />
 
-            {/* Square (1,2): Top Player (Thor 180°) */}
+            {/* Square (1,2): Top Player */}
             <div className="w-full flex items-center justify-center z-20">
-              {topOpponents.length > 0 && (
-                <div className="flex items-center justify-center gap-6">
-                  {topOpponents.map((opp, idx) => (
-                    <div key={`top-${opp.id}-${idx}`}>
-                      {renderOpponentBox(opp)}
-                    </div>
-                  ))}
+              {topOpponent ? (
+                <div key={`top-${topOpponent.id}`}>
+                  {renderOpponentBox(topOpponent)}
                 </div>
+              ) : (
+                <div className="w-1" />
               )}
             </div>
 
@@ -889,14 +878,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 </div>
               )}
 
-              {/* Cards in Hand - Spans Squares 7, 8, 9 with responsive spacing so many cards don't disappear */}
+              {/* Cards in Hand or Spectator Bottom Player */}
               {isSpectator ? (
-                <div className="w-full max-w-md p-2 bg-white/90 rounded-2xl border-2 border-white shadow-lg text-center my-0.5 text-slate-800">
-                  <div className="text-xs font-black text-slate-900 flex items-center justify-center gap-1.5">
-                    <Clock className="w-4 h-4 text-amber-500" />
-                    Modo Transmissão / Telão
+                bottomOpponent ? (
+                  <div className="my-0.5">
+                    {renderOpponentBox(bottomOpponent)}
                   </div>
-                </div>
+                ) : (
+                  <div className="w-full max-w-md p-2 bg-white/90 rounded-2xl border-2 border-white shadow-lg text-center my-0.5 text-slate-800">
+                    <div className="text-xs font-black text-slate-900 flex items-center justify-center gap-1.5">
+                      <Clock className="w-4 h-4 text-amber-500" />
+                      Modo Transmissão / Telão
+                    </div>
+                  </div>
+                )
               ) : (
                 <div className="relative z-30 w-full max-w-6xl px-4 overflow-x-auto -mt-10 flex items-center scrollbar-thin">
                   <div
@@ -1524,8 +1519,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-2xl">🚪</span>
                 <div>
-                  <h3 className="text-base font-black text-slate-950">Sair da Sala de Jogo?</h3>
-                  <p className="text-[11px] font-bold text-amber-900">Escolha como deseja prosseguir</p>
+                  <h3 className="text-base font-black text-slate-950">
+                    {isSpectator ? 'Sair da Transmissão?' : 'Sair da Partida?'}
+                  </h3>
+                  <p className="text-[11px] font-bold text-amber-900">
+                    {isSpectator ? 'Você está assistindo como espectador' : 'Escolha como deseja prosseguir'}
+                  </p>
                 </div>
               </div>
               <button
@@ -1538,49 +1537,85 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </div>
 
             <div className="p-4 space-y-3">
-              <div className="p-3 bg-amber-50 rounded-2xl border-2 border-amber-200 flex items-start gap-2.5">
-                <Bot className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
-                <div className="text-xs leading-relaxed text-slate-700">
-                  <strong className="text-slate-900 block font-black">🤖 Continuidade Inteligente:</strong>
-                  Se você sair durante a partida, um <strong>Robô assumirá suas cartas automaticamente</strong> para que a partida continue sem travar para os seus amigos!
-                </div>
-              </div>
+              {isSpectator ? (
+                <>
+                  <div className="p-3 bg-slate-100 rounded-2xl border-2 border-slate-200 flex items-start gap-2.5">
+                    <Eye className="w-6 h-6 text-slate-600 shrink-0 mt-0.5" />
+                    <div className="text-xs leading-relaxed text-slate-700">
+                      <strong className="text-slate-950 block font-black">👁️ Modo Espectador:</strong>
+                      Ao sair da transmissão, sua sessão de espectador será encerrada imediatamente sem afetar os jogadores ou a partida em andamento.
+                    </div>
+                  </div>
 
-              <div className="space-y-2 pt-1">
-                {sendMessage && !isPaused && !isSpectator && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsLeaveModalOpen(false);
-                      handleTogglePause();
-                    }}
-                    className="w-full py-2.5 px-4 rounded-xl bg-amber-100 hover:bg-amber-200 border-2 border-amber-300 text-amber-950 font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
-                  >
-                    <Pause className="w-4 h-4 text-amber-700" />
-                    <span>Apenas Pausar a Partida (Volto logo)</span>
-                  </button>
-                )}
+                  <div className="space-y-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLeaveModalOpen(false);
+                        onLeave();
+                      }}
+                      className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Sair da Transmissão</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLeaveModalOpen(false);
-                    onLeave();
-                  }}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Sair Definitivamente (Robô assume)</span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsLeaveModalOpen(false)}
+                      className="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="p-3 bg-amber-50 rounded-2xl border-2 border-amber-200 flex items-start gap-2.5">
+                    <Bot className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="text-xs leading-relaxed text-slate-700">
+                      <strong className="text-slate-900 block font-black">🤖 Continuidade Inteligente:</strong>
+                      Se você sair durante a partida, um <strong>Robô assumirá suas cartas automaticamente</strong> para que a partida continue sem travar para os seus amigos!
+                    </div>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsLeaveModalOpen(false)}
-                  className="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs cursor-pointer"
-                >
-                  Cancelar e Continuar Jogando
-                </button>
-              </div>
+                  <div className="space-y-2 pt-1">
+                    {sendMessage && !isPaused && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsLeaveModalOpen(false);
+                          handleTogglePause();
+                        }}
+                        className="w-full py-2.5 px-4 rounded-xl bg-amber-100 hover:bg-amber-200 border-2 border-amber-300 text-amber-950 font-black text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
+                      >
+                        <Pause className="w-4 h-4 text-amber-700" />
+                        <span>Apenas Pausar a Partida (Volto logo)</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLeaveModalOpen(false);
+                        onLeave();
+                      }}
+                      className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Sair e Deixar Robô no Meu Lugar</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsLeaveModalOpen(false)}
+                      className="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

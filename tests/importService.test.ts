@@ -186,17 +186,52 @@ describe('Bulk User Importer Service Tests (Phases 1-4 + WAL + Benchmark)', () =
     expect(aliceRecord?.createdByImportOperationId).toBe(aliceItem?.operationId);
   });
 
-  it('Fase 2: supports Mode B (create_and_enroll), Mode C (enroll_existing), and blocks doubles/closed tournaments', async () => {
-    // Doubles tournament must be blocked in both validation and commit
-    const doublesVal = validateImportBatch({
-      rawText: 'username;displayName;password\nfRank1;Frank Um;1234',
+  it('Fase 2: supports Mode B (create_and_enroll) and Mode C (enroll_existing) with doubles tournaments using consecutive pairs (1st & 2nd = team)', async () => {
+    // Odd rows should mark only the trailing odd valid row as invalid for doubles
+    const oddVal = validateImportBatch({
+      rawText: 'username;displayName;password\njog1;Jogador Um;1234\njog2;Jogador Dois;1234\njog3;Jogador Tres;1234',
       mode: 'create_and_enroll',
       tournamentId: doublesTournament.config.id,
       tournamentsMap,
     });
-    expect(doublesVal.success).toBe(false);
-    expect(doublesVal.tournament?.compatible).toBe(false);
-    expect(doublesVal.error).toContain('duplas');
+    expect(oddVal.success).toBe(true);
+    expect(oddVal.tournament?.compatible).toBe(true);
+    expect(oddVal.summary?.validCount).toBe(2);
+    expect(oddVal.summary?.invalidCount).toBe(1);
+    expect(oddVal.rows[2].codes).toContain('ODD_ROW_COUNT_DOUBLES');
+
+    // Even rows (2 rows = 1 team) should be valid and successfully commit in Mode B
+    const modeBDoublesRes = await commitImportBatch({
+      rawText: 'username;displayName;password\ndoubles1;Dupla A Um;1234\ndoubles2;Dupla A Dois;5678',
+      mode: 'create_and_enroll',
+      sourceType: 'csv_upload',
+      tournamentId: doublesTournament.config.id,
+      name: 'Lote Duplas 2v2',
+      actor: { id: 'usr_admin', username: 'edinho' },
+      tournamentsMap,
+    });
+
+    expect(modeBDoublesRes.success).toBe(true);
+    const updatedDoublesAfterB = tournamentsMap.get(doublesTournament.config.id)!;
+    expect(updatedDoublesAfterB.entries.length).toBe(1);
+    expect(updatedDoublesAfterB.entries[0].kind).toBe('team');
+    expect(updatedDoublesAfterB.entries[0].userIds.length).toBe(2);
+
+    // Mode C: enroll_existing on doubles tournament pairs consecutive rows (will + henry = 2nd team)
+    const modeCDoublesRes = await commitImportBatch({
+      rawText: 'username\nwill\nhenry',
+      mode: 'enroll_existing',
+      sourceType: 'text_paste',
+      tournamentId: doublesTournament.config.id,
+      name: 'Lote Duplas Existentes',
+      actor: { id: 'usr_admin', username: 'edinho' },
+      tournamentsMap,
+    });
+    expect(modeCDoublesRes.success).toBe(true);
+    const updatedDoublesAfterC = tournamentsMap.get(doublesTournament.config.id)!;
+    expect(updatedDoublesAfterC.entries.length).toBe(2);
+    expect(updatedDoublesAfterC.entries[1].kind).toBe('team');
+    expect(updatedDoublesAfterC.entries[1].userIds.length).toBe(2);
 
     const closedVal = validateImportBatch({
       rawText: 'username\nwill',
