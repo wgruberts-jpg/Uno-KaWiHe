@@ -1,5 +1,7 @@
 # 🧠 BRIEFING DE TRANSFERÊNCIA PARA AGENTES
 
+> **Responsável pelo Projeto:** Este jogo (**Uno KaWiHe**) é de responsabilidade de **edinho.grubert@gmail.com**.
+
 ## 1. Objetivo
 Este documento visa fornecer ao próximo Agente o contexto mínimo necessário para assumir o desenvolvimento do projeto **Uno KaWiHe** sem fricção, garantindo a continuidade das implementações e a integridade do sistema.
 
